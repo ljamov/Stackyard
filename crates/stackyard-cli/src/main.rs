@@ -15,6 +15,7 @@ use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::domain;
 use stackyard_core::engine::Engine;
+use stackyard_core::logs;
 use stackyard_core::mcp;
 use stackyard_core::modules::MODULES;
 use stackyard_core::runtimes::{RuntimeManager, Step};
@@ -22,7 +23,7 @@ use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::shell::{self, path as user_path, pins, shims, Tool};
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
-use stackyard_core::supervisor::{self, ProcessState};
+use stackyard_core::supervisor::ProcessState;
 use stackyard_core::system::{self, Elevate};
 use stackyard_core::web::{self, Backend, Ports};
 use stackyard_core::{paths, platform, Error};
@@ -73,13 +74,16 @@ enum Command {
     },
     /// Show what is running
     Status,
-    /// Show the end of a service's log, e.g. `logs caddy`
+    /// Show the end of a service's log, e.g. `logs caddy`; list the logs when none is named
     Logs {
         /// `caddy`, `mysql`, `php-8.4`…
-        id: String,
+        id: Option<String>,
         /// How many lines
         #[arg(short = 'n', long, default_value_t = 50)]
         lines: usize,
+        /// Keep printing new lines as they are written, until Ctrl+C
+        #[arg(short, long)]
+        follow: bool,
     },
     /// Run the web server (and any services named) in this terminal until Ctrl+C
     Up {
@@ -493,9 +497,37 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             ),
             Some(client) => print_status(&client, client.send(Request::Status)?),
         },
-        Command::Logs { id, lines } => {
-            for line in supervisor::tail_file(&supervisor::log_file(&paths::home(), &id)?, lines)? {
-                println!("{line}");
+        Command::Logs {
+            id: None,
+            ..
+        } => {
+            let all = logs::list(&paths::home());
+            if all.is_empty() {
+                println!("No logs yet: they appear once a service has run.");
+            }
+            for log in all {
+                println!("{:<10} {:<20} {:>8} KB", log.id, log.name, log.size.div_ceil(1024));
+            }
+        }
+        Command::Logs {
+            id: Some(id),
+            lines,
+            follow,
+        } => {
+            let home = paths::home();
+            let mut chunk = logs::read(&home, &id, None, lines)?;
+            loop {
+                if chunk.reset {
+                    println!("--- the log started over ---");
+                }
+                for line in &chunk.lines {
+                    println!("{line}");
+                }
+                if !follow {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(500));
+                chunk = logs::read(&home, &id, Some(chunk.offset), lines)?;
             }
         }
         Command::Daemon => daemon()?,
