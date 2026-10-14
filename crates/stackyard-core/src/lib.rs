@@ -17,6 +17,7 @@ pub mod ports;
 pub mod runtimes;
 pub mod services;
 pub mod settings;
+pub mod shell;
 pub mod sites;
 pub mod supervisor;
 pub mod system;

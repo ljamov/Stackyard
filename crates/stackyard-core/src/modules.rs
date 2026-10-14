@@ -137,7 +137,7 @@ pub const MODULES: &[ModuleDef] = &[
         Feature,
         "Terminal and PATH shims with each project's versions",
         true,
-        false,
+        true,
     ),
     module(
         "mcp",
