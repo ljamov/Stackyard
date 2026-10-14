@@ -242,6 +242,11 @@ jobs:
           grep -Eq "ci +start_service +caddy +ok" "$RUNNER_TEMP/mcp-log.txt"
           stackyard stop
 
+          echo "== the log viewer lists every log"
+          stackyard logs | tee "$RUNNER_TEMP/logs.txt"
+          grep -E "^caddy +Caddy" "$RUNNER_TEMP/logs.txt"
+          grep -E "^daemon +Background service" "$RUNNER_TEMP/logs.txt"
+
           echo "== scheduled tasks run by hand, and on schedule in the background service"
           stackyard modules on scheduler
           tasks="$RUNNER_TEMP/task-dir"
@@ -259,6 +264,7 @@ jobs:
           id=$(head -n 1 "$RUNNER_TEMP/tasks.txt" | cut -d " " -f 1)
           stackyard logs "task-$id" -n 5 | tee "$RUNNER_TEMP/task-log.txt"
           grep "started on schedule" "$RUNNER_TEMP/task-log.txt" >/dev/null
+          stackyard logs | grep -E "^task-$id +Task: Write marker" >/dev/null
           stackyard stop
 
   terminal:
