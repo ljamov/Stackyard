@@ -245,6 +245,7 @@ function browserApi(): Api {
     service("mysql", "MySQL", "8.4", [3306], "Database", null, "8.4.6"),
     service("mariadb", "MariaDB", "11.8", [3306], "Database", null, null),
     service("mailpit", "Mailpit", "1", [1025, 8025], "Mail catcher", "http://127.0.0.1:8025", null),
+    service("meilisearch", "Meilisearch", "1", [7700], "Search engine", "http://127.0.0.1:7700", null),
   ];
   const serviceHandlers = new Set<(p: ServiceProgress) => void>();
   const logs: Record<string, string[]> = {};
@@ -268,6 +269,7 @@ function browserApi(): Api {
     mod("mysql", "MySQL", "service", "MySQL database server", true, true),
     mod("mariadb", "MariaDB", "service", "MySQL-compatible database (Windows and Linux)", false, true),
     mod("mailpit", "Mailpit", "service", "Catches outgoing mail for testing", false, true),
+    mod("meilisearch", "Meilisearch", "service", "Fast search engine for apps, with a search preview page", false, true),
     mod("redis", "Redis", "service", "Cache and queues", false, false),
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
