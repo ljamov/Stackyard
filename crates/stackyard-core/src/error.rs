@@ -26,6 +26,8 @@ pub enum Error {
     UnknownModule(String),
     #[error("{0} is not available yet")]
     ModuleUnavailable(String),
+    #[error("{name} is not available on {system}")]
+    NotOnThisSystem { name: String, system: String },
     #[error("{name} is switched off in Settings › Modules")]
     ModuleOff { name: String },
     #[error("port {port} is already in use, so {name} cannot start")]
@@ -58,6 +60,8 @@ pub enum Error {
         version: String,
         platform: String,
     },
+    #[error("could not set up {name}: {message}")]
+    ServiceSetup { name: String, message: String },
     #[error("{name} {version} is not installed")]
     NotInstalled { name: String, version: String },
 }

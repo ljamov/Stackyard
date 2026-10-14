@@ -3,6 +3,8 @@
 
 use serde::Serialize;
 
+use crate::platform::{Os, Platform};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModuleGroup {
@@ -21,6 +23,21 @@ pub struct ModuleDef {
     pub on_by_default: bool,
     /// `false` = listed as "coming soon" and cannot be switched on yet.
     pub available: bool,
+    /// Systems this module has no build for.
+    #[serde(skip)]
+    pub not_on: &'static [Os],
+}
+
+impl ModuleDef {
+    const fn not_on(mut self, os: &'static [Os]) -> Self {
+        self.not_on = os;
+        self
+    }
+
+    /// Available, and offered for the system Stackyard runs on.
+    pub fn available_here(&self) -> bool {
+        self.available && !self.not_on.contains(&Platform::current().os)
+    }
 }
 
 const fn module(
@@ -38,6 +55,7 @@ const fn module(
         description,
         on_by_default,
         available,
+        not_on: &[],
     }
 }
 
@@ -64,10 +82,18 @@ pub const MODULES: &[ModuleDef] = &[
     module("go", "Go", Runtime, "Go toolchains", false, false),
     module("java", "Java", Runtime, "Java JDKs", false, false),
     module(
-        "nginx",
-        "Nginx",
+        "caddy",
+        "Caddy",
         Service,
-        "Web server for PHP sites",
+        "Web server for local sites, with automatic HTTPS",
+        true,
+        true,
+    ),
+    module(
+        "mysql",
+        "MySQL",
+        Service,
+        "MySQL database server",
         true,
         true,
     ),
@@ -75,10 +101,11 @@ pub const MODULES: &[ModuleDef] = &[
         "mariadb",
         "MariaDB",
         Service,
-        "MySQL-compatible database",
+        "MySQL-compatible database (Windows and Linux)",
+        false,
         true,
-        true,
-    ),
+    )
+    .not_on(&[Os::Macos]),
     module(
         "mailpit",
         "Mailpit",

@@ -4,8 +4,8 @@ A local development environment for Windows, macOS and Linux. Manage PHP, Node.j
 databases, web servers and local HTTPS sites such as `https://myapp.stack` from one desktop app,
 with no containers.
 
-> Status: early prototype. The app shell, site list, settings and runtime installs work;
-> running services arrives in the next milestone.
+> Status: early prototype. The app shell, site list, settings, runtime installs and services
+> (install, start, stop, logs) work; local sites with HTTPS arrive in the next milestone.
 
 ## What's here
 
@@ -41,6 +41,23 @@ x86_64 and ARM64, and publishes them with their checksums and licenses on the `p
 Download sources can be pointed at a mirror with `STACKYARD_NODE_MIRROR`,
 `STACKYARD_PHP_WINDOWS_MIRROR` and `STACKYARD_PHP_MANIFEST`.
 
+## Services
+
+Services install into `services/<id>/<line>`, keep their data in `data/<id>` (kept when a service
+is removed, so reinstalling brings databases back) and their config in `config/<id>`. Everything
+listens on `127.0.0.1` only. Databases start with user `root` and no password.
+
+| Service | Ports | Source | Checked against |
+| --- | --- | --- | --- |
+| Caddy 2 (web server) | 8080 | Official GitHub releases | Caddy's SHA-512 list |
+| MySQL 8.4 | 3306 | Oracle's official downloads | SHA-256 from `.github/workflows/mysql-manifest.yml`, which first checks Oracle's GnuPG signature |
+| MariaDB 11.8 (Windows, Linux) | 3306 | MariaDB Foundation downloads | The Foundation's SHA-256 |
+| Mailpit (mail catcher) | 1025, 8025 | Official GitHub releases | GitHub's SHA-256 digest |
+
+Each service is a module: MySQL and Caddy are on by default, MariaDB and Mailpit can be switched on
+in Settings. `STACKYARD_MYSQL_MANIFEST` points MySQL at another manifest, and
+`STACKYARD_GITHUB_TOKEN` raises the GitHub API limit for Caddy and Mailpit lookups.
+
 ## Develop
 
 Requirements: Rust (stable), Node.js 22, and on Linux the WebKitGTK libraries:
@@ -54,7 +71,7 @@ npm install
 npm run tauri dev          # run the desktop app with hot reload
 npm run dev                # interface only, in a browser, with sample data
 cargo test --workspace     # Rust tests
-cargo test -p stackyard-core -- --ignored live_   # real downloads from nodejs.org and php.net
+cargo test -p stackyard-core -- --ignored live_   # real downloads, and services started for real
 cargo run -p stackyard-cli -- sites list
 ```
 
@@ -69,7 +86,9 @@ stackyard runtimes                    # versions, with installed and default mar
 stackyard runtimes install php 8.4
 stackyard runtimes default php 8.4
 stackyard runtimes uninstall node 20
-stackyard services
+stackyard services                    # services, with installed and switched-off marked
+stackyard services install caddy
+stackyard services uninstall mailpit  # keeps its data
 stackyard tld            # show the domain ending
 stackyard tld .test      # change it
 ```

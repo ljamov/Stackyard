@@ -6,8 +6,6 @@
 //!   by Stackyard's own build job (`.github/workflows/php-builds.yml`), listed
 //!   with checksums in a `manifest.json` published next to the files.
 
-use serde::Deserialize;
-
 use super::{Os, Platform, Release};
 use crate::download::{is_sha256, Http};
 use crate::{Error, Result};
@@ -31,23 +29,10 @@ pub(super) fn resolve(
         }
         Os::Macos | Os::Linux => {
             let manifest = http.get_text(&sources.php_manifest)?;
-            manifest_release(&manifest, major, &build_platform(platform)).ok_or_else(no_build)
+            crate::manifest::release(&manifest, major, &crate::manifest::platform_name(platform))
+                .ok_or_else(no_build)
         }
     }
-}
-
-/// Platform names used by the build job: `linux-x86_64`, `macos-aarch64`, ...
-pub fn build_platform(p: Platform) -> String {
-    let os = match p.os {
-        Os::Linux => "linux",
-        Os::Macos => "macos",
-        Os::Windows => "windows",
-    };
-    let arch = match p.arch {
-        super::Arch::X64 => "x86_64",
-        super::Arch::Arm64 => "aarch64",
-    };
-    format!("{os}-{arch}")
 }
 
 /// Reads the PHP project's Windows `releases.json`, which maps each
@@ -70,44 +55,8 @@ pub(super) fn windows_release(json: &str, major: &str, base: &str) -> Option<Rel
         version: version.to_string(),
         url: format!("{base}/{file_name}"),
         file_name: file_name.to_string(),
-        sha256: sha256.to_ascii_lowercase(),
+        checksum: sha256.to_ascii_lowercase(),
     })
-}
-
-#[derive(Deserialize)]
-struct Manifest {
-    builds: Vec<Build>,
-}
-
-#[derive(Deserialize)]
-struct Build {
-    major: String,
-    version: String,
-    platform: String,
-    file: String,
-    url: String,
-    sha256: String,
-}
-
-/// Newest build for `major` on `platform` in the build job's manifest.
-pub(super) fn manifest_release(json: &str, major: &str, platform: &str) -> Option<Release> {
-    let manifest: Manifest = serde_json::from_str(json).ok()?;
-    manifest
-        .builds
-        .into_iter()
-        .filter(|b| b.major == major && b.platform == platform && is_sha256(&b.sha256))
-        .filter(|b| !b.file.contains(['/', '\\']))
-        .max_by_key(|b| version_key(&b.version))
-        .map(|b| Release {
-            version: b.version,
-            url: b.url,
-            file_name: b.file,
-            sha256: b.sha256.to_ascii_lowercase(),
-        })
-}
-
-fn version_key(v: &str) -> Vec<u32> {
-    v.split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
 
 #[cfg(test)]
@@ -142,41 +91,12 @@ mod tests {
             release.url,
             format!("{base}/php-8.4.26-nts-Win32-vs17-x64.zip")
         );
-        assert_eq!(release.sha256, SHA_A);
+        assert_eq!(release.checksum, SHA_A);
         assert_eq!(
             windows_release(&json, "7.4", base).unwrap().version,
             "7.4.33"
         );
         assert!(windows_release(&json, "8.3", base).is_none());
-    }
-
-    #[test]
-    fn reads_the_build_manifest() {
-        let json = format!(
-            r#"{{"schema": 1, "builds": [
-            {{"major": "8.4", "version": "8.4.9", "platform": "linux-x86_64", "file": "php-8.4.9-linux-x86_64.tar.gz", "url": "https://dl.test/php-8.4.9-linux-x86_64.tar.gz", "sha256": "{SHA_B}"}},
-            {{"major": "8.4", "version": "8.4.10", "platform": "linux-x86_64", "file": "php-8.4.10-linux-x86_64.tar.gz", "url": "https://dl.test/php-8.4.10-linux-x86_64.tar.gz", "sha256": "{SHA_A}"}},
-            {{"major": "8.4", "version": "8.4.11", "platform": "macos-aarch64", "file": "php-8.4.11-macos-aarch64.tar.gz", "url": "https://dl.test/x", "sha256": "{SHA_A}"}},
-            {{"major": "8.3", "version": "8.3.1", "platform": "linux-x86_64", "file": "../evil.tar.gz", "url": "https://dl.test/y", "sha256": "{SHA_A}"}}
-        ]}}"#
-        );
-        let release = manifest_release(&json, "8.4", "linux-x86_64").unwrap();
-        assert_eq!(release.version, "8.4.10", "8.4.10 is newer than 8.4.9");
-        assert_eq!(release.sha256, SHA_A);
-        assert!(
-            manifest_release(&json, "8.3", "linux-x86_64").is_none(),
-            "unsafe file name"
-        );
-        assert!(manifest_release(&json, "7.4", "linux-x86_64").is_none());
-    }
-
-    #[test]
-    fn names_build_platforms() {
-        let p = Platform {
-            os: Os::Macos,
-            arch: super::super::Arch::Arm64,
-        };
-        assert_eq!(build_platform(p), "macos-aarch64");
     }
 
     /// Talks to php.net: `cargo test -p stackyard-core -- --ignored live_`.

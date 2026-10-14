@@ -30,13 +30,27 @@ export type InstallProgress = {
   total?: number | null;
 };
 
-export type ServiceDef = {
+export type ServiceState =
+  | { state: "stopped" }
+  | { state: "running"; pid: number }
+  | { state: "restarting"; attempt: number }
+  | { state: "crashed"; code: number | null };
+
+export type Service = {
   id: string;
   name: string;
+  /** Release line, e.g. "8.4". */
   version: string;
   ports: number[];
   role: string;
-};
+  /** Page to open while it runs, if any. */
+  web: string | null;
+  /** Exact installed release, or null. */
+  installed: string | null;
+  installing: boolean;
+} & ServiceState;
+
+export type ServiceProgress = Omit<InstallProgress, "kind" | "version"> & { id: string };
 
 export type Site = {
   name: string;
@@ -68,7 +82,14 @@ export interface Api {
   setDefaultRuntime(kind: RuntimeKind, version: string): Promise<RuntimeFamily[]>;
   /** Calls `handler` for install progress; resolves to an unsubscribe function. */
   onInstallProgress(handler: (p: InstallProgress) => void): Promise<() => void>;
-  listServices(): Promise<ServiceDef[]>;
+  listServices(): Promise<Service[]>;
+  installService(id: string): Promise<Service[]>;
+  uninstallService(id: string): Promise<Service[]>;
+  startService(id: string): Promise<Service[]>;
+  stopService(id: string): Promise<Service[]>;
+  serviceLog(id: string): Promise<string[]>;
+  openLocalPage(url: string): Promise<void>;
+  onServiceProgress(handler: (p: ServiceProgress) => void): Promise<() => void>;
   getTld(): Promise<TldInfo>;
   setTld(value: string): Promise<TldInfo>;
   listModules(): Promise<Module[]>;
@@ -85,6 +106,13 @@ const tauriApi: Api = {
   setDefaultRuntime: (kind, version) => invoke("set_default_runtime", { kind, version }),
   onInstallProgress: (handler) => listen<InstallProgress>("runtime-progress", (e) => handler(e.payload)),
   listServices: () => invoke("list_services"),
+  installService: (id) => invoke("install_service", { id }),
+  uninstallService: (id) => invoke("uninstall_service", { id }),
+  startService: (id) => invoke("start_service", { id }),
+  stopService: (id) => invoke("stop_service", { id }),
+  serviceLog: (id) => invoke("service_log", { id }),
+  openLocalPage: (url) => invoke("open_local_page", { url }),
+  onServiceProgress: (handler) => listen<ServiceProgress>("service-progress", (e) => handler(e.payload)),
   getTld: () => invoke("get_tld"),
   setTld: (value) => invoke("set_tld", { value }),
   listModules: () => invoke("list_modules"),
@@ -125,11 +153,27 @@ function browserApi(): Api {
       r.kind !== kind ? r : { ...r, versions: r.versions.map((v) => ({ ...v, default: v === newest })) },
     );
   };
-  const services: ServiceDef[] = [
-    { id: "nginx", name: "Nginx", version: "1.27", ports: [8080], role: "Web server" },
-    { id: "mariadb", name: "MariaDB", version: "11.4", ports: [3306], role: "Database" },
-    { id: "mailpit", name: "Mailpit", version: "1.20", ports: [1025, 8025], role: "Mail catcher" },
+  const service = (
+    id: string,
+    name: string,
+    version: string,
+    ports: number[],
+    role: string,
+    web: string | null,
+    installed: string | null,
+  ): Service => ({ id, name, version, ports, role, web, installed, installing: false, state: "stopped" });
+  let services: Service[] = [
+    service("caddy", "Caddy", "2", [8080], "Web server", "http://127.0.0.1:8080", "2.10.2"),
+    service("mysql", "MySQL", "8.4", [3306], "Database", null, "8.4.6"),
+    service("mariadb", "MariaDB", "11.8", [3306], "Database", null, null),
+    service("mailpit", "Mailpit", "1", [1025, 8025], "Mail catcher", "http://127.0.0.1:8025", null),
   ];
+  const serviceHandlers = new Set<(p: ServiceProgress) => void>();
+  const logs: Record<string, string[]> = {};
+  const updateService = (id: string, change: (s: Service) => Service) => {
+    services = services.map((s) => (s.id === id ? change(s) : s));
+    return services;
+  };
   const mod = (
     id: string,
     name: string,
@@ -142,8 +186,9 @@ function browserApi(): Api {
     mod("php", "PHP", "runtime", "PHP versions for sites and the shell", true, true),
     mod("node", "Node.js", "runtime", "Node.js versions for sites and the shell", true, true),
     mod("python", "Python", "runtime", "Python versions", false, false),
-    mod("nginx", "Nginx", "service", "Web server for PHP sites", true, true),
-    mod("mariadb", "MariaDB", "service", "MySQL-compatible database", true, true),
+    mod("caddy", "Caddy", "service", "Web server for local sites, with automatic HTTPS", true, true),
+    mod("mysql", "MySQL", "service", "MySQL database server", true, true),
+    mod("mariadb", "MariaDB", "service", "MySQL-compatible database (Windows and Linux)", false, true),
     mod("mailpit", "Mailpit", "service", "Catches outgoing mail for testing", false, true),
     mod("redis", "Redis", "service", "Cache and queues", false, false),
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, false),
@@ -184,6 +229,31 @@ function browserApi(): Api {
       return () => progressHandlers.delete(handler);
     },
     listServices: async () => services,
+    installService: async (id) => {
+      updateService(id, (s) => ({ ...s, installing: true }));
+      for (let done = 0; done <= 40_000_000; done += 5_000_000) {
+        serviceHandlers.forEach((h) => h({ id, step: "downloading", done, total: 40_000_000 }));
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return updateService(id, (s) => ({ ...s, installing: false, installed: `${s.version}.0` }));
+    },
+    uninstallService: async (id) => updateService(id, (s) => ({ ...s, installed: null, state: "stopped" })),
+    startService: async (id) => {
+      const busy = services.find((s) => s.id !== id && s.state === "running" && s.ports.some((p) => services.find((x) => x.id === id)!.ports.includes(p)));
+      if (busy) throw `port ${busy.ports[0]} is already in use, so ${services.find((s) => s.id === id)!.name} cannot start`;
+      logs[id] = [...(logs[id] ?? []), `started ${id} (sample log line)`];
+      return updateService(id, (s) => ({ ...s, state: "running", pid: 4242 }) as Service);
+    },
+    stopService: async (id) => {
+      logs[id] = [...(logs[id] ?? []), `stopped ${id}`];
+      return updateService(id, (s) => ({ ...s, state: "stopped" }) as Service);
+    },
+    serviceLog: async (id) => logs[id] ?? [],
+    openLocalPage: async (url) => void window.open(url, "_blank", "noopener"),
+    onServiceProgress: async (handler) => {
+      serviceHandlers.add(handler);
+      return () => serviceHandlers.delete(handler);
+    },
     getTld: async () => ({ tld, warning: warn(tld) }),
     setTld: async (value) => {
       const clean = value.trim().replace(/^\.+/, "").toLowerCase();
