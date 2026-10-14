@@ -1,11 +1,14 @@
 import { api } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
+import { useModules } from "../lib/modules";
 import type { Screen } from "../components/Sidebar";
 
 export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
   const services = useLoad(api.listServices, []);
   const sites = useLoad(api.listSites, []);
   const runtimes = useLoad(api.listRuntimes, []);
+  const { isOn } = useModules();
+  const shownServices = services.data.filter((s) => isOn(s.id));
 
   return (
     <>
@@ -13,7 +16,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
         <div>
           <h1>Dashboard</h1>
           <p className="muted">
-            {sites.data.length} {sites.data.length === 1 ? "site" : "sites"} · {services.data.length} services
+            {sites.data.length} {sites.data.length === 1 ? "site" : "sites"} · {shownServices.length} services
           </p>
         </div>
         <button type="button" className="btn primary" onClick={() => onNavigate("Sites")}>
@@ -25,7 +28,8 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
         <h2 id="svc-h">Services</h2>
         <p className="notice">Installing and starting services arrives in the next milestones.</p>
         <div className="grid">
-          {services.data.map((s) => (
+          {shownServices.length === 0 && <p className="muted">All services are switched off in Settings.</p>}
+          {shownServices.map((s) => (
             <div key={s.id} className="card service">
               <div className="row between">
                 <div>
@@ -70,7 +74,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
             </button>
           </div>
           {runtimes.data
-            .filter((r) => r.available)
+            .filter((r) => r.available && isOn(r.kind))
             .map((r) => (
               <div key={r.kind} className="list-row">
                 <span>{r.name}</span>
@@ -79,13 +83,15 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
             ))}
         </section>
 
-        <section aria-labelledby="mcp-h" className="card stack">
-          <h2 id="mcp-h">MCP server</h2>
-          <p className="muted">
-            Let AI coding tools list your sites, start services and switch runtime versions. Coming in step 4.
-          </p>
-          <div className="mono small code">stdio · stackyard mcp</div>
-        </section>
+        {isOn("mcp") && (
+          <section aria-labelledby="mcp-h" className="card stack">
+            <h2 id="mcp-h">MCP server</h2>
+            <p className="muted">
+              Let AI coding tools list your sites, start services and switch runtime versions. Coming in step 4.
+            </p>
+            <div className="mono small code">stdio · stackyard mcp</div>
+          </section>
+        )}
       </div>
     </>
   );
