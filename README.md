@@ -155,6 +155,14 @@ Meilisearch runs in development mode with no master key, so apps connect to
 `http://127.0.0.1:7700` without one and the address opens its search preview page. Its indexes
 live in `data/meilisearch` and are carried over when Stackyard updates it to a newer 1.x release.
 
+## Logs
+
+The **Logs** screen shows every service's log (the web server, each PHP version, databases,
+Mailpit and the background service) in one place, follows it as it grows, and searches it with
+plain text or a regular expression. Errors and warnings stand out. Logs live in the `logs`
+folder of Stackyard's data folder; one that grows past 5 MB starts over and the previous one is
+kept as `.log.1`. Switch the screen off in Settings if you don't need it.
+
 ## AI coding tools (MCP)
 
 `stackyard mcp` is an [MCP](https://modelcontextprotocol.io) server, so Claude Code, Cursor,
@@ -202,7 +210,8 @@ stackyard sites remove shop
 stackyard system setup                # local domains and HTTPS, asks for your password once
 stackyard start caddy                 # run the web server in the background (`stackyard start` = everything)
 stackyard status                      # what is running, and where
-stackyard logs caddy -n 100           # the end of a service's log
+stackyard logs                        # every log there is
+stackyard logs caddy -n 100 -f        # the end of a service's log, then new lines as they come
 stackyard stop                        # stop everything (`stackyard stop mysql` for one)
 stackyard up                          # run the web server (and e.g. `stackyard up mysql`) until Ctrl+C
 stackyard runtimes                    # versions, with installed and default marked

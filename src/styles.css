@@ -130,3 +130,16 @@ td { padding: 12px 18px; border-top: 1px solid var(--border); }
 .log { max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }
 .subhead { margin: 18px 0 2px; font: 600 12px var(--body); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .row.between { justify-content: space-between; }
+.log-list { display: flex; flex-direction: column; gap: 2px; padding: 10px; flex: 1 1 200px !important; max-width: 280px; }
+.log-list .nav-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.log-list .nav-item[aria-current="true"] { background: var(--surface-2); color: #fff; font-weight: 600; }
+.log-pane { flex: 999 1 520px; min-width: 0; }
+.log-tools { align-items: flex-end; }
+.field.grow { flex: 1 1 240px; }
+.log-view { height: min(60vh, 640px); max-height: none; }
+.log-line { min-height: 1.45em; }
+.log-line.error { color: var(--error); }
+.log-line.warn { color: var(--warn); }
+.log-view mark { background: var(--accent); color: var(--on-accent); border-radius: 2px; }
+@media (max-width: 640px) { .log-list { max-width: none; } }
+.row.between.centered { align-items: center; }
