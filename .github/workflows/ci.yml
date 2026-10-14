@@ -63,3 +63,7 @@ jobs:
         run: npx tauri build --debug --no-bundle
       - name: Build CLI
         run: cargo build -p stackyard-cli
+      - name: Core tests on this OS
+        run: cargo test -p stackyard-core
+      - name: Live download check (nodejs.org and php.net)
+        run: cargo test -p stackyard-core -- --ignored live_

@@ -10,9 +10,12 @@ serde.workspace = true
 toml.workspace = true
 thiserror.workspace = true
 dirs = "6"
+flate2 = "1"
+serde_json.workspace = true
+sha2 = "0.10"
+tar = "0.4"
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-[dev-dependencies]
-serde_json.workspace = true

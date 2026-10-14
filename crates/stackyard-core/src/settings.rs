@@ -5,6 +5,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::catalog::RuntimeKind;
 use crate::{domain, modules, paths, Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -14,6 +15,9 @@ pub struct Settings {
     pub tld: String,
     /// Modules the user switched on or off; anything missing uses its default.
     pub modules: BTreeMap<String, bool>,
+    /// Default version per runtime, e.g. `php = "8.4"`, used by sites and
+    /// the shell when a project does not pin its own.
+    pub runtimes: BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -21,6 +25,7 @@ impl Default for Settings {
         Self {
             tld: domain::DEFAULT_TLD.to_string(),
             modules: BTreeMap::new(),
+            runtimes: BTreeMap::new(),
         }
     }
 }
@@ -58,6 +63,21 @@ impl Settings {
         }
     }
 
+    /// Fails with a clear message when a module is switched off.
+    pub fn require_module(&self, id: &str) -> Result<()> {
+        if self.module_enabled(id) {
+            return Ok(());
+        }
+        let def = modules::find(id).ok_or_else(|| Error::UnknownModule(id.to_string()))?;
+        if def.available {
+            Err(Error::ModuleOff {
+                name: def.name.to_string(),
+            })
+        } else {
+            Err(Error::ModuleUnavailable(def.name.to_string()))
+        }
+    }
+
     pub fn set_module(&mut self, id: &str, on: bool) -> Result<()> {
         let def = modules::find(id).ok_or_else(|| Error::UnknownModule(id.to_string()))?;
         if on && !def.available {
@@ -69,6 +89,20 @@ impl Settings {
             self.modules.insert(id.to_string(), on);
         }
         Ok(())
+    }
+}
+
+impl Settings {
+    pub fn default_runtime(&self, kind: RuntimeKind) -> Option<&str> {
+        self.runtimes.get(kind.id()).map(String::as_str)
+    }
+
+    /// Sets or clears the default version. Callers check it is installed.
+    pub fn set_default_runtime(&mut self, kind: RuntimeKind, version: Option<&str>) {
+        match version {
+            Some(v) => self.runtimes.insert(kind.id().to_string(), v.to_string()),
+            None => self.runtimes.remove(kind.id()),
+        };
     }
 }
 
@@ -143,6 +177,11 @@ mod tests {
         settings.set_module("mailpit", true).unwrap();
         assert!(!settings.module_enabled("php"));
         assert!(settings.module_enabled("mailpit"));
+        assert!(matches!(
+            settings.require_module("php"),
+            Err(Error::ModuleOff { .. })
+        ));
+        assert!(settings.require_module("mailpit").is_ok());
 
         settings.set_module("php", true).unwrap();
         assert!(
@@ -151,5 +190,17 @@ mod tests {
         );
         assert!(settings.set_module("redis", true).is_err());
         assert!(settings.set_module("nope", false).is_err());
+    }
+
+    #[test]
+    fn default_runtimes() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.default_runtime(RuntimeKind::Php), None);
+        settings.set_default_runtime(RuntimeKind::Php, Some("8.4"));
+        assert_eq!(settings.default_runtime(RuntimeKind::Php), Some("8.4"));
+        let text = toml::to_string(&settings).unwrap();
+        assert!(text.contains("php = \"8.4\""), "{text}");
+        settings.set_default_runtime(RuntimeKind::Php, None);
+        assert_eq!(settings.default_runtime(RuntimeKind::Php), None);
     }
 }

@@ -40,6 +40,26 @@ pub enum Error {
     UnknownProcess(String),
     #[error("could not save settings: {0}")]
     Serialize(#[from] toml::ser::Error),
+    #[error("download from {url} failed: {message}")]
+    Download { url: String, message: String },
+    #[error("{file} is damaged or was tampered with (expected checksum {expected}, got {actual})")]
+    Checksum {
+        file: String,
+        expected: String,
+        actual: String,
+    },
+    #[error("could not unpack {path}: {message}")]
+    Archive { path: PathBuf, message: String },
+    #[error("{name} {version} is not offered by Stackyard")]
+    UnknownVersion { name: String, version: String },
+    #[error("{name} {version} has no download for {platform} yet")]
+    NoBuild {
+        name: String,
+        version: String,
+        platform: String,
+    },
+    #[error("{name} {version} is not installed")]
+    NotInstalled { name: String, version: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
