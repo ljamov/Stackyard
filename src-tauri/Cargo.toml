@@ -17,3 +17,4 @@ stackyard-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
+ctrlc = { version = "3", features = ["termination"] }

@@ -771,6 +771,9 @@ pub fn run() {
                 }
             };
             app.manage(Tray(tray));
+            // Quit cleanly, stopping services, when the system asks (logout, `kill`).
+            let handle = app.handle().clone();
+            let _ = ctrlc::set_handler(move || handle.exit(0));
             let handle = app.handle().clone();
             let server = ControlServer::start(&paths::home(), Owner::App, move |request| {
                 answer_cli(&handle, request)
