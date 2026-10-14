@@ -20,6 +20,7 @@ use crate::platform::{self, Os};
 use crate::runtimes::RuntimeManager;
 use crate::services::{slash, write_config};
 use crate::settings::{read_toml, write_toml, Settings};
+use crate::shell::pins;
 use crate::sites::{Site, SiteRuntime, SiteStore};
 use crate::supervisor::ProcessSpec;
 use crate::{domain, ports, Error, Result};
@@ -266,12 +267,17 @@ fn parked_site(
 
 /// The runtime a project folder needs, with the default versions.
 pub fn runtime_for(path: &Path, settings: &Settings, runtimes: &RuntimeManager) -> SiteRuntime {
+    // A version pinned in the project's `.stackyard` file, else the default.
+    let version = |kind| match pins::pinned(path, kind) {
+        Ok(Some(pin)) => pin.version,
+        _ => default_version(settings, runtimes, kind),
+    };
     match detect::detect(path).needs {
         Needs::Php => SiteRuntime::Php {
-            version: default_version(settings, runtimes, RuntimeKind::Php),
+            version: version(RuntimeKind::Php),
         },
         Needs::Node { port } => SiteRuntime::Node {
-            version: default_version(settings, runtimes, RuntimeKind::Node),
+            version: version(RuntimeKind::Node),
             port,
         },
         Needs::Static => SiteRuntime::Static,
@@ -601,6 +607,11 @@ mod tests {
         );
         assert_eq!(served[2].backend, Backend::Static);
         assert!(!served[0].parked);
+
+        // A `.stackyard` file in the project picks its version.
+        std::fs::write(code.join("blog/.stackyard"), "php = \"8.2\"\n").unwrap();
+        let served = sites(&home, &settings, &runtimes).unwrap();
+        assert!(matches!(&served[1].backend, Backend::Php { version, .. } if version == "8.2"));
     }
 
     #[test]

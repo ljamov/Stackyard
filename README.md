@@ -4,8 +4,8 @@ A local development environment for Windows, macOS and Linux. Manage PHP, Node.j
 databases, web servers and local HTTPS sites such as `https://myapp.stack` from one desktop app,
 with no containers.
 
-> Status: early prototype. Runtimes, services and local sites with HTTPS work; a background
-> service, tray icon and installers come next.
+> Status: early prototype. Runtimes, services, local sites with HTTPS and terminal commands work;
+> a background service, tray icon and installers come next.
 
 ## What's here
 
@@ -73,6 +73,33 @@ x86_64 and ARM64, and publishes them with their checksums and licenses on the `p
 Download sources can be pointed at a mirror with `STACKYARD_NODE_MIRROR`,
 `STACKYARD_PHP_WINDOWS_MIRROR` and `STACKYARD_PHP_MANIFEST`.
 
+## Terminal
+
+`php`, `composer`, `node`, `npm`, `npx`, `mysql` and `mysqldump` run the version each project asks
+for. In order, Stackyard uses:
+
+1. the nearest `.stackyard` file in the folder or above it (`stackyard use php 8.3` writes one):
+   ```toml
+   php = "8.3"
+   node = "22"
+   ```
+2. the version of a site added for that folder,
+3. the default version (Runtimes screen, or `stackyard runtimes default php 8.4`),
+4. the newest installed version.
+
+Parked sites follow `.stackyard` files too, so the browser and the terminal agree.
+
+`stackyard shims on` (or **Add to PATH** on the Runtimes screen) creates the commands in `bin/`
+inside Stackyard's folder and puts that folder on your PATH: a marked block in `.zshrc`, `.bashrc`,
+`.bash_profile` or `.profile` and a fish `conf.d` file on macOS and Linux, your user `Path` on
+Windows. No password is needed, and `stackyard shims off` undoes it. `stackyard shell` opens one
+terminal with the commands instead, without touching your PATH. `stackyard which` shows which version
+each command runs in the current folder, and why.
+
+The commands lead back to the `stackyard` program, which runs the real one from the runtime's folder.
+Composer is downloaded from getcomposer.org the first time you run `composer`, checked against its
+published SHA-256. `mysql` connects to whichever of MySQL and MariaDB is running.
+
 ## Services
 
 Services install into `services/<id>/<line>`, keep their data in `data/<id>` (kept when a service
@@ -127,6 +154,10 @@ stackyard services install caddy
 stackyard services uninstall mailpit  # keeps its data
 stackyard tld            # show the domain ending
 stackyard tld .test      # change it
+stackyard shims on       # php, node, composer… with each project's versions, in every terminal
+stackyard shell          # or just in this terminal
+stackyard use php 8.3    # pin a version for this project
+stackyard which          # which version each command runs here, and why
 ```
 
 ## License

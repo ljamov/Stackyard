@@ -72,6 +72,10 @@ pub enum Error {
     SystemSetup(String),
     #[error("{0}")]
     Control(String),
+    #[error("{}: {message}", file.display())]
+    BadPin { file: PathBuf, message: String },
+    #[error("{0}")]
+    Shell(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
