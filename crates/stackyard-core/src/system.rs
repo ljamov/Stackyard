@@ -420,7 +420,7 @@ fn elevated(os: Os, script: &str, how: Elevate) -> Command {
     }
 }
 
-fn powershell_command(script: &str) -> Command {
+pub(crate) fn powershell_command(script: &str) -> Command {
     let mut c = Command::new("powershell");
     c.args([
         "-NoProfile",
