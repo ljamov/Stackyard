@@ -7,12 +7,18 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use stackyard_core::catalog::{self, RuntimeKind, RUNTIMES, SERVICES};
+use stackyard_core::detect::{self, Needs};
+use stackyard_core::dns::{self, DnsServer};
 use stackyard_core::domain;
 use stackyard_core::modules::MODULES;
 use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
+use stackyard_core::supervisor::Supervisor;
+use stackyard_core::system::{self, Elevate, Resolver};
+use stackyard_core::web::{self, Backend, Ports};
+use stackyard_core::{paths, platform, Error};
 
 #[derive(Parser)]
 #[command(name = "stackyard", version, about = "Local development stack manager")]
@@ -23,9 +29,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// List, add or remove local sites
-    #[command(subcommand)]
-    Sites(SitesCommand),
+    /// List sites, or add, remove or park them
+    Sites {
+        #[command(subcommand)]
+        action: Option<SitesCommand>,
+    },
     /// List runtimes, or install, remove or pick a default version
     Runtimes {
         #[command(subcommand)]
@@ -45,6 +53,26 @@ enum Command {
     Tld {
         /// New ending, e.g. `.stack` or `.test`
         value: Option<String>,
+    },
+    /// Run the web server (and any services named) until Ctrl+C
+    Up {
+        /// Other services to run too, e.g. `mysql mailpit`
+        services: Vec<String>,
+    },
+    /// Show or run the one-time setup for local domains and HTTPS
+    System {
+        #[command(subcommand)]
+        action: Option<SystemAction>,
+    },
+}
+
+#[derive(Subcommand)]
+enum SystemAction {
+    /// Apply setup with administrator rights (asks for your password)
+    Setup {
+        /// Print the commands instead of running them
+        #[arg(long)]
+        print: bool,
     },
 }
 
@@ -90,6 +118,12 @@ enum SitesCommand {
     Add(AddSite),
     /// Remove a site by name or domain
     Remove { name: String },
+    /// Make every project folder inside a folder a site (default: this folder)
+    Park { folder: Option<PathBuf> },
+    /// Stop making sites from a parked folder
+    Unpark { folder: Option<PathBuf> },
+    /// List parked folders
+    Parked,
 }
 
 #[derive(Args)]
@@ -105,9 +139,12 @@ struct AddSite {
     /// Proxy to a Node dev server with this Node version
     #[arg(long)]
     node: Option<String>,
-    /// Port the Node dev server listens on
-    #[arg(long, default_value_t = 3000, requires = "node")]
-    port: u16,
+    /// Port the Node dev server listens on (default: detected, else 3000)
+    #[arg(long, requires = "node")]
+    port: Option<u16>,
+    /// Serve the files as they are, even if the folder looks like PHP or Node
+    #[arg(long = "static", conflicts_with_all = ["php", "node"])]
+    plain: bool,
     /// Serve over plain HTTP only
     #[arg(long)]
     no_https: bool,
@@ -125,31 +162,60 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> stackyard_core::Result<()> {
     match cli.command {
-        Command::Sites(SitesCommand::List) => {
-            let store = SiteStore::load()?;
-            if store.list().is_empty() {
-                println!("No sites yet. Add one with `stackyard sites add <name>`.");
+        Command::Sites {
+            action: None | Some(SitesCommand::List),
+        } => {
+            let manager = ServiceManager::open();
+            let ports = Ports::current(manager.home());
+            let sites = manager.sites()?;
+            if sites.is_empty() {
+                println!(
+                    "No sites yet. Add one with `stackyard sites add <name>`, or park a folder of projects with `stackyard sites park`."
+                );
             }
-            for site in store.list() {
-                println!("{:<32} {}", site.url(), site.path.display());
+            for served in &sites {
+                let site = &served.site;
+                let runtime = match &served.backend {
+                    Backend::Php {
+                        version,
+                        installed: true,
+                        ..
+                    } => format!("PHP {version}"),
+                    Backend::Php { version, .. } => format!("PHP {version} (not installed)"),
+                    Backend::Node { version, port } => format!("Node {version} on :{port}"),
+                    Backend::Static => "static".to_string(),
+                };
+                let framework = served
+                    .framework
+                    .map(|f| format!("{f}, "))
+                    .unwrap_or_default();
+                let parked = if served.parked { " (parked)" } else { "" };
+                println!(
+                    "{:<36} {framework}{runtime}  {}{parked}",
+                    ports.url(&site.domain(), site.https),
+                    site.path.display()
+                );
             }
         }
-        Command::Sites(SitesCommand::Add(args)) => {
+        Command::Sites {
+            action: Some(SitesCommand::Add(args)),
+        } => {
             let settings = Settings::load()?;
             let path = match args.path {
-                Some(path) => path,
-                None => std::env::current_dir().map_err(|source| stackyard_core::Error::Io {
-                    path: PathBuf::from("."),
-                    source,
-                })?,
+                Some(path) => paths::expand_home(&path),
+                None => current_dir()?,
             };
             let runtime = match (args.php, args.node) {
                 (Some(version), _) => SiteRuntime::Php { version },
                 (None, Some(version)) => SiteRuntime::Node {
                     version,
-                    port: args.port,
+                    port: args.port.unwrap_or(match detect::detect(&path).needs {
+                        Needs::Node { port } => port,
+                        _ => 3000,
+                    }),
                 },
-                (None, None) => SiteRuntime::Static,
+                _ if args.plain => SiteRuntime::Static,
+                _ => web::runtime_for(&path, &settings, &RuntimeManager::open()),
             };
             let mut store = SiteStore::load()?;
             let url = store
@@ -164,7 +230,48 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             store.save()?;
             println!("Added {url}");
         }
-        Command::Sites(SitesCommand::Remove { name }) => {
+        Command::Sites {
+            action: Some(SitesCommand::Park { folder }),
+        } => {
+            let folder = match folder {
+                Some(folder) => folder,
+                None => current_dir()?,
+            };
+            let mut settings = Settings::load()?;
+            let folder = settings.park(&folder)?;
+            settings.save()?;
+            println!(
+                "Parked {}: each project folder in it is now a site ending in {}",
+                folder.display(),
+                settings.tld
+            );
+        }
+        Command::Sites {
+            action: Some(SitesCommand::Unpark { folder }),
+        } => {
+            let folder = match folder {
+                Some(folder) => folder,
+                None => current_dir()?,
+            };
+            let mut settings = Settings::load()?;
+            settings.unpark(&folder)?;
+            settings.save()?;
+            println!("Unparked {}", paths::expand_home(&folder).display());
+        }
+        Command::Sites {
+            action: Some(SitesCommand::Parked),
+        } => {
+            let settings = Settings::load()?;
+            if settings.parked.is_empty() {
+                println!("No parked folders. Park one with `stackyard sites park <folder>`.");
+            }
+            for folder in &settings.parked {
+                println!("{}", folder.display());
+            }
+        }
+        Command::Sites {
+            action: Some(SitesCommand::Remove { name }),
+        } => {
             let mut store = SiteStore::load()?;
             let site = store.remove(&name)?;
             store.save()?;
@@ -258,6 +365,45 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             settings.save()?;
             println!("{id} is now {}", if on { "on" } else { "off" });
         }
+        Command::Up { services } => up(&services)?,
+        Command::System { action: None } => {
+            let manager = ServiceManager::open();
+            let wanted = manager.system_wanted()?;
+            let status = wanted.status(&system::applied(manager.home()));
+            if status.needed.is_empty() {
+                println!("Local domains and HTTPS are set up.");
+            } else {
+                println!("Run `stackyard system setup` to:");
+                for item in &status.needed {
+                    println!("  - {item}");
+                }
+            }
+            if status.waiting_for_certificate {
+                println!("HTTPS: start the web server once to create its certificate, then run setup again.");
+            }
+        }
+        Command::System {
+            action: Some(SystemAction::Setup { print }),
+        } => {
+            let manager = ServiceManager::open();
+            let wanted = manager.system_wanted()?;
+            if print {
+                print!("{}", wanted.script());
+                return Ok(());
+            }
+            let how = if cfg!(windows) {
+                Elevate::Dialog
+            } else if platform::running_as_root() {
+                Elevate::AlreadyAdmin
+            } else {
+                Elevate::Sudo
+            };
+            system::apply(manager.home(), &wanted, how)?;
+            println!("Done. Local domains and HTTPS are set up.");
+            if wanted.certificate.is_none() {
+                println!("Start the web server once, then run this again to trust its HTTPS certificate.");
+            }
+        }
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
         Command::Tld { value: Some(value) } => {
             let mut settings = Settings::load()?;
@@ -335,6 +481,72 @@ fn progress_line(what: &str) -> impl FnMut(Step) + '_ {
         eprint!("\r\x1b[2K{line}");
         let _ = std::io::stderr().flush();
     }
+}
+
+/// Runs the web server, the local DNS server and any named services in
+/// the foreground; Ctrl+C (or a termination signal) stops them all.
+fn up(services: &[String]) -> stackyard_core::Result<()> {
+    let settings = Settings::load()?;
+    settings.require_module("caddy")?;
+    for id in services {
+        settings.require_module(id)?;
+    }
+    let manager = ServiceManager::open();
+    let supervisor = Supervisor::new(paths::logs_dir());
+    let wanted = manager.system_wanted()?;
+    let dns = match wanted.resolver {
+        Resolver::HostsFile => None,
+        _ => match DnsServer::start(dns::PORT, &manager.endings()?) {
+            Ok(server) => Some(server),
+            Err(e) => {
+                eprintln!("warning: local domains are unavailable: {e}");
+                None
+            }
+        },
+    };
+    let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+    ctrlc::set_handler(move || {
+        let _ = stop_tx.send(());
+    })
+    .map_err(|e| Error::SystemSetup(format!("could not watch for Ctrl+C: {e}")))?;
+
+    let started = (|| {
+        manager.start_web(&supervisor)?;
+        for id in services {
+            supervisor.start(manager.spec(id)?)?;
+        }
+        Ok::<_, Error>(())
+    })();
+    if let Err(e) = started {
+        supervisor.stop_all();
+        return Err(e);
+    }
+    let ports = Ports::current(manager.home());
+    println!("Web server on ports {} and {}", ports.http, ports.https);
+    for served in manager.sites()? {
+        let site = &served.site;
+        println!("  {}", ports.url(&site.domain(), site.https));
+    }
+    let status = wanted.status(&system::applied(manager.home()));
+    if !status.needed.is_empty() {
+        println!(
+            "Local domains need `stackyard system setup` first; .localhost addresses work now."
+        );
+    }
+    println!("Logs: {}", paths::logs_dir().display());
+    println!("Press Ctrl+C to stop.");
+    let _ = stop_rx.recv();
+    eprintln!("Stopping...");
+    supervisor.stop_all();
+    drop(dns);
+    Ok(())
+}
+
+fn current_dir() -> stackyard_core::Result<PathBuf> {
+    std::env::current_dir().map_err(|source| Error::Io {
+        path: PathBuf::from("."),
+        source,
+    })
 }
 
 fn parse_kind(id: &str) -> stackyard_core::Result<RuntimeKind> {

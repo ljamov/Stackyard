@@ -3,6 +3,8 @@
 
 pub mod archive;
 pub mod catalog;
+pub mod detect;
+pub mod dns;
 pub mod domain;
 pub mod download;
 pub mod error;
@@ -17,6 +19,8 @@ pub mod services;
 pub mod settings;
 pub mod sites;
 pub mod supervisor;
+pub mod system;
+pub mod web;
 
 pub use error::{Error, Result};
 

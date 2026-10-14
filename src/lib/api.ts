@@ -56,9 +56,26 @@ export type Site = {
   name: string;
   domain: string;
   url: string;
+  /** The `.localhost` address, which works before system setup. */
+  local_url: string;
   path: string;
+  /** The folder the web server serves, e.g. the project's `public/`. */
+  root: string;
   runtime: string;
+  framework: string | null;
   https: boolean;
+  /** Found in a parked folder; remove it by unparking the folder. */
+  parked: boolean;
+  /** Why the site cannot work yet, if it cannot. */
+  problem: string | null;
+};
+
+export type SystemStatus = {
+  /** What setup would change; empty when everything is set up. */
+  needed: string[];
+  waiting_for_certificate: boolean;
+  resolver: "mac-resolver" | "systemd-resolved" | "hosts-file";
+  dns_running: boolean;
 };
 
 export type Module = {
@@ -95,8 +112,14 @@ export interface Api {
   listModules(): Promise<Module[]>;
   setModule(id: string, enabled: boolean): Promise<Module[]>;
   listSites(): Promise<Site[]>;
-  addSite(site: NewSite): Promise<Site>;
-  removeSite(name: string): Promise<void>;
+  addSite(site: NewSite): Promise<Site[]>;
+  removeSite(name: string): Promise<Site[]>;
+  listParked(): Promise<string[]>;
+  parkFolder(path: string): Promise<string[]>;
+  unparkFolder(path: string): Promise<string[]>;
+  systemStatus(): Promise<SystemStatus>;
+  /** Shows the system's password prompt, then applies setup. */
+  runSystemSetup(): Promise<SystemStatus>;
 }
 
 const tauriApi: Api = {
@@ -120,6 +143,11 @@ const tauriApi: Api = {
   listSites: () => invoke("list_sites"),
   addSite: (site) => invoke("add_site", site),
   removeSite: (name) => invoke("remove_site", { name }),
+  listParked: () => invoke("list_parked"),
+  parkFolder: (path) => invoke("park_folder", { path }),
+  unparkFolder: (path) => invoke("unpark_folder", { path }),
+  systemStatus: () => invoke("system_status"),
+  runSystemSetup: () => invoke("run_system_setup"),
 };
 
 function browserApi(): Api {
@@ -163,7 +191,7 @@ function browserApi(): Api {
     installed: string | null,
   ): Service => ({ id, name, version, ports, role, web, installed, installing: false, state: "stopped" });
   let services: Service[] = [
-    service("caddy", "Caddy", "2", [8080], "Web server", "http://127.0.0.1:8080", "2.10.2"),
+    service("caddy", "Caddy", "2", [80, 443], "Web server", "http://localhost", "2.10.2"),
     service("mysql", "MySQL", "8.4", [3306], "Database", null, "8.4.6"),
     service("mariadb", "MariaDB", "11.8", [3306], "Database", null, null),
     service("mailpit", "Mailpit", "1", [1025, 8025], "Mail catcher", "http://127.0.0.1:8025", null),
@@ -195,7 +223,31 @@ function browserApi(): Api {
     mod("mcp", "MCP server", "feature", "Lets AI coding tools manage sites and services", false, false),
   ];
   let tld = ".stack";
-  let sites: Site[] = [];
+  const sample = (name: string, runtime: string, framework: string | null, parked: boolean, problem: string | null = null): Site => ({
+    name,
+    domain: `${name}.stack`,
+    url: `https://${name}.stack`,
+    local_url: `https://${name}.localhost`,
+    path: `~/Code/${name}`,
+    root: `~/Code/${name}${framework === "Laravel" ? "/public" : ""}`,
+    runtime,
+    framework,
+    https: true,
+    parked,
+    problem,
+  });
+  let sites: Site[] = [
+    sample("blog", "PHP 8.4", "Laravel", true),
+    sample("shop", "Node 22 · dev server on port 5173", "Vite", true),
+    sample("legacy", "PHP 7.4", "WordPress", false, "PHP 7.4 is not installed"),
+  ];
+  let parked = ["~/Code"];
+  let system: SystemStatus = {
+    needed: ["Send .stack names to Stackyard", "Trust Stackyard's local HTTPS certificate"],
+    waiting_for_certificate: false,
+    resolver: "mac-resolver",
+    dns_running: true,
+  };
   const warn = (t: string) =>
     t === ".local" ? ".local is used by Bonjour/mDNS for devices on your network" : null;
   return {
@@ -271,12 +323,39 @@ function browserApi(): Api {
       if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) throw `invalid site name "${name}"`;
       const domain = name + tld;
       if (sites.some((s) => s.domain === domain)) throw `a site named "${domain}" already exists`;
-      const site = { name, domain, url: `${https ? "https" : "http"}://${domain}`, path, runtime, https };
-      sites = [...sites, site];
-      return site;
+      const scheme = https ? "https" : "http";
+      const site: Site = {
+        ...sample(name, runtime === "Auto" ? "Static" : runtime, null, false),
+        domain,
+        url: `${scheme}://${domain}`,
+        local_url: `${scheme}://${name}.localhost`,
+        path,
+        root: path,
+        https,
+      };
+      sites = [site, ...sites];
+      return sites;
     },
     removeSite: async (name) => {
       sites = sites.filter((s) => s.domain !== name && s.name !== name);
+      return sites;
+    },
+    listParked: async () => parked,
+    parkFolder: async (path) => {
+      if (!path.trim()) throw "choose a folder";
+      parked = parked.includes(path) ? parked : [...parked, path];
+      return parked;
+    },
+    unparkFolder: async (path) => {
+      parked = parked.filter((p) => p !== path);
+      sites = sites.filter((s) => !s.parked || parked.length > 0);
+      return parked;
+    },
+    systemStatus: async () => system,
+    runSystemSetup: async () => {
+      await new Promise((r) => setTimeout(r, 400));
+      system = { ...system, needed: [] };
+      return system;
     },
   };
 }

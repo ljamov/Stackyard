@@ -53,13 +53,13 @@ button, input, select { font: inherit; color: inherit; }
 .grid.wide { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .split { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
 .split > .table-wrap { flex: 999 1 520px; min-width: 0; }
-.split > .form { flex: 1 1 300px; }
+.split > .form, .split > .side { flex: 1 1 300px; min-width: 0; }
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
 .card.service { display: flex; flex-direction: column; gap: 12px; padding: 18px; }
 .card.dashed { background: none; border-style: dashed; border-color: var(--border-strong); }
 .card.empty { color: var(--muted); }
-.table-wrap { padding: 0; overflow-x: auto; }
+.table-wrap { padding: 0; overflow-x: auto; position: relative; }
 .list-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
 .version-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); }
 .version-row:last-child { border-bottom: 0; }

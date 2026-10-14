@@ -69,3 +69,101 @@ jobs:
         env:
           STACKYARD_GITHUB_TOKEN: ${{ github.token }}
         run: cargo test -p stackyard-core -- --ignored live_ --nocapture
+
+  sites:
+    name: Local sites end to end (${{ matrix.os }})
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      STACKYARD_GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build CLI
+        run: cargo build -p stackyard-cli
+      - name: Prepare
+        shell: bash
+        run: |
+          echo "STACKYARD_HOME=$RUNNER_TEMP/stackyard" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+          mkdir -p "$RUNNER_TEMP/code/hello" "$RUNNER_TEMP/code/php-app"
+          echo '<h1>Hello from Stackyard</h1>' > "$RUNNER_TEMP/code/hello/index.html"
+          echo '<?php echo "PHP ", PHP_VERSION;' > "$RUNNER_TEMP/code/php-app/index.php"
+      - name: Install Caddy, park a folder of projects
+        shell: bash
+        run: |
+          stackyard services install caddy
+          # PHP builds for macOS and Linux are not published yet.
+          if [ "$RUNNER_OS" = Windows ]; then stackyard runtimes install php 8.4; fi
+          stackyard sites park "$RUNNER_TEMP/code"
+          stackyard sites
+      - name: Serve, set up the system, open https://hello.stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          home="$STACKYARD_HOME"
+          log="$RUNNER_TEMP/up.log"
+          if [ "$RUNNER_OS" = Windows ]; then
+            curl() { /c/Windows/System32/curl.exe --ssl-no-revoke "$@"; }
+          elif [ "$RUNNER_OS" = macOS ]; then
+            curl() { /usr/bin/curl "$@"; }
+          fi
+          start() {
+            stackyard up > "$log" 2>&1 &
+            up=$!
+            for _ in $(seq 60); do
+              grep -q "Press Ctrl+C" "$log" && { cat "$log"; return 0; }
+              sleep 1
+            done
+            cat "$log"; return 1
+          }
+          stop() {
+            kill -INT "$up" 2>/dev/null || true
+            sleep 3
+            if [ "$RUNNER_OS" = Windows ]; then
+              taskkill //F //IM stackyard.exe //IM caddy.exe //IM php-cgi.exe 2>/dev/null || true
+            fi
+            wait "$up" 2>/dev/null || true
+          }
+          https_port() { sed -n 's/^https = //p' "$home/config/caddy/ports.toml"; }
+          trap 'cat "$log"; tail -n 30 "$home/logs/caddy.log" || true' ERR
+
+          suffix() { p=$(https_port); [ "$p" = 443 ] && echo "" || echo ":$p"; }
+
+          echo "== .localhost works before setup, and the first start makes the certificate"
+          start
+          for _ in $(seq 30); do [ -f "$home/data/caddy/pki/authorities/local/root.crt" ] && break; sleep 1; done
+          curl -fsS -k "https://hello.localhost:$(https_port)/" | grep "Hello from Stackyard"
+          stop
+
+          if [ "$RUNNER_OS" = macOS ]; then
+            # Trusting a certificate on macOS needs someone at the screen,
+            # which a CI runner does not have; set up local names only.
+            rm -rf "$home/data/caddy/pki"
+            stackyard system setup --print
+            stackyard system setup
+            start
+            curl -fsS -k "https://hello.stack$(suffix)/" | grep "Hello from Stackyard"
+            stop
+            exit 0
+          fi
+
+          echo "== System setup"
+          stackyard system setup --print
+          stackyard system setup
+          stackyard system | tee "$RUNNER_TEMP/status.txt"
+          grep -q "are set up" "$RUNNER_TEMP/status.txt"
+
+          echo "== Real domain, trusted certificate"
+          start
+          if [ "$RUNNER_OS" = Linux ]; then [ "$(https_port)" = 443 ]; fi
+          curl -fsS "https://hello.stack$(suffix)/" | grep "Hello from Stackyard"
+          if [ "$RUNNER_OS" = Windows ]; then
+            curl -fsS "https://php-app.stack$(suffix)/" | grep "PHP 8.4"
+          fi
+          stop
