@@ -1,13 +1,15 @@
 //! `stackyard` command-line tool. Every command goes through `stackyard-core`,
 //! so the CLI, the desktop app and the MCP server always agree.
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use stackyard_core::catalog::{RUNTIMES, SERVICES};
+use stackyard_core::catalog::{self, RuntimeKind, RUNTIMES, SERVICES};
 use stackyard_core::domain;
 use stackyard_core::modules::MODULES;
+use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 
@@ -23,8 +25,11 @@ enum Command {
     /// List, add or remove local sites
     #[command(subcommand)]
     Sites(SitesCommand),
-    /// List runtimes Stackyard can install
-    Runtimes,
+    /// List runtimes, or install, remove or pick a default version
+    Runtimes {
+        #[command(subcommand)]
+        action: Option<RuntimeAction>,
+    },
     /// List services Stackyard can run
     Services,
     /// List modules, or switch one on or off
@@ -45,6 +50,24 @@ enum ModuleAction {
     On { id: String },
     /// Switch a module off
     Off { id: String },
+}
+
+#[derive(Subcommand)]
+enum RuntimeAction {
+    /// Download and install a version, e.g. `install php 8.4`
+    Install(RuntimeArgs),
+    /// Remove an installed version
+    Uninstall(RuntimeArgs),
+    /// Use a version when a project does not pin its own
+    Default(RuntimeArgs),
+}
+
+#[derive(Args)]
+struct RuntimeArgs {
+    /// `php` or `node`
+    kind: String,
+    /// Version as listed by `stackyard runtimes`, e.g. 8.4 or 22
+    version: String,
 }
 
 #[derive(Subcommand)]
@@ -135,16 +158,34 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             store.save()?;
             println!("Removed {}", site.domain());
         }
-        Command::Runtimes => {
+        Command::Runtimes { action: None } => {
+            let settings = Settings::load()?;
+            let manager = RuntimeManager::open();
             for family in RUNTIMES {
-                let note = if family.available {
-                    ""
-                } else {
-                    "  (coming soon)"
-                };
-                println!("{:<8} {}{note}", family.name, family.versions.join(", "));
+                if !family.available {
+                    println!(
+                        "{:<8} {}  (coming soon)",
+                        family.name,
+                        family.versions.join(", ")
+                    );
+                    continue;
+                }
+                let default = settings.default_runtime(family.kind);
+                let versions: Vec<String> = family
+                    .versions
+                    .iter()
+                    .map(|v| match manager.get(family.kind, v) {
+                        Some(i) if default == Some(*v) => format!("{v} [{}, default]", i.release),
+                        Some(i) => format!("{v} [{}]", i.release),
+                        None => v.to_string(),
+                    })
+                    .collect();
+                println!("{:<8} {}", family.name, versions.join(", "));
             }
         }
+        Command::Runtimes {
+            action: Some(action),
+        } => runtime_action(action)?,
         Command::Services => {
             for service in SERVICES {
                 let ports: Vec<String> = service.ports.iter().map(u16::to_string).collect();
@@ -192,4 +233,67 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         }
     }
     Ok(())
+}
+
+fn runtime_action(action: RuntimeAction) -> stackyard_core::Result<()> {
+    let manager = RuntimeManager::open();
+    let mut settings = Settings::load()?;
+    match action {
+        RuntimeAction::Install(args) => {
+            let kind = parse_kind(&args.kind)?;
+            settings.require_module(kind.id())?;
+            let name = catalog::runtime(kind).name;
+            let installed = manager.install(kind, &args.version, &mut |step| {
+                let line = match step {
+                    Step::Resolving => format!("Looking up {name} {}...", args.version),
+                    Step::Downloading {
+                        done,
+                        total: Some(total),
+                    } if total > 0 => {
+                        format!("Downloading... {}%", done * 100 / total)
+                    }
+                    Step::Downloading { done, .. } => {
+                        format!("Downloading... {} MB", done / 1_000_000)
+                    }
+                    Step::Unpacking => "Unpacking...".to_string(),
+                };
+                eprint!("\r\x1b[2K{line}");
+                let _ = std::io::stderr().flush();
+            });
+            eprintln!();
+            let installed = installed?;
+            manager.fix_default(&mut settings, kind);
+            settings.save()?;
+            println!(
+                "Installed {name} {} ({}) in {}",
+                installed.version,
+                installed.release,
+                installed.path.display()
+            );
+        }
+        RuntimeAction::Uninstall(args) => {
+            let kind = parse_kind(&args.kind)?;
+            manager.uninstall(kind, &args.version)?;
+            if manager.fix_default(&mut settings, kind) {
+                settings.save()?;
+            }
+            println!("Removed {} {}", catalog::runtime(kind).name, args.version);
+        }
+        RuntimeAction::Default(args) => {
+            let kind = parse_kind(&args.kind)?;
+            manager.set_default(&mut settings, kind, &args.version)?;
+            settings.save()?;
+            println!(
+                "{} {} is now the default",
+                catalog::runtime(kind).name,
+                args.version
+            );
+        }
+    }
+    Ok(())
+}
+
+fn parse_kind(id: &str) -> stackyard_core::Result<RuntimeKind> {
+    RuntimeKind::from_id(&id.to_ascii_lowercase())
+        .ok_or_else(|| stackyard_core::Error::UnknownModule(id.to_string()))
 }

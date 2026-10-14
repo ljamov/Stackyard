@@ -1,12 +1,15 @@
 //! Core logic shared by the Stackyard desktop app, the `stackyard` CLI and,
 //! later, the MCP server. Nothing in here knows about windows or terminals.
 
+pub mod archive;
 pub mod catalog;
 pub mod domain;
+pub mod download;
 pub mod error;
 pub mod modules;
 pub mod paths;
 pub mod ports;
+pub mod runtimes;
 pub mod settings;
 pub mod sites;
 pub mod supervisor;

@@ -78,7 +78,12 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
             .map((r) => (
               <div key={r.kind} className="list-row">
                 <span>{r.name}</span>
-                <span className="mono muted small">{r.versions.join(", ")}</span>
+                <span className="mono muted small">
+                  {r.versions
+                    .filter((v) => v.installed)
+                    .map((v) => (v.default ? `${v.version} (default)` : v.version))
+                    .join(", ") || "None installed"}
+                </span>
               </div>
             ))}
         </section>
