@@ -98,8 +98,11 @@ jobs:
       - name: Install build tools
         run: ./spc doctor --auto-fix
 
+      # Every library is compiled from source too (no --prefer-pre-built):
+      # slower, but nothing in the archive is a third-party binary, and the
+      # pre-built SQLite fails static-php-cli's own sanity check.
       - name: Download PHP and library sources
-        run: ./spc download --with-php="$VERSION" --for-extensions="$EXTENSIONS" --prefer-pre-built --retry=3
+        run: ./spc download --with-php="$VERSION" --for-extensions="$EXTENSIONS" --retry=3
 
       - name: Build
         run: ./spc build "$EXTENSIONS" --build-cli --build-fpm
