@@ -159,9 +159,9 @@ pub const MODULES: &[ModuleDef] = &[
         "logs",
         "Log viewer",
         Feature,
-        "Live logs from every service and app",
-        false,
-        false,
+        "Live logs from every service, with search",
+        true,
+        true,
     ),
     module(
         "scheduler",

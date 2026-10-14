@@ -88,6 +88,22 @@ export type TerminalStatus = {
   places: string[];
 };
 
+export type LogFile = {
+  id: string;
+  name: string;
+  size: number;
+  /** Last written, in milliseconds since 1970. */
+  modified: number;
+};
+
+export type LogChunk = {
+  lines: string[];
+  /** Pass back to read what was written since. */
+  offset: number;
+  /** The log started over; what was shown before is gone. */
+  reset: boolean;
+};
+
 export type McpTool = {
   name: string;
   title: string;
@@ -194,6 +210,9 @@ export interface Api {
   setTerminal(on: boolean): Promise<TerminalStatus>;
   /** Fires when a terminal or an AI tool changed the sites. */
   onSitesChanged(handler: () => void): Promise<() => void>;
+  listLogs(): Promise<LogFile[]>;
+  /** The last `lines` lines when `from` is null, else what was written since `from`. */
+  readLog(id: string, from: number | null, lines: number): Promise<LogChunk>;
   mcpStatus(): Promise<McpStatus>;
   setMcpTool(name: string, allowed: boolean): Promise<McpStatus>;
   listTasks(): Promise<Task[]>;
@@ -237,6 +256,8 @@ const tauriApi: Api = {
   terminalStatus: () => invoke("terminal_status"),
   setTerminal: (on) => invoke("set_terminal", { on }),
   onSitesChanged: (handler) => listen("sites-changed", () => handler()),
+  listLogs: () => invoke("list_logs"),
+  readLog: (id, from, lines) => invoke("read_log", { id, from, lines }),
   mcpStatus: () => invoke("mcp_status"),
   setMcpTool: (name, allowed) => invoke("set_mcp_tool", { name, allowed }),
   listTasks: () => invoke("list_tasks"),
@@ -320,6 +341,7 @@ function browserApi(): Api {
     mod("mailpit", "Mailpit", "service", "Catches outgoing mail for testing", false, true),
     mod("redis", "Redis", "service", "Cache and queues", false, false),
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
+    mod("logs", "Log viewer", "feature", "Live logs from every service, with search", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
     mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),
   ];
@@ -437,6 +459,7 @@ function browserApi(): Api {
       },
     ],
   };
+  const logTicks: Record<string, number> = {};
   const warn = (t: string) =>
     t === ".local" ? ".local is used by Bonjour/mDNS for devices on your network" : null;
   return {
@@ -552,6 +575,31 @@ function browserApi(): Api {
       return terminal;
     },
     onSitesChanged: async () => () => {},
+    listLogs: async () => [
+      { id: "caddy", name: "Caddy", size: 48_213, modified: Date.now() },
+      { id: "mysql", name: "MySQL", size: 9_120, modified: Date.now() - 600_000 },
+      { id: "php-8.4", name: "PHP 8.4", size: 2_048, modified: Date.now() - 60_000 },
+    ],
+    readLog: async (id, from) => {
+      const at = () => new Date().toISOString();
+      if (from === null) {
+        logTicks[id] = 0;
+        return {
+          lines: [
+            `${at()} [info] ${id} started`,
+            `${at()} [info] listening on 127.0.0.1`,
+            `${at()} [warn] certificate for blog.stack expires in 6 days`,
+            `${at()} [error] upstream php-8.4 refused the connection`,
+            `${at()} [info] GET https://blog.stack/ 200 12ms`,
+          ],
+          offset: 5,
+          reset: false,
+        };
+      }
+      logTicks[id] = (logTicks[id] ?? 0) + 1;
+      const lines = logTicks[id] % 2 ? [`${at()} [info] GET https://shop.stack/api/cart 200 ${logTicks[id]}ms`] : [];
+      return { lines, offset: from + lines.length, reset: false };
+    },
     mcpStatus: async () => mcp,
     setMcpTool: async (name, allowed) => {
       mcp = { ...mcp, tools: mcp.tools.map((t) => (t.name === name && t.action ? { ...t, allowed } : t)) };

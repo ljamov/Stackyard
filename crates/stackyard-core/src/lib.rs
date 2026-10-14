@@ -11,6 +11,7 @@ pub mod download;
 pub mod engine;
 pub mod error;
 pub mod install;
+pub mod logs;
 pub(crate) mod manifest;
 pub mod mcp;
 pub mod modules;

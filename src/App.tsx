@@ -7,6 +7,7 @@ import { Services } from "./screens/Services";
 import { ComingSoon } from "./screens/ComingSoon";
 import { Settings } from "./screens/Settings";
 import { McpServer } from "./screens/McpServer";
+import { Logs } from "./screens/Logs";
 import { Scheduler } from "./screens/Scheduler";
 import { ModulesProvider } from "./lib/modules";
 
@@ -24,7 +25,8 @@ export function App() {
           {screen === "Settings" && <Settings />}
           {screen === "MCP server" && <McpServer />}
           {screen === "Scheduler" && <Scheduler />}
-          {!["Dashboard", "Sites", "Services", "Runtimes", "Settings", "MCP server", "Scheduler"].includes(screen) && (
+          {screen === "Logs" && <Logs />}
+          {!["Dashboard", "Sites", "Services", "Runtimes", "Settings", "MCP server", "Scheduler", "Logs"].includes(screen) && (
             <ComingSoon screen={screen} />
           )}
         </main>
