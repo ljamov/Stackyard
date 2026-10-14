@@ -29,9 +29,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// List, add or remove local sites
-    #[command(subcommand)]
-    Sites(SitesCommand),
+    /// List sites, or add, remove or park them
+    Sites {
+        #[command(subcommand)]
+        action: Option<SitesCommand>,
+    },
     /// List runtimes, or install, remove or pick a default version
     Runtimes {
         #[command(subcommand)]
@@ -160,7 +162,9 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> stackyard_core::Result<()> {
     match cli.command {
-        Command::Sites(SitesCommand::List) => {
+        Command::Sites {
+            action: None | Some(SitesCommand::List),
+        } => {
             let manager = ServiceManager::open();
             let ports = Ports::current(manager.home());
             let sites = manager.sites()?;
@@ -193,7 +197,9 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 );
             }
         }
-        Command::Sites(SitesCommand::Add(args)) => {
+        Command::Sites {
+            action: Some(SitesCommand::Add(args)),
+        } => {
             let settings = Settings::load()?;
             let path = match args.path {
                 Some(path) => paths::expand_home(&path),
@@ -224,7 +230,9 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             store.save()?;
             println!("Added {url}");
         }
-        Command::Sites(SitesCommand::Park { folder }) => {
+        Command::Sites {
+            action: Some(SitesCommand::Park { folder }),
+        } => {
             let folder = match folder {
                 Some(folder) => folder,
                 None => current_dir()?,
@@ -238,7 +246,9 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 settings.tld
             );
         }
-        Command::Sites(SitesCommand::Unpark { folder }) => {
+        Command::Sites {
+            action: Some(SitesCommand::Unpark { folder }),
+        } => {
             let folder = match folder {
                 Some(folder) => folder,
                 None => current_dir()?,
@@ -248,7 +258,9 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             settings.save()?;
             println!("Unparked {}", paths::expand_home(&folder).display());
         }
-        Command::Sites(SitesCommand::Parked) => {
+        Command::Sites {
+            action: Some(SitesCommand::Parked),
+        } => {
             let settings = Settings::load()?;
             if settings.parked.is_empty() {
                 println!("No parked folders. Park one with `stackyard sites park <folder>`.");
@@ -257,7 +269,9 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 println!("{}", folder.display());
             }
         }
-        Command::Sites(SitesCommand::Remove { name }) => {
+        Command::Sites {
+            action: Some(SitesCommand::Remove { name }),
+        } => {
             let mut store = SiteStore::load()?;
             let site = store.remove(&name)?;
             store.save()?;
