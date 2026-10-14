@@ -3301,7 +3301,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ctrlc",
- "libc",
  "stackyard-core",
 ]
 
@@ -3322,6 +3321,7 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 0.8.23",
  "ureq",
+ "windows-sys 0.61.2",
  "zip",
 ]
 

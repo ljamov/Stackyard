@@ -2,9 +2,9 @@
 //! so the CLI, the desktop app and the MCP server always agree.
 
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command as Process, ExitCode, Stdio};
+use std::process::{Command as Process, ExitCode};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -15,6 +15,7 @@ use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::domain;
 use stackyard_core::engine::Engine;
+use stackyard_core::mcp;
 use stackyard_core::modules::MODULES;
 use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::services::ServiceManager;
@@ -107,6 +108,29 @@ enum Command {
     },
     /// Pin a version for this project in its `.stackyard` file, e.g. `use php 8.3`
     Use(RuntimeArgs),
+    /// Serve AI coding tools over MCP on stdin and stdout; `mcp setup` shows how to add it
+    Mcp {
+        #[command(subcommand)]
+        action: Option<McpAction>,
+    },
+}
+
+#[derive(Subcommand)]
+enum McpAction {
+    /// Show how to add Stackyard to Claude Code, Cursor and other AI tools
+    Setup,
+    /// List the tools AI tools get, and which actions are allowed
+    Tools,
+    /// Let AI tools use an action, e.g. `allow start_service`, or `allow all`
+    Allow { tool: String },
+    /// Turn an action off again, or `deny all`
+    Deny { tool: String },
+    /// Show what AI tools did recently
+    Log {
+        /// How many entries
+        #[arg(short = 'n', long, default_value_t = 20)]
+        lines: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -470,16 +494,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             Some(client) => print_status(&client, client.send(Request::Status)?),
         },
         Command::Logs { id, lines } => {
-            // Only names Stackyard uses, which also keeps the path inside the logs folder.
-            let php = |v: &str| catalog::runtime(RuntimeKind::Php).offers(v);
-            let known = catalog::service(&id).is_some()
-                || id == "daemon"
-                || id.strip_prefix("php-").is_some_and(php);
-            if !known {
-                return Err(Error::UnknownProcess(id));
-            }
-            let path = paths::logs_dir().join(format!("{id}.log"));
-            for line in supervisor::tail_file(&path, lines)? {
+            for line in supervisor::tail_file(&supervisor::log_file(&paths::home(), &id)?, lines)? {
                 println!("{line}");
             }
         }
@@ -602,6 +617,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 );
             }
         }
+        Command::Mcp { action } => mcp(action)?,
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
         Command::Tld { value: Some(value) } => {
             let mut settings = Settings::load()?;
@@ -615,6 +631,104 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         }
     }
     Ok(())
+}
+
+fn mcp(action: Option<McpAction>) -> stackyard_core::Result<()> {
+    let home = paths::home();
+    match action {
+        None => {
+            Settings::load()?.require_module("mcp")?;
+            if std::io::stdin().is_terminal() {
+                eprintln!(
+                    "stackyard mcp is started by AI tools and talks to them on stdin and stdout."
+                );
+                eprintln!("Run `stackyard mcp setup` to see how to add it. Press Ctrl+D to stop.");
+            }
+            let stdin = std::io::stdin().lock();
+            mcp::serve(&home, &own_program()?, stdin, std::io::stdout())?;
+        }
+        Some(McpAction::Setup) => {
+            let setup = mcp::client_setup(&home, &own_program()?);
+            if !Settings::load()?.module_enabled("mcp") {
+                println!("First switch the MCP server on: stackyard modules on mcp\n");
+            }
+            println!("Claude Code:\n  {}\n", setup.claude_code);
+            println!("Cursor (~/.cursor/mcp.json), Claude Desktop, Windsurf and others:");
+            println!("{}\n", setup.json);
+            println!(
+                "AI tools can read sites, services, runtimes and logs. To let them make changes,"
+            );
+            println!("allow actions with `stackyard mcp allow <tool>`; see `stackyard mcp tools`.");
+        }
+        Some(McpAction::Tools) => {
+            let settings = Settings::load()?;
+            for tool in mcp::TOOLS {
+                let state = match (tool.action, settings.mcp.allow.contains(tool.name)) {
+                    (false, _) => "always",
+                    (true, true) => "allowed",
+                    (true, false) => "off",
+                };
+                println!("{:<17} {:<8} {}", tool.name, state, tool.title);
+            }
+            if !settings.module_enabled("mcp") {
+                println!("\nThe MCP server is off; switch it on with `stackyard modules on mcp`.");
+            }
+        }
+        Some(McpAction::Allow { tool }) => allow_mcp_tool(&tool, true)?,
+        Some(McpAction::Deny { tool }) => allow_mcp_tool(&tool, false)?,
+        Some(McpAction::Log { lines }) => {
+            let entries = mcp::activity::recent(&home, lines);
+            if entries.is_empty() {
+                println!("No AI tool has used Stackyard yet.");
+            }
+            for entry in entries.iter().rev() {
+                let result = match &entry.error {
+                    None => "ok".to_string(),
+                    Some(e) => format!("failed: {e}"),
+                };
+                println!(
+                    "{}  {:<12} {:<17} {}  {result}",
+                    utc_time(entry.at),
+                    entry.client,
+                    entry.tool,
+                    entry.summary
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn allow_mcp_tool(tool: &str, allowed: bool) -> stackyard_core::Result<()> {
+    let mut settings = Settings::load()?;
+    mcp::set_allowed(&mut settings, tool, allowed)?;
+    settings.save()?;
+    let what = if tool == "all" { "Every action" } else { tool };
+    let state = if allowed { "allowed" } else { "off" };
+    println!("{what} is now {state} for AI tools.");
+    Ok(())
+}
+
+/// `2026-10-14 22:05:09 UTC` from milliseconds since 1970.
+fn utc_time(ms: u64) -> String {
+    let secs = ms / 1000;
+    let (days, rest) = ((secs / 86_400) as i64, secs % 86_400);
+    // Days since 1970 to a calendar date (proleptic Gregorian).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year}-{month:02}-{day:02} {:02}:{:02}:{:02} UTC",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
 }
 
 fn runtime_action(action: RuntimeAction) -> stackyard_core::Result<()> {
@@ -781,71 +895,7 @@ fn serve_control(
 
 /// The process running services, starting `stackyard daemon` if there is none.
 fn running_stackyard() -> stackyard_core::Result<control::Client> {
-    let home = paths::home();
-    if let Some(client) = control::find(&home) {
-        return Ok(client);
-    }
-    let logs = paths::logs_dir();
-    let io = |source| Error::Io {
-        path: logs.clone(),
-        source,
-    };
-    std::fs::create_dir_all(&logs).map_err(io)?;
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(logs.join("daemon.log"))
-        .map_err(io)?;
-    let mut command = Process::new(own_program()?);
-    command
-        .arg("daemon")
-        .stdin(Stdio::null())
-        .stdout(log.try_clone().map_err(io)?)
-        .stderr(log);
-    detach(&mut command);
-    let program = own_program()?;
-    let mut child = command.spawn().map_err(|source| Error::Spawn {
-        program: program.display().to_string(),
-        source,
-    })?;
-    for _ in 0..100 {
-        if let Some(client) = control::find(&home) {
-            return Ok(client);
-        }
-        if let Ok(Some(status)) = child.try_wait() {
-            let tail = supervisor::tail_file(&logs.join("daemon.log"), 5).unwrap_or_default();
-            return Err(Error::Control(format!(
-                "the background service stopped ({status}): {}",
-                tail.join(" / ")
-            )));
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    Err(Error::Control(
-        "the background service did not start".into(),
-    ))
-}
-
-/// Keeps the background service running after this terminal closes.
-fn detach(command: &mut Process) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: setsid is async-signal-safe and only affects the child.
-        unsafe {
-            command.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-    }
+    control::start_background(&paths::home(), &own_program()?)
 }
 
 /// Tells the process running services that something changed, if one runs.
@@ -1014,4 +1064,17 @@ fn current_dir() -> stackyard_core::Result<PathBuf> {
 fn parse_kind(id: &str) -> stackyard_core::Result<RuntimeKind> {
     RuntimeKind::from_id(&id.to_ascii_lowercase())
         .ok_or_else(|| stackyard_core::Error::UnknownModule(id.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn formats_utc_times() {
+        assert_eq!(super::utc_time(0), "1970-01-01 00:00:00 UTC");
+        assert_eq!(super::utc_time(951_782_400_000), "2000-02-29 00:00:00 UTC");
+        assert_eq!(
+            super::utc_time(1_792_015_509_000),
+            "2026-10-14 22:05:09 UTC"
+        );
+    }
 }

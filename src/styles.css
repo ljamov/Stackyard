@@ -128,3 +128,5 @@ td { padding: 12px 18px; border-top: 1px solid var(--border); }
 .dot.warn { background: var(--warn); }
 .dot.error { background: var(--error); }
 .log { max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }
+.subhead { margin: 18px 0 2px; font: 600 12px var(--body); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.row.between { justify-content: space-between; }

@@ -1,5 +1,5 @@
-//! Core logic shared by the Stackyard desktop app, the `stackyard` CLI and,
-//! later, the MCP server. Nothing in here knows about windows or terminals.
+//! Core logic shared by the Stackyard desktop app, the `stackyard` CLI and
+//! the MCP server. Nothing in here knows about windows or terminals.
 
 pub mod archive;
 pub mod catalog;
@@ -12,6 +12,7 @@ pub mod engine;
 pub mod error;
 pub mod install;
 pub(crate) mod manifest;
+pub mod mcp;
 pub mod modules;
 pub mod paths;
 pub mod platform;

@@ -5,7 +5,7 @@ databases, web servers and local HTTPS sites such as `https://myapp.stack` from 
 with no containers.
 
 > Status: early prototype. Runtimes, services, local sites with HTTPS, terminal commands, the
-> background service and the tray icon work; installers come next.
+> background service, the tray icon, installers and the MCP server for AI coding tools work.
 
 ## Install
 
@@ -27,7 +27,7 @@ choose **Open**; on Windows choose **More info**, then **Run anyway**. Each inst
 
 | Path | What it is |
 | --- | --- |
-| `crates/stackyard-core` | Core logic shared by the app, the CLI and the future MCP server: settings, sites, domain rules, catalog |
+| `crates/stackyard-core` | Core logic shared by the app, the CLI and the MCP server: settings, sites, domain rules, catalog |
 | `crates/stackyard-cli` | The `stackyard` command-line tool |
 | `src-tauri` | Tauri 2 desktop app: thin commands over the core |
 | `src` | React + TypeScript interface |
@@ -150,6 +150,24 @@ Each service is a module: MySQL and Caddy are on by default, MariaDB and Mailpit
 in Settings. `STACKYARD_MYSQL_MANIFEST` points MySQL at another manifest, and
 `STACKYARD_GITHUB_TOKEN` raises the GitHub API limit for Caddy and Mailpit lookups.
 
+## AI coding tools (MCP)
+
+`stackyard mcp` is an [MCP](https://modelcontextprotocol.io) server, so Claude Code, Cursor,
+Claude Desktop, Windsurf and other AI tools can see and manage your local stack. Switch on the
+**MCP server** module in Settings (or `stackyard modules on mcp`), then add it to your AI tool;
+the MCP server screen and `stackyard mcp setup` show the exact line, for example:
+
+```sh
+claude mcp add --scope user stackyard -- stackyard mcp
+```
+
+AI tools can always look: `list_sites`, `list_services`, `list_runtimes` and `read_logs`. Each
+action is off until you allow it on the MCP server screen or with `stackyard mcp allow <tool>`:
+`start_service`, `stop_service`, `create_site` and `set_site_runtime`. Deleting sites, databases
+or files is never offered. Every call is recorded with the AI tool's name; see it on the MCP
+server screen or with `stackyard mcp log`. An AI tool that is already connected sees allowed
+tools appear without reconnecting.
+
 ## Develop
 
 Requirements: Rust (stable), Node.js 22, and on Linux the WebKitGTK libraries:
@@ -195,6 +213,10 @@ stackyard shims on       # php, node, composer… with each project's versions, 
 stackyard shell          # or just in this terminal
 stackyard use php 8.3    # pin a version for this project
 stackyard which          # which version each command runs here, and why
+stackyard mcp setup      # how to add Stackyard to Claude Code, Cursor and others
+stackyard mcp tools      # what AI tools may do
+stackyard mcp allow start_service   # or `allow all`; `deny` turns it off again
+stackyard mcp log        # what AI tools did
 ```
 
 ## License

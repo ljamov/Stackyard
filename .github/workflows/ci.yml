@@ -169,6 +169,8 @@ jobs:
           stop
       - name: Background service shared by every stackyard command
         shell: bash
+        # A background service that kept the caller's pipes open would hang here.
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" = Windows ]; then
@@ -202,6 +204,41 @@ jobs:
           sleep 2
           stackyard status | grep -q "Nothing is running"
           if page hello >/dev/null 2>&1; then echo "still serving after stop"; exit 1; fi
+
+          echo "== AI tools over MCP: reading is always on, actions only once allowed"
+          stackyard modules on mcp
+          mkdir -p "$RUNNER_TEMP/ai-site"
+          echo '<p>Made by an AI tool</p>' > "$RUNNER_TEMP/ai-site/index.html"
+          folder="$RUNNER_TEMP/ai-site"
+          if [ "$RUNNER_OS" = Windows ]; then folder=$(cygpath -m "$folder"); fi
+          init='{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
+          call() { printf '{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"%s","arguments":%s}}' "$1" "$2" "$3"; }
+          session() { printf '%s\n' "$init" "$@" | stackyard mcp | tee "$RUNNER_TEMP/mcp.out"; }
+          answer() { grep "^{\"id\":$1," "$RUNNER_TEMP/mcp.out"; }
+          session "$(call 1 start_service '{"service":"caddy"}')" '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+          answer 1 | grep -q 'stackyard mcp allow start_service'
+          answer 2 | grep -q list_sites
+          if answer 2 | grep -q start_service; then echo "an action was offered before it was allowed"; exit 1; fi
+          stackyard status | grep -q "Nothing is running"
+
+          stackyard mcp allow all
+          session \
+            "$(call 1 create_site "{\"name\":\"ai-made\",\"folder\":\"$folder\",\"runtime\":\"static\"}")" \
+            "$(call 2 start_service '{"service":"caddy"}')" \
+            "$(call 3 list_sites '{}')" \
+            "$(call 4 read_logs '{"service":"caddy","lines":5}')"
+          for id in 1 2 3 4; do answer $id | grep -q '"isError":false'; done
+          answer 3 | grep -q 'ai-made.stack'
+          stackyard status | grep -Eq "Caddy +running"
+          port=$(sed -n 's/^https = //p' "$STACKYARD_HOME/config/caddy/ports.toml")
+          for _ in $(seq 30); do page ai-made 2>/dev/null | grep -q "Made by an AI tool" && break; sleep 1; done
+          page ai-made | grep "Made by an AI tool"
+
+          session "$(call 1 stop_service '{"service":"caddy"}')"
+          answer 1 | grep -q '"state":"stopped"'
+          stackyard mcp log | tee "$RUNNER_TEMP/mcp-log.txt"
+          grep -Eq "ci +start_service +caddy +ok" "$RUNNER_TEMP/mcp-log.txt"
+          stackyard stop
 
   terminal:
     name: Terminal commands end to end (${{ matrix.os }})
