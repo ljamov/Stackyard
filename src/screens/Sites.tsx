@@ -36,6 +36,22 @@ export function Sites() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
+  const reloadSites = sites.reload;
+  const reloadParked = parked.reload;
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let cancelled = false;
+    api
+      .onSitesChanged(() => {
+        reloadSites();
+        reloadParked();
+      })
+      .then((unsubscribe) => (cancelled ? unsubscribe() : (off = unsubscribe)));
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, [reloadSites, reloadParked]);
   const chosenRuntime = options.some((o) => o.value === runtime) ? runtime : "Auto";
 
   async function attempt(action: () => Promise<unknown>) {

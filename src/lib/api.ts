@@ -88,6 +88,34 @@ export type TerminalStatus = {
   places: string[];
 };
 
+export type McpTool = {
+  name: string;
+  title: string;
+  description: string;
+  /** Changes something, so the user decides whether AI tools may use it. */
+  action: boolean;
+  allowed: boolean;
+};
+
+export type McpActivity = {
+  /** Milliseconds since 1970. */
+  at: number;
+  /** The AI tool, as it named itself. */
+  client: string;
+  tool: string;
+  summary: string;
+  ok: boolean;
+  error?: string;
+};
+
+export type McpStatus = {
+  /** How to add Stackyard to AI tools; null when the command-line program is missing. */
+  setup: { program: string; claude_code: string; json: string } | null;
+  tools: McpTool[];
+  /** Newest first. */
+  activity: McpActivity[];
+};
+
 export type Module = {
   id: string;
   name: string;
@@ -133,6 +161,10 @@ export interface Api {
   terminalStatus(): Promise<TerminalStatus>;
   /** Creates or removes the terminal commands and their PATH entry. */
   setTerminal(on: boolean): Promise<TerminalStatus>;
+  /** Fires when a terminal or an AI tool changed the sites. */
+  onSitesChanged(handler: () => void): Promise<() => void>;
+  mcpStatus(): Promise<McpStatus>;
+  setMcpTool(name: string, allowed: boolean): Promise<McpStatus>;
 }
 
 const tauriApi: Api = {
@@ -163,6 +195,9 @@ const tauriApi: Api = {
   runSystemSetup: () => invoke("run_system_setup"),
   terminalStatus: () => invoke("terminal_status"),
   setTerminal: (on) => invoke("set_terminal", { on }),
+  onSitesChanged: (handler) => listen("sites-changed", () => handler()),
+  mcpStatus: () => invoke("mcp_status"),
+  setMcpTool: (name, allowed) => invoke("set_mcp_tool", { name, allowed }),
 };
 
 function browserApi(): Api {
@@ -235,7 +270,7 @@ function browserApi(): Api {
     mod("mailpit", "Mailpit", "service", "Catches outgoing mail for testing", false, true),
     mod("redis", "Redis", "service", "Cache and queues", false, false),
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
-    mod("mcp", "MCP server", "feature", "Lets AI coding tools manage sites and services", false, false),
+    mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
   ];
   let tld = ".stack";
   const sample = (name: string, runtime: string, framework: string | null, parked: boolean, problem: string | null = null): Site => ({
@@ -268,6 +303,45 @@ function browserApi(): Api {
     on: false,
     folder: "~/Library/Application Support/Stackyard/bin",
     places: [],
+  };
+  const tool = (name: string, title: string, description: string, action: boolean): McpTool => ({
+    name,
+    title,
+    description,
+    action,
+    allowed: !action,
+  });
+  let mcp: McpStatus = {
+    setup: {
+      program: "~/Library/Application Support/Stackyard/bin/stackyard",
+      claude_code: 'claude mcp add --scope user stackyard -- "~/Library/Application Support/Stackyard/bin/stackyard" mcp',
+      json: JSON.stringify(
+        { mcpServers: { stackyard: { command: "~/Library/Application Support/Stackyard/bin/stackyard", args: ["mcp"] } } },
+        null,
+        2,
+      ),
+    },
+    tools: [
+      tool("list_sites", "List sites", "Lists the local sites Stackyard serves.", false),
+      tool("list_services", "List services", "Lists the services and whether they run.", false),
+      tool("list_runtimes", "List runtimes", "Lists installed PHP and Node.js versions.", false),
+      tool("read_logs", "Read a log", "Returns the last lines of a service's log.", false),
+      tool("start_service", "Start a service", "Starts an installed service in the background.", true),
+      tool("stop_service", "Stop a service", "Stops a running service.", true),
+      tool("create_site", "Create a site", "Adds a local site for a project folder.", true),
+      tool("set_site_runtime", "Switch a site's version", "Switches the PHP or Node.js version a site runs on.", true),
+    ],
+    activity: [
+      { at: Date.now() - 60_000, client: "claude-code", tool: "list_sites", summary: "", ok: true },
+      {
+        at: Date.now() - 30_000,
+        client: "claude-code",
+        tool: "start_service",
+        summary: "caddy",
+        ok: false,
+        error: "Start a service is turned off.",
+      },
+    ],
   };
   const warn = (t: string) =>
     t === ".local" ? ".local is used by Bonjour/mDNS for devices on your network" : null;
@@ -382,6 +456,12 @@ function browserApi(): Api {
     setTerminal: async (on) => {
       terminal = { ...terminal, on, places: on ? ["~/.zshrc"] : [] };
       return terminal;
+    },
+    onSitesChanged: async () => () => {},
+    mcpStatus: async () => mcp,
+    setMcpTool: async (name, allowed) => {
+      mcp = { ...mcp, tools: mcp.tools.map((t) => (t.name === name && t.action ? { ...t, allowed } : t)) };
+      return mcp;
     },
   };
 }

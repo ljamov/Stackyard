@@ -11,6 +11,7 @@ use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::dns;
 use stackyard_core::engine::Engine;
+use stackyard_core::mcp;
 use stackyard_core::modules::{ModuleGroup, MODULES};
 use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::services::ServiceManager;
@@ -554,6 +555,59 @@ async fn set_terminal(on: bool) -> CmdResult<TerminalView> {
     .map_err(err)
 }
 
+#[derive(Serialize)]
+struct McpToolView {
+    name: &'static str,
+    title: &'static str,
+    description: &'static str,
+    /// Changes something, so the user decides whether AI tools may use it.
+    action: bool,
+    allowed: bool,
+}
+
+#[derive(Serialize)]
+struct McpView {
+    /// How to add Stackyard to AI tools; `None` when the `stackyard`
+    /// program is not next to the app.
+    setup: Option<mcp::ClientSetup>,
+    tools: Vec<McpToolView>,
+    /// What AI tools did, newest first.
+    activity: Vec<mcp::activity::Entry>,
+}
+
+fn mcp_view() -> CmdResult<McpView> {
+    let home = paths::home();
+    let settings = Settings::load().map_err(err)?;
+    let tools = mcp::TOOLS
+        .iter()
+        .map(|t| McpToolView {
+            name: t.name,
+            title: t.title,
+            description: t.description,
+            action: t.action,
+            allowed: !t.action || settings.mcp.allow.contains(t.name),
+        })
+        .collect();
+    Ok(McpView {
+        setup: cli_program().map(|cli| mcp::client_setup(&home, &cli)),
+        tools,
+        activity: mcp::activity::recent(&home, 100),
+    })
+}
+
+#[tauri::command]
+fn mcp_status() -> CmdResult<McpView> {
+    mcp_view()
+}
+
+#[tauri::command]
+fn set_mcp_tool(name: String, allowed: bool) -> CmdResult<McpView> {
+    let mut settings = Settings::load().map_err(err)?;
+    mcp::set_allowed(&mut settings, &name, allowed).map_err(err)?;
+    settings.save().map_err(err)?;
+    mcp_view()
+}
+
 #[tauri::command]
 fn service_states(engine: State<'_, Arc<Engine>>) -> Vec<(String, ProcessState)> {
     engine.supervisor().states()
@@ -773,7 +827,9 @@ pub fn run() {
             system_status,
             run_system_setup,
             terminal_status,
-            set_terminal
+            set_terminal,
+            mcp_status,
+            set_mcp_tool
         ])
         .setup(move |app| {
             let tray = match build_tray(app.handle()) {
@@ -846,6 +902,12 @@ fn answer_cli(app: &AppHandle, request: Request) -> Response {
         Request::HandOver => Response::Failed {
             message: "the Stackyard app is running services; quit it first".into(),
         },
+        Request::SitesChanged => {
+            let response = app.state::<Arc<Engine>>().handle(Request::SitesChanged);
+            // A terminal or an AI tool changed the sites: show them.
+            let _ = app.emit("sites-changed", ());
+            response
+        }
         other => app.state::<Arc<Engine>>().handle(other),
     }
 }
