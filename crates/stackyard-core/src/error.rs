@@ -64,6 +64,12 @@ pub enum Error {
     ServiceSetup { name: String, message: String },
     #[error("{name} {version} is not installed")]
     NotInstalled { name: String, version: String },
+    #[error("{0} is not a folder")]
+    NotAFolder(PathBuf),
+    #[error("{0} is not parked")]
+    NotParked(PathBuf),
+    #[error("system setup failed: {0}")]
+    SystemSetup(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

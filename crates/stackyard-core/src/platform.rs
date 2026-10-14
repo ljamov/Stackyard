@@ -58,3 +58,16 @@ impl fmt::Display for Os {
         })
     }
 }
+
+/// Whether this process runs as root (always false on Windows, where
+/// administrator rights are asked for per action).
+#[cfg(unix)]
+pub fn running_as_root() -> bool {
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(not(unix))]
+pub fn running_as_root() -> bool {
+    false
+}

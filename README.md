@@ -4,8 +4,8 @@ A local development environment for Windows, macOS and Linux. Manage PHP, Node.j
 databases, web servers and local HTTPS sites such as `https://myapp.stack` from one desktop app,
 with no containers.
 
-> Status: early prototype. The app shell, site list, settings, runtime installs and services
-> (install, start, stop, logs) work; local sites with HTTPS arrive in the next milestone.
+> Status: early prototype. Runtimes, services and local sites with HTTPS work; a background
+> service, tray icon and installers come next.
 
 ## What's here
 
@@ -24,6 +24,38 @@ Settings and sites are stored as TOML in the OS data folder (for example
 New sites end in `.stack` by default. Change it in the app (Sites › Domain ending) or with
 `stackyard tld .test`. If `.stack` ever becomes a public domain ending, the default moves to `.test`,
 which is reserved for testing. `.local` works but is not recommended because Bonjour/mDNS uses it.
+
+## Sites
+
+Add a site by hand, or park a folder (`stackyard sites park ~/Code`) so every project folder in it
+becomes a site named after the folder. Stackyard looks at each project to decide how to serve it:
+
+- **PHP**: Laravel, Symfony, CodeIgniter, Magento, CakePHP, Craft CMS, Yii, Drupal, WordPress
+  (including Bedrock), or any folder with an `index.php`. The right public folder is served, through
+  `php-fpm` on macOS and Linux and `php-cgi` on Windows, one process per PHP version in use.
+  Each version has its own `php.ini` in `config/php/<version>/`, created once with development
+  defaults and then left to you.
+- **Node**: a project with a `dev` or `start` script is proxied to its dev server. The port comes
+  from the script (`--port 4000`) or the framework's usual one (Vite 5173, Next.js 3000, Astro 4321…).
+- **Static files**: anything else, from `public/` or `dist/` when the page lives there.
+
+Every site answers at `https://<name><ending>` (`.stack` by default) and at `<name>.localhost`, which
+browsers send to your own computer, so sites work before setup.
+
+### Local domains and HTTPS
+
+`stackyard system setup` (or **Set up** on the Sites screen) asks for your password once and:
+
+| | macOS | Linux | Windows |
+| --- | --- | --- | --- |
+| Local names | `/etc/resolver/<ending>` pointing at Stackyard's DNS server on 127.0.0.1:53535 | A systemd-resolved drop-in doing the same (the hosts file without systemd-resolved) | A marked block in the hosts file |
+| HTTPS | Trusts Caddy's local root certificate in the System keychain | Adds it to the system certificates (and Chrome's list when `certutil` is installed) | Adds it to the trusted root certificates |
+| Ports 80 and 443 | Already allowed | Lets programs use ports from 80 (`/etc/sysctl.d/50-stackyard.conf`) | Already allowed |
+
+Only Stackyard's domain endings go to its DNS server; everything else resolves as before. The DNS
+server answers `127.0.0.1` for names under those endings and refuses everything else. When ports
+80 and 443 are taken, the web server uses 8080 and 8443 instead. `stackyard system setup --print`
+shows the exact commands first. With the hosts file, adding a site asks for setup again.
 
 ## Runtimes
 
@@ -49,7 +81,7 @@ listens on `127.0.0.1` only. Databases start with user `root` and no password.
 
 | Service | Ports | Source | Checked against |
 | --- | --- | --- | --- |
-| Caddy 2 (web server) | 8080 | Official GitHub releases | Caddy's SHA-512 list |
+| Caddy 2 (web server) | 80, 443 (8080, 8443 when taken) | Official GitHub releases | Caddy's SHA-512 list |
 | MySQL 8.4 | 3306 | Oracle's official downloads | SHA-256 from `.github/workflows/mysql-manifest.yml`, which first checks Oracle's GnuPG signature |
 | MariaDB 11.8 (Windows, Linux) | 3306 | MariaDB Foundation downloads | The Foundation's SHA-256 |
 | Mailpit (mail catcher) | 1025, 8025 | Official GitHub releases | GitHub's SHA-256 digest |
@@ -78,10 +110,14 @@ cargo run -p stackyard-cli -- sites list
 ## CLI
 
 ```sh
-stackyard sites add myapp --php 8.3 --path ~/Code/myapp
+stackyard sites add myapp --path ~/Code/myapp   # PHP, Node or static, detected
+stackyard sites add legacy --php 7.4 --path ~/Code/legacy
 stackyard sites add shop --node 22 --port 5173
+stackyard sites park ~/Code           # every project folder in ~/Code becomes a site
 stackyard sites list
 stackyard sites remove shop
+stackyard system setup                # local domains and HTTPS, asks for your password once
+stackyard up                          # run the web server (and e.g. `stackyard up mysql`) until Ctrl+C
 stackyard runtimes                    # versions, with installed and default marked
 stackyard runtimes install php 8.4
 stackyard runtimes default php 8.4

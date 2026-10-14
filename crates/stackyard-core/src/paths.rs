@@ -1,6 +1,6 @@
 //! Where Stackyard keeps its files.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Root folder for Stackyard's config, downloads and logs.
 ///
@@ -25,4 +25,15 @@ pub fn sites_file() -> PathBuf {
 
 pub fn logs_dir() -> PathBuf {
     home().join("logs")
+}
+
+/// `~/Code/app` → `/home/me/Code/app`; other paths are returned as they are.
+pub fn expand_home(path: &Path) -> PathBuf {
+    let Ok(rest) = path.strip_prefix("~") else {
+        return path.to_owned();
+    };
+    match dirs::home_dir() {
+        Some(home) => home.join(rest),
+        None => path.to_owned(),
+    }
 }
