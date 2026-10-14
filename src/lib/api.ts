@@ -78,6 +78,16 @@ export type SystemStatus = {
   dns_running: boolean;
 };
 
+export type TerminalStatus = {
+  /** The `stackyard` command-line program ships next to the app. */
+  available: boolean;
+  /** The commands exist and new terminals find them. */
+  on: boolean;
+  folder: string;
+  /** Start-up files, or the Windows Path, that carry the setting. */
+  places: string[];
+};
+
 export type Module = {
   id: string;
   name: string;
@@ -120,6 +130,9 @@ export interface Api {
   systemStatus(): Promise<SystemStatus>;
   /** Shows the system's password prompt, then applies setup. */
   runSystemSetup(): Promise<SystemStatus>;
+  terminalStatus(): Promise<TerminalStatus>;
+  /** Creates or removes the terminal commands and their PATH entry. */
+  setTerminal(on: boolean): Promise<TerminalStatus>;
 }
 
 const tauriApi: Api = {
@@ -148,6 +161,8 @@ const tauriApi: Api = {
   unparkFolder: (path) => invoke("unpark_folder", { path }),
   systemStatus: () => invoke("system_status"),
   runSystemSetup: () => invoke("run_system_setup"),
+  terminalStatus: () => invoke("terminal_status"),
+  setTerminal: (on) => invoke("set_terminal", { on }),
 };
 
 function browserApi(): Api {
@@ -219,7 +234,7 @@ function browserApi(): Api {
     mod("mariadb", "MariaDB", "service", "MySQL-compatible database (Windows and Linux)", false, true),
     mod("mailpit", "Mailpit", "service", "Catches outgoing mail for testing", false, true),
     mod("redis", "Redis", "service", "Cache and queues", false, false),
-    mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, false),
+    mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools manage sites and services", false, false),
   ];
   let tld = ".stack";
@@ -247,6 +262,12 @@ function browserApi(): Api {
     waiting_for_certificate: false,
     resolver: "mac-resolver",
     dns_running: true,
+  };
+  let terminal: TerminalStatus = {
+    available: true,
+    on: false,
+    folder: "~/Library/Application Support/Stackyard/bin",
+    places: [],
   };
   const warn = (t: string) =>
     t === ".local" ? ".local is used by Bonjour/mDNS for devices on your network" : null;
@@ -356,6 +377,11 @@ function browserApi(): Api {
       await new Promise((r) => setTimeout(r, 400));
       system = { ...system, needed: [] };
       return system;
+    },
+    terminalStatus: async () => terminal,
+    setTerminal: async (on) => {
+      terminal = { ...terminal, on, places: on ? ["~/.zshrc"] : [] };
+      return terminal;
     },
   };
 }

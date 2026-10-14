@@ -167,3 +167,102 @@ jobs:
             curl -fsS "https://php-app.stack$(suffix)/" | grep "PHP 8.4"
           fi
           stop
+
+  terminal:
+    name: Terminal commands end to end (${{ matrix.os }})
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      STACKYARD_GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build CLI
+        run: cargo build -p stackyard-cli
+      - name: Prepare
+        shell: bash
+        run: |
+          echo "STACKYARD_HOME=$RUNNER_TEMP/stackyard" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+          mkdir -p "$RUNNER_TEMP/code/old/src" "$RUNNER_TEMP/code/new"
+      - name: Install Node 22 and 20, and PHP
+        shell: bash
+        run: |
+          set -euo pipefail
+          stackyard runtimes install node 22
+          stackyard runtimes install node 20
+          if [ "$RUNNER_OS" = Windows ]; then
+            stackyard runtimes install php 8.4
+          elif [ "$RUNNER_OS" = Linux ]; then
+            # PHP builds for Linux are not published yet: stand in the
+            # runner's own PHP as an installed 8.3.
+            dir="$STACKYARD_HOME/runtimes/php/8.3"
+            mkdir -p "$dir/bin"
+            ln -s "$(command -v php)" "$dir/bin/php"
+            printf 'release = "8.3.0"\nurl = "https://example.com/php.tar.gz"\nchecksum = "%064d"\n' 0 > "$dir/.stackyard-install.toml"
+            stackyard modules on mariadb
+            stackyard services install mariadb
+          fi
+          stackyard runtimes
+      - name: Turn the commands on
+        shell: bash
+        run: |
+          set -euo pipefail
+          stackyard shims on --print
+          stackyard shims on
+          stackyard shims | tee "$RUNNER_TEMP/shims.txt"
+          grep -q "On your PATH" "$RUNNER_TEMP/shims.txt"
+          if [ "$RUNNER_OS" = Windows ]; then
+            powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path', 'User')" | tee "$RUNNER_TEMP/path.txt"
+            grep -qF 'stackyard\bin' "$RUNNER_TEMP/path.txt"
+          fi
+      - name: Each project gets its own version
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$RUNNER_TEMP/code"
+          if [ "$RUNNER_OS" = Windows ]; then
+            # A new terminal reads the user Path; this one was started
+            # before, so add the folder by hand.
+            export PATH="$(cygpath -u "$STACKYARD_HOME/bin"):$PATH"
+            raw() { (cd "$1" && eval "$2"); }
+          else
+            # A new terminal's shell reads the start-up files `shims on` changed.
+            raw() { "$SHELL" -ic "cd '$1' && $2" 2>/dev/null; }
+          fi
+          run() { raw "$@" | tail -n 1; }
+          (cd "$code/old" && stackyard use node 20)
+
+          echo "== node follows the nearest .stackyard file, else the default"
+          [[ "$(run "$code/old/src" 'node -v')" == v20.* ]]
+          [[ "$(run "$code/new" 'node -v')" == v22.* ]]
+          [[ "$(run "$code/old" 'npm -v')" =~ ^[0-9]+\. ]]
+          [[ "$(run "$code/new" 'npx --version')" =~ ^[0-9]+\. ]]
+          status=0; raw "$code/old" 'node -e "process.exit(3)"' || status=$?
+          [ "$status" -eq 3 ]
+          (cd "$code/old/src" && stackyard which)
+
+          if [ "$RUNNER_OS" != macOS ]; then
+            echo "== php and composer"
+            run "$code/new" 'php -r "echo PHP_VERSION;"'
+            run "$code/new" 'composer --version' | grep -i composer
+          fi
+          if [ "$RUNNER_OS" = Linux ]; then
+            echo "== the database client"
+            run "$code/new" 'mysql --version' | grep -i mariadb
+          fi
+      - name: Turn the commands off
+        shell: bash
+        run: |
+          set -euo pipefail
+          stackyard shims off
+          stackyard shims | grep -q "are off"
+          [ ! -e "$STACKYARD_HOME/bin/node" ] && [ ! -e "$STACKYARD_HOME/bin/node.exe" ]
+          if [ "$RUNNER_OS" != Windows ]; then
+            ! grep -q stackyard ~/.bashrc ~/.zshrc ~/.bash_profile ~/.profile 2>/dev/null
+          fi
