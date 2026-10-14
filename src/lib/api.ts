@@ -126,6 +126,37 @@ export type Module = {
   enabled: boolean;
 };
 
+export type TaskInput = {
+  name: string;
+  command: string;
+  folder: string;
+  schedule: string;
+  enabled: boolean;
+};
+
+export type TaskRun = {
+  /** Milliseconds since 1970. */
+  started: number;
+  took_ms: number;
+  outcome: "succeeded" | "failed" | "stopped" | "could-not-start";
+  exit_code: number | null;
+  message: string | null;
+  by_hand: boolean;
+};
+
+export type Task = TaskInput & {
+  id: string;
+  /** e.g. "Every day at 02:30"; null for schedules shown as written. */
+  description: string | null;
+  next_run: number | null;
+  last: TaskRun | null;
+  running_since: number | null;
+  /** Something that stops it from running, e.g. a folder that is gone. */
+  problem: string | null;
+};
+
+export type SchedulePreview = { description: string | null; runs: number[] };
+
 export type TldInfo = { tld: string; warning: string | null };
 
 export type NewSite = { name: string; path: string; runtime: string; https: boolean };
@@ -165,6 +196,16 @@ export interface Api {
   onSitesChanged(handler: () => void): Promise<() => void>;
   mcpStatus(): Promise<McpStatus>;
   setMcpTool(name: string, allowed: boolean): Promise<McpStatus>;
+  listTasks(): Promise<Task[]>;
+  addTask(task: TaskInput): Promise<Task[]>;
+  updateTask(id: string, task: TaskInput): Promise<Task[]>;
+  setTaskEnabled(id: string, enabled: boolean): Promise<Task[]>;
+  removeTask(id: string): Promise<Task[]>;
+  runTask(id: string): Promise<Task[]>;
+  stopTask(id: string): Promise<Task[]>;
+  /** Rejects with why when the schedule is not valid. */
+  previewSchedule(schedule: string): Promise<SchedulePreview>;
+  taskLog(id: string): Promise<string[]>;
 }
 
 const tauriApi: Api = {
@@ -198,6 +239,15 @@ const tauriApi: Api = {
   onSitesChanged: (handler) => listen("sites-changed", () => handler()),
   mcpStatus: () => invoke("mcp_status"),
   setMcpTool: (name, allowed) => invoke("set_mcp_tool", { name, allowed }),
+  listTasks: () => invoke("list_tasks"),
+  addTask: (task) => invoke("add_task", { task }),
+  updateTask: (id, task) => invoke("update_task", { id, task }),
+  setTaskEnabled: (id, enabled) => invoke("set_task_enabled", { id, enabled }),
+  removeTask: (id) => invoke("remove_task", { id }),
+  runTask: (id) => invoke("run_task", { id }),
+  stopTask: (id) => invoke("stop_task", { id }),
+  previewSchedule: (schedule) => invoke("preview_schedule", { schedule }),
+  taskLog: (id) => invoke("task_log", { id }),
 };
 
 function browserApi(): Api {
@@ -271,6 +321,50 @@ function browserApi(): Api {
     mod("redis", "Redis", "service", "Cache and queues", false, false),
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
+    mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),
+  ];
+  // A rough stand-in for the core's schedule reading, enough for previews.
+  const samplePreview = (schedule: string): SchedulePreview => {
+    const s = schedule.trim().replace(/\s+/g, " ");
+    const known: Record<string, [string, number]> = {
+      "* * * * *": ["Every minute", 1],
+      "*/5 * * * *": ["Every 5 minutes", 5],
+      "*/15 * * * *": ["Every 15 minutes", 15],
+      "0 * * * *": ["Every hour, on the hour", 60],
+      "0 0 * * *": ["Every day at 00:00", 1440],
+      "@daily": ["Every day at 00:00", 1440],
+      "@hourly": ["Every hour, on the hour", 60],
+      "30 2 * * *": ["Every day at 02:30", 1440],
+    };
+    if (s.split(" ").length !== 5 && !s.startsWith("@"))
+      throw "a schedule has five parts: minute hour day month weekday, e.g. `*/5 * * * *`";
+    const [description, every] = known[s] ?? [null, 60];
+    const start = Math.ceil(Date.now() / 60_000) * 60_000;
+    const first = every === 1 ? 0 : every;
+    return { description, runs: [0, 1, 2].map((i) => start + (first + i * every) * 60_000) };
+  };
+  const task = (id: string, input: TaskInput, preview: SchedulePreview, last: TaskRun | null): Task => ({
+    ...input,
+    id,
+    description: preview.description,
+    next_run: input.enabled ? preview.runs[0] : null,
+    last,
+    running_since: null,
+    problem: null,
+  });
+  let tasks: Task[] = [
+    task(
+      "k3v9xq2m",
+      { name: "Laravel scheduler (blog)", command: "php artisan schedule:run", folder: "~/Code/blog", schedule: "* * * * *", enabled: true },
+      samplePreview("* * * * *"),
+      { started: Date.now() - 40_000, took_ms: 420, outcome: "succeeded", exit_code: 0, message: null, by_hand: false },
+    ),
+    task(
+      "p7c2wd8n",
+      { name: "Nightly backup", command: "./scripts/backup.sh", folder: "~/Code/shop", schedule: "30 2 * * *", enabled: true },
+      samplePreview("30 2 * * *"),
+      { started: Date.now() - 20 * 3600_000, took_ms: 8300, outcome: "failed", exit_code: 1, message: null, by_hand: false },
+    ),
   ];
   let tld = ".stack";
   const sample = (name: string, runtime: string, framework: string | null, parked: boolean, problem: string | null = null): Site => ({
@@ -462,6 +556,57 @@ function browserApi(): Api {
     setMcpTool: async (name, allowed) => {
       mcp = { ...mcp, tools: mcp.tools.map((t) => (t.name === name && t.action ? { ...t, allowed } : t)) };
       return mcp;
+    },
+    listTasks: async () => tasks,
+    addTask: async (input) => {
+      const preview = samplePreview(input.schedule);
+      if (!input.name.trim()) throw "give the task a name";
+      if (!input.command.trim()) throw "enter the command to run";
+      if (tasks.some((t) => t.name.toLowerCase() === input.name.trim().toLowerCase()))
+        throw `a task called ${input.name} already exists`;
+      const id = Math.random().toString(36).slice(2, 10).padEnd(8, "x");
+      tasks = [...tasks, task(id, { ...input, name: input.name.trim() }, preview, null)];
+      return tasks;
+    },
+    updateTask: async (id, input) => {
+      const preview = samplePreview(input.schedule);
+      tasks = tasks.map((t) => (t.id === id ? task(id, input, preview, t.last) : t));
+      return tasks;
+    },
+    setTaskEnabled: async (id, enabled) => {
+      tasks = tasks.map((t) => (t.id === id ? { ...t, enabled, next_run: enabled ? t.next_run ?? Date.now() + 60_000 : null } : t));
+      return tasks;
+    },
+    removeTask: async (id) => {
+      tasks = tasks.filter((t) => t.id !== id);
+      return tasks;
+    },
+    runTask: async (id) => {
+      const started = Date.now();
+      tasks = tasks.map((t) => (t.id === id ? { ...t, running_since: started } : t));
+      setTimeout(() => {
+        tasks = tasks.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                running_since: null,
+                last: { started, took_ms: 1200, outcome: "succeeded", exit_code: 0, message: null, by_hand: true },
+              }
+            : t,
+        );
+      }, 1500);
+      return tasks;
+    },
+    stopTask: async (id) => {
+      tasks = tasks.map((t) => (t.id === id ? { ...t, running_since: null } : t));
+      return tasks;
+    },
+    previewSchedule: async (schedule) => samplePreview(schedule),
+    taskLog: async (id) => {
+      const t = tasks.find((x) => x.id === id);
+      return t?.last
+        ? [`--- 2026-10-14 22:05 ${t.name} started on schedule: ${t.command} ---`, "INFO  Running scheduled tasks.", "--- finished with exit code 0 after 0.4 s ---"]
+        : [];
     },
   };
 }

@@ -18,6 +18,7 @@ use stackyard_core::engine::Engine;
 use stackyard_core::mcp;
 use stackyard_core::modules::MODULES;
 use stackyard_core::runtimes::{RuntimeManager, Step};
+use stackyard_core::scheduler::{self, clock, Outcome, TaskInput};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::shell::{self, path as user_path, pins, shims, Tool};
@@ -108,11 +109,43 @@ enum Command {
     },
     /// Pin a version for this project in its `.stackyard` file, e.g. `use php 8.3`
     Use(RuntimeArgs),
+    /// List scheduled tasks, or add, run and remove them
+    Tasks {
+        #[command(subcommand)]
+        action: Option<TasksAction>,
+    },
     /// Serve AI coding tools over MCP on stdin and stdout; `mcp setup` shows how to add it
     Mcp {
         #[command(subcommand)]
         action: Option<McpAction>,
     },
+}
+
+#[derive(Subcommand)]
+enum TasksAction {
+    /// Add a task, e.g. `tasks add "Laravel scheduler" --run "php artisan schedule:run" --every "* * * * *"`
+    Add {
+        name: String,
+        /// The command, run by the system shell
+        #[arg(long)]
+        run: String,
+        /// When: crontab's five fields (minute hour day month weekday) or @hourly, @daily, @weekly
+        #[arg(long)]
+        every: String,
+        /// The folder to run it in; this one when left out
+        #[arg(long = "in")]
+        folder: Option<PathBuf>,
+    },
+    /// Run a task now, here in the terminal
+    Run { task: String },
+    /// Switch a task on
+    On { task: String },
+    /// Switch a task off; it stays in the list
+    Off { task: String },
+    /// Remove a task with its log
+    Remove { task: String },
+    /// Show when a schedule runs, e.g. `tasks check "0 9 * * mon-fri"`
+    Check { schedule: String },
 }
 
 #[derive(Subcommand)]
@@ -617,6 +650,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 );
             }
         }
+        Command::Tasks { action } => tasks(action)?,
         Command::Mcp { action } => mcp(action)?,
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
         Command::Tld { value: Some(value) } => {
@@ -710,6 +744,153 @@ fn allow_mcp_tool(tool: &str, allowed: bool) -> stackyard_core::Result<()> {
 }
 
 /// `2026-10-14 22:05:09 UTC` from milliseconds since 1970.
+fn tasks(action: Option<TasksAction>) -> stackyard_core::Result<()> {
+    let home = paths::home();
+    let settings = Settings::load()?;
+    if !matches!(action, Some(TasksAction::Check { .. })) {
+        settings.require_module("scheduler")?;
+    }
+    match action {
+        None => {
+            let views = scheduler::views(&home)?;
+            if views.is_empty() {
+                println!("No tasks yet. Add one with `stackyard tasks add <name> --run <command> --every <schedule>`.");
+                return Ok(());
+            }
+            for view in views {
+                let task = &view.task;
+                let when = view.description.unwrap_or_else(|| task.schedule.clone());
+                let state = match (
+                    &view.problem,
+                    task.enabled,
+                    view.running_since,
+                    view.next_run,
+                ) {
+                    (Some(problem), _, _, _) => problem.clone(),
+                    (_, _, Some(_), _) => "running now".into(),
+                    (_, false, _, _) => "switched off".into(),
+                    (_, _, _, Some(next)) => format!("next {}", local_time(next)),
+                    _ => "never due".into(),
+                };
+                println!("{}  {}  ({when}; {state})", task.id, task.name);
+                println!("          {}  in {}", task.command, task.folder.display());
+                if let Some(last) = view.last {
+                    let how = match (last.outcome, last.exit_code) {
+                        (Outcome::Succeeded, _) => "succeeded".to_string(),
+                        (Outcome::Failed, Some(code)) => format!("failed with exit code {code}"),
+                        (Outcome::Failed, None) => "failed".to_string(),
+                        (Outcome::Stopped, _) => "was stopped".to_string(),
+                        (Outcome::CouldNotStart, _) => {
+                            format!("could not start: {}", last.message.unwrap_or_default())
+                        }
+                    };
+                    println!("          last run {} {how}", local_time(last.started));
+                }
+            }
+            println!("\nTasks run while Stackyard runs: the app, or `stackyard start` in the background.");
+            println!("Each task's output: stackyard logs task-<id>");
+        }
+        Some(TasksAction::Add {
+            name,
+            run,
+            every,
+            folder,
+        }) => {
+            let folder = match folder {
+                Some(f) if f.is_absolute() => f,
+                Some(f) => std::env::current_dir()
+                    .map(|d| d.join(f))
+                    .unwrap_or_default(),
+                None => std::env::current_dir().unwrap_or_default(),
+            };
+            let task = scheduler::add(
+                &home,
+                TaskInput {
+                    name,
+                    command: run,
+                    folder,
+                    schedule: every,
+                    enabled: true,
+                },
+            )?;
+            let when = scheduler::cron::describe(&task.schedule).unwrap_or(task.schedule.clone());
+            println!("Added {} ({}): {when}.", task.name, task.id);
+            if let Some(next) = scheduler::preview(&task.schedule, 1)?.first() {
+                println!("First run {}.", local_time(*next));
+            }
+            if control::find(&home).is_none() {
+                println!("Tasks run while Stackyard runs: open the app, or `stackyard start`.");
+            }
+        }
+        Some(TasksAction::Run { task }) => {
+            let task = scheduler::find(&home, &task)?;
+            eprintln!("Running {} in {}", task.name, task.folder.display());
+            let status = scheduler::command(&home, &task)
+                .status()
+                .map_err(|source| Error::Io {
+                    path: task.folder.clone(),
+                    source,
+                })?;
+            if !status.success() {
+                return Err(Error::Task(match status.code() {
+                    Some(code) => format!("{} failed with exit code {code}", task.name),
+                    None => format!("{} was stopped", task.name),
+                }));
+            }
+        }
+        Some(TasksAction::On { task }) => {
+            let task = scheduler::find(&home, &task)?;
+            scheduler::set_enabled(&home, &task.id, true)?;
+            println!("{} is on.", task.name);
+        }
+        Some(TasksAction::Off { task }) => {
+            let task = scheduler::find(&home, &task)?;
+            scheduler::set_enabled(&home, &task.id, false)?;
+            println!("{} is off.", task.name);
+        }
+        Some(TasksAction::Remove { task }) => {
+            let task = scheduler::find(&home, &task)?;
+            scheduler::remove(&home, &task.id)?;
+            println!("Removed {}.", task.name);
+        }
+        Some(TasksAction::Check { schedule }) => {
+            let runs = scheduler::preview(&schedule, 5)?;
+            if let Some(text) = scheduler::cron::describe(&schedule) {
+                println!("{text}.");
+            }
+            if runs.is_empty() {
+                println!("It never runs: no such date comes up in the next four years.");
+            }
+            for run in runs {
+                println!("  {}", local_time(run));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// e.g. `Wed 14 Oct 22:05`, in this computer's time zone.
+fn local_time(ms: u64) -> String {
+    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let m = clock::local((ms / 1000) as i64);
+    let year = if m.year == clock::local(clock::now()).year {
+        String::new()
+    } else {
+        format!(" {}", m.year)
+    };
+    format!(
+        "{} {} {}{year} {:02}:{:02}",
+        DAYS[m.weekday as usize % 7],
+        m.day,
+        MONTHS[(m.month as usize + 11) % 12],
+        m.hour,
+        m.minute
+    )
+}
+
 fn utc_time(ms: u64) -> String {
     let secs = ms / 1000;
     let (days, rest) = ((secs / 86_400) as i64, secs % 86_400);
@@ -846,7 +1027,7 @@ fn up(services: &[String]) -> stackyard_core::Result<()> {
     println!("Press Ctrl+C to stop.");
     let _ = quit_rx.recv();
     eprintln!("Stopping...");
-    engine.stop_all();
+    engine.shutdown();
     Ok(())
 }
 
@@ -869,7 +1050,7 @@ fn daemon() -> stackyard_core::Result<()> {
     // Let the answer to `stop` or `hand-over` reach the caller.
     std::thread::sleep(Duration::from_millis(300));
     drop(server);
-    engine.stop_all();
+    engine.shutdown();
     Ok(())
 }
 
