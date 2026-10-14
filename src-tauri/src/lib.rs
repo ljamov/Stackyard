@@ -11,6 +11,7 @@ use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::dns;
 use stackyard_core::engine::Engine;
+use stackyard_core::logs;
 use stackyard_core::mcp;
 use stackyard_core::modules::{ModuleGroup, MODULES};
 use stackyard_core::runtimes::{RuntimeManager, Step};
@@ -402,6 +403,21 @@ fn service_log(id: String, engine: State<'_, Arc<Engine>>) -> CmdResult<Vec<Stri
         return Err(format!("unknown service {id:?}"));
     }
     engine.supervisor().tail_log(&id, 200).map_err(err)
+}
+
+#[tauri::command]
+fn list_logs() -> Vec<logs::LogFile> {
+    logs::list(&paths::home())
+}
+
+/// The end of a log (`from` left out), or what was written since `from`.
+#[tauri::command]
+fn read_log(id: String, from: Option<u64>, lines: usize) -> CmdResult<logs::Chunk> {
+    Settings::load()
+        .map_err(err)?
+        .require_module("logs")
+        .map_err(err)?;
+    logs::read(&paths::home(), &id, from, lines.min(5000)).map_err(err)
 }
 
 #[tauri::command]
@@ -829,7 +845,9 @@ pub fn run() {
             terminal_status,
             set_terminal,
             mcp_status,
-            set_mcp_tool
+            set_mcp_tool,
+            list_logs,
+            read_log
         ])
         .setup(move |app| {
             let tray = match build_tray(app.handle()) {
