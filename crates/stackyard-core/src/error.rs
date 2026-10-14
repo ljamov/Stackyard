@@ -22,6 +22,22 @@ pub enum Error {
         #[source]
         source: toml::de::Error,
     },
+    #[error("unknown module {0:?}")]
+    UnknownModule(String),
+    #[error("{0} is not available yet")]
+    ModuleUnavailable(String),
+    #[error("{name} is switched off in Settings › Modules")]
+    ModuleOff { name: String },
+    #[error("port {port} is already in use, so {name} cannot start")]
+    PortInUse { name: String, port: u16 },
+    #[error("could not start {program}: {source}")]
+    Spawn {
+        program: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("no process named {0:?}")]
+    UnknownProcess(String),
     #[error("could not save settings: {0}")]
     Serialize(#[from] toml::ser::Error),
 }

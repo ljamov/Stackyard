@@ -4,9 +4,12 @@
 pub mod catalog;
 pub mod domain;
 pub mod error;
+pub mod modules;
 pub mod paths;
+pub mod ports;
 pub mod settings;
 pub mod sites;
+pub mod supervisor;
 
 pub use error::{Error, Result};
 

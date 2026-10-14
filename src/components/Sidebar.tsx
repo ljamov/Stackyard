@@ -1,4 +1,5 @@
 import { Logo } from "./Logo";
+import { useModules } from "../lib/modules";
 
 export const SCREENS = [
   "Dashboard",
@@ -13,14 +14,23 @@ export const SCREENS = [
 
 export type Screen = (typeof SCREENS)[number];
 
+/** Screens that belong to a module and disappear when it is switched off. */
+const SCREEN_MODULE: Partial<Record<Screen, string>> = {
+  Databases: "databases",
+  "AI tools": "mcp",
+  "MCP server": "mcp",
+};
+
 export function Sidebar({ current, onSelect }: { current: Screen; onSelect: (s: Screen) => void }) {
+  const { isOn } = useModules();
+  const visible = SCREENS.filter((s) => !SCREEN_MODULE[s] || isOn(SCREEN_MODULE[s]!));
   return (
     <nav className="sidebar" aria-label="Main">
       <div className="brand">
         <Logo />
         <span>Stackyard</span>
       </div>
-      {SCREENS.map((screen) => (
+      {visible.map((screen) => (
         <button
           key={screen}
           type="button"
