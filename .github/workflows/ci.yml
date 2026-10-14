@@ -65,5 +65,7 @@ jobs:
         run: cargo build -p stackyard-cli
       - name: Core tests on this OS
         run: cargo test -p stackyard-core
-      - name: Live download check (nodejs.org and php.net)
-        run: cargo test -p stackyard-core -- --ignored live_
+      - name: Live checks (real downloads, services started for real)
+        env:
+          STACKYARD_GITHUB_TOKEN: ${{ github.token }}
+        run: cargo test -p stackyard-core -- --ignored live_ --nocapture

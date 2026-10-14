@@ -121,3 +121,10 @@ td { padding: 12px 18px; border-top: 1px solid var(--border); }
 .progress-fill.busy { animation: progress-busy 1.2s ease-in-out infinite alternate; }
 @keyframes progress-busy { from { margin-left: 0; } to { margin-left: 70%; } }
 @media (prefers-reduced-motion: reduce) { .progress-fill, .progress-fill.busy { transition: none; animation: none; } }
+.status.ok { color: var(--ok); }
+.status.warn { color: var(--warn); }
+.status.error { color: var(--error); }
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.error { background: var(--error); }
+.log { max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }

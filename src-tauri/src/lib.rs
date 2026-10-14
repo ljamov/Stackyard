@@ -5,9 +5,11 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 
 use serde::Serialize;
-use stackyard_core::catalog::{self, RuntimeKind, ServiceDef, RUNTIMES, SERVICES};
-use stackyard_core::modules::{ModuleDef, MODULES};
+use stackyard_core::catalog::RUNTIMES;
+use stackyard_core::catalog::{self, RuntimeKind, SERVICES};
+use stackyard_core::modules::{ModuleGroup, MODULES};
 use stackyard_core::runtimes::{RuntimeManager, Step};
+use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
@@ -197,9 +199,174 @@ fn set_default_runtime(
     runtime_views(&installs)
 }
 
-#[tauri::command]
-fn list_services() -> &'static [ServiceDef] {
+#[derive(Serialize)]
+struct ServiceView {
+    id: &'static str,
+    name: &'static str,
+    version: &'static str,
+    ports: &'static [u16],
+    role: &'static str,
+    web: Option<&'static str>,
+    /// Exact installed release, or null when not installed.
+    installed: Option<String>,
+    installing: bool,
+    #[serde(flatten)]
+    state: ProcessState,
+}
+
+#[derive(Clone, Serialize)]
+struct ServiceProgress {
+    id: String,
+    #[serde(flatten)]
+    step: Step,
+}
+
+fn service_views(supervisor: &Supervisor, installs: &Installs) -> Vec<ServiceView> {
+    let manager = ServiceManager::open();
+    let busy = installs.0.lock().unwrap().clone();
     SERVICES
+        .iter()
+        .map(|def| ServiceView {
+            id: def.id,
+            name: def.name,
+            version: def.version,
+            ports: def.ports,
+            role: def.role,
+            web: def.web,
+            installed: manager.get(def.id).map(|i| i.release),
+            installing: busy.contains(&format!("service/{}", def.id)),
+            state: supervisor.state(def.id),
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn list_services(
+    supervisor: State<'_, Supervisor>,
+    installs: State<'_, Installs>,
+) -> Vec<ServiceView> {
+    service_views(&supervisor, &installs)
+}
+
+/// Runs on a worker thread; progress arrives as `service-progress` events.
+#[tauri::command]
+async fn install_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceView>> {
+    Settings::load()
+        .map_err(err)?
+        .require_module(&id)
+        .map_err(err)?;
+    let key = format!("service/{id}");
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(key.clone())
+    {
+        return Err(format!("{id} is already being installed"));
+    }
+    let worker = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        ServiceManager::open().install(&id, &mut |step| {
+            let _ = worker.emit(
+                "service-progress",
+                ServiceProgress {
+                    id: id.clone(),
+                    step,
+                },
+            );
+        })
+    })
+    .await;
+    app.state::<Installs>().0.lock().unwrap().remove(&key);
+    result.map_err(|e| e.to_string())?.map_err(err)?;
+    Ok(service_views(
+        &app.state::<Supervisor>(),
+        &app.state::<Installs>(),
+    ))
+}
+
+#[tauri::command]
+fn uninstall_service(
+    id: String,
+    supervisor: State<'_, Supervisor>,
+    installs: State<'_, Installs>,
+) -> CmdResult<Vec<ServiceView>> {
+    if supervisor.state(&id) != ProcessState::Stopped {
+        supervisor.stop(&id).map_err(err)?;
+    }
+    ServiceManager::open().uninstall(&id).map_err(err)?;
+    Ok(service_views(&supervisor, &installs))
+}
+
+/// Preparing a database the first time takes a few seconds, so this runs
+/// on a worker thread.
+#[tauri::command]
+async fn start_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceView>> {
+    Settings::load()
+        .map_err(err)?
+        .require_module(&id)
+        .map_err(err)?;
+    let spec = tauri::async_runtime::spawn_blocking(move || ServiceManager::open().spec(&id))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)?;
+    app.state::<Supervisor>().start(spec).map_err(err)?;
+    Ok(service_views(
+        &app.state::<Supervisor>(),
+        &app.state::<Installs>(),
+    ))
+}
+
+#[tauri::command]
+fn stop_service(
+    id: String,
+    supervisor: State<'_, Supervisor>,
+    installs: State<'_, Installs>,
+) -> CmdResult<Vec<ServiceView>> {
+    supervisor.stop(&id).map_err(err)?;
+    Ok(service_views(&supervisor, &installs))
+}
+
+/// Opens a local page (a service's web interface) in the default browser.
+/// Only loopback addresses are allowed, so the interface cannot be used to
+/// launch arbitrary programs or URLs.
+#[tauri::command]
+fn open_local_page(url: String) -> CmdResult<()> {
+    let local = [
+        "http://127.0.0.1:",
+        "http://localhost:",
+        "https://127.0.0.1:",
+        "https://localhost:",
+    ];
+    let safe = url
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b":/.-_?=&%".contains(&b));
+    if !safe || !local.iter().any(|p| url.starts_with(p)) {
+        return Err(format!("not a local page: {url}"));
+    }
+    #[cfg(target_os = "macos")]
+    let mut cmd = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = std::process::Command::new("xdg-open");
+    cmd.arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not open {url}: {e}"))
+}
+
+#[tauri::command]
+fn service_log(id: String, supervisor: State<'_, Supervisor>) -> CmdResult<Vec<String>> {
+    if catalog::service(&id).is_none() {
+        return Err(format!("unknown service {id:?}"));
+    }
+    supervisor.tail_log(&id, 200).map_err(err)
 }
 
 #[tauri::command]
@@ -224,8 +391,13 @@ fn set_tld(value: String) -> CmdResult<TldView> {
 
 #[derive(Serialize)]
 struct ModuleView {
-    #[serde(flatten)]
-    def: &'static ModuleDef,
+    id: &'static str,
+    name: &'static str,
+    group: ModuleGroup,
+    description: &'static str,
+    on_by_default: bool,
+    /// Can be switched on here: built, and offered for this system.
+    available: bool,
     enabled: bool,
 }
 
@@ -233,7 +405,12 @@ fn module_views(settings: &Settings) -> Vec<ModuleView> {
     MODULES
         .iter()
         .map(|def| ModuleView {
-            def,
+            id: def.id,
+            name: def.name,
+            group: def.group,
+            description: def.description,
+            on_by_default: def.on_by_default,
+            available: def.available_here(),
             enabled: settings.module_enabled(def.id),
         })
         .collect()
@@ -323,6 +500,12 @@ pub fn run() {
             uninstall_runtime,
             set_default_runtime,
             list_services,
+            install_service,
+            uninstall_service,
+            start_service,
+            stop_service,
+            service_log,
+            open_local_page,
             list_modules,
             set_module,
             service_states,

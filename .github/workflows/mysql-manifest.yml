@@ -1,0 +1,119 @@
+# Oracle publishes MySQL downloads with MD5 sums and GnuPG signatures only.
+# This job downloads each official file, checks its signature against
+# Oracle's MySQL release key, and publishes a manifest.json (on the "mysql"
+# release) with each file's SHA-256 and official download address. The app
+# downloads straight from Oracle and checks the file against that SHA-256.
+
+name: MySQL manifest
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: MySQL 8.4 version to list (empty = newest on the downloads page)
+        default: ""
+      publish:
+        description: Publish to the mysql release
+        type: boolean
+        default: true
+  schedule:
+    # Mondays, to pick up Oracle's quarterly updates.
+    - cron: "41 3 * * 1"
+  pull_request:
+    paths: [".github/workflows/mysql-manifest.yml"]
+
+permissions:
+  contents: read
+
+env:
+  # Oracle's MySQL release signing key (MySQL 8.4.7 and later).
+  MYSQL_KEY: BCA43417C3B485DD128EC6D4B7B3B788A8D3785C
+  LINE: "8.4"
+
+jobs:
+  manifest:
+    name: Check and list MySQL files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      EVENT: ${{ github.event_name }}
+      VERSION_INPUT: ${{ inputs.version }}
+      PUBLISH_INPUT: ${{ inputs.publish }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: mysql
+    steps:
+      - name: Pick the version
+        run: |
+          if [ -n "$VERSION_INPUT" ]; then
+            version="$VERSION_INPUT"
+          else
+            version=$(curl -fsSL --retry 3 "https://dev.mysql.com/downloads/mysql/$LINE.html" \
+              | grep -oE "mysql-$LINE\.[0-9]+-winx64\.zip" | sed -E 's/^mysql-([0-9.]+)-winx64\.zip$/\1/' \
+              | sort -V | tail -1)
+          fi
+          [[ "$version" =~ ^${LINE//./\\.}\.[0-9]+$ ]] || { echo "::error::no MySQL $LINE version found ($version)"; exit 1; }
+          echo "MySQL $version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Import Oracle's release key
+        run: |
+          gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$MYSQL_KEY" \
+            || gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$MYSQL_KEY"
+          gpg --batch --fingerprint "$MYSQL_KEY"
+
+      - name: Download, verify and list
+        run: |
+          # platform → file; the Linux build is the small "minimal" one.
+          files=(
+            "linux-x86_64 mysql-$VERSION-linux-glibc2.28-x86_64-minimal.tar.xz"
+            "macos-aarch64 mysql-$VERSION-macos15-arm64.tar.gz"
+            "macos-x86_64 mysql-$VERSION-macos15-x86_64.tar.gz"
+            "windows-x86_64 mysql-$VERSION-winx64.zip"
+          )
+          # A pull request only checks that this job works, on the smallest file.
+          [ "$EVENT" = pull_request ] && files=("${files[0]}")
+
+          mkdir -p dl entries
+          for entry in "${files[@]}"; do
+            platform=${entry%% *}; file=${entry#* }
+            url="https://cdn.mysql.com/Downloads/MySQL-$LINE/$file"
+            if ! curl -fsSL --retry 3 -o "dl/$file" "$url"; then
+              url="https://downloads.mysql.com/archives/get/p/23/file/$file"
+              curl -fsSL --retry 3 -o "dl/$file" "$url"
+            fi
+
+            # The signature: a .asc next to the file, or Oracle's signature page.
+            if ! curl -fsSL -o "dl/$file.asc" "https://cdn.mysql.com/Downloads/MySQL-$LINE/$file.asc"; then
+              curl -fsSL --retry 3 "https://dev.mysql.com/downloads/gpg/?file=$file&p=23" \
+                | sed -e 's/<br *\/*>/\n/g' -e 's/<[^>]*>//g' -e 's/&#43;/+/g' -e 's/&#x2B;/+/g' -e 's/&#x2F;/\//g' -e 's/&#61;/=/g' \
+                | sed -n '/-----BEGIN PGP SIGNATURE-----/,/-----END PGP SIGNATURE-----/p' > "dl/$file.asc"
+            fi
+            grep -q "BEGIN PGP SIGNATURE" "dl/$file.asc" || { echo "::error::no signature found for $file"; exit 1; }
+
+            status=$(gpg --batch --status-fd 1 --verify "dl/$file.asc" "dl/$file" 2>/dev/null || true)
+            grep -q "^\[GNUPG:\] VALIDSIG $MYSQL_KEY " <<<"$status" \
+              || grep -q "^\[GNUPG:\] VALIDSIG [0-9A-F]* [^ ]* [0-9]* [0-9]* [^ ]* [^ ]* [^ ]* [^ ]* [^ ]* $MYSQL_KEY" <<<"$status" \
+              || { echo "::error::signature check failed for $file"; echo "$status"; exit 1; }
+            echo "Signature OK: $file"
+
+            sha=$(sha256sum "dl/$file" | cut -d' ' -f1)
+            jq -n --arg major "$LINE" --arg version "$VERSION" --arg platform "$platform" \
+              --arg file "$file" --arg url "$url" --arg sha256 "$sha" \
+              '{major: $major, version: $version, platform: $platform, file: $file, url: $url, sha256: $sha256}' \
+              > "entries/$platform.json"
+            rm "dl/$file"
+          done
+          jq -s '{schema: 1, generated: (now | todate), builds: .}' entries/*.json > manifest.json
+          cat manifest.json
+
+      - name: Publish
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
+        run: |
+          if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" -R "$REPO" --latest=false --title "MySQL downloads" \
+              --notes "manifest.json lists Oracle's official MySQL $LINE downloads with SHA-256 checksums, each checked against Oracle's GnuPG release signature first. The files themselves are downloaded from Oracle."
+          fi
+          gh release upload "$TAG" -R "$REPO" --clobber manifest.json
