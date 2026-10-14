@@ -21,7 +21,11 @@ use crate::download::Http;
 use crate::install::{self, Release, Step};
 use crate::modules;
 use crate::platform::{Os, Platform};
-use crate::supervisor::ProcessSpec;
+use crate::runtimes::RuntimeManager;
+use crate::settings::Settings;
+use crate::supervisor::{ProcessSpec, ProcessState, Supervisor};
+use crate::system::Wanted;
+use crate::web::{self, Ports, ServedSite};
 use crate::{paths, Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -173,12 +177,95 @@ impl ServiceManager {
             })?;
         }
         match def.id {
-            "caddy" => caddy::spec(&ctx),
+            "caddy" => {
+                let sites = self.sites()?;
+                let ports = Ports::choose();
+                ports.save(&self.home)?;
+                caddy::spec(&ctx, ports, &web::caddy_sites(&sites))
+            }
             "mailpit" => mailpit::spec(&ctx),
             "mysql" => mysql::spec(&ctx),
             "mariadb" => mariadb::spec(&ctx),
             _ => Err(Error::UnknownModule(id.to_string())),
         }
+    }
+}
+
+impl ServiceManager {
+    /// Every site the web server serves.
+    pub fn sites(&self) -> Result<Vec<ServedSite>> {
+        let settings = Settings::load_from(&self.home.join("settings.toml"))?;
+        web::sites(&self.home, &settings, &RuntimeManager::new(&self.home))
+    }
+
+    /// The web server and the PHP processes its sites need, in start order
+    /// (PHP first, so the first page view already works).
+    pub fn web_specs(&self) -> Result<Vec<ProcessSpec>> {
+        let sites = self.sites()?;
+        let mut specs = web::php_processes(&self.home, &sites, &RuntimeManager::new(&self.home))?;
+        specs.push(self.spec("caddy")?);
+        Ok(specs)
+    }
+
+    /// Starts the PHP processes the sites need and (re)starts the web server
+    /// so it picks up site changes. PHP versions no site uses any more stop.
+    pub fn start_web(&self, supervisor: &Supervisor) -> Result<()> {
+        if supervisor.state("caddy") != ProcessState::Stopped {
+            supervisor.stop("caddy")?;
+        }
+        let specs = self.web_specs()?;
+        for (id, state) in supervisor.states() {
+            let unused = !specs.iter().any(|s| s.id == id);
+            if id.starts_with("php-") && unused && state != ProcessState::Stopped {
+                supervisor.stop(&id)?;
+            }
+        }
+        for spec in specs {
+            supervisor.start(spec)?;
+        }
+        Ok(())
+    }
+
+    /// Stops the web server and every PHP process.
+    pub fn stop_web(&self, supervisor: &Supervisor) -> Result<()> {
+        for (id, state) in supervisor.states() {
+            if (id == "caddy" || id.starts_with("php-")) && state != ProcessState::Stopped {
+                supervisor.stop(&id)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Domain endings in use: the one for new sites, plus any older ones.
+    pub fn endings(&self) -> Result<Vec<String>> {
+        let settings = Settings::load_from(&self.home.join("settings.toml"))?;
+        let mut endings = vec![settings.tld];
+        for site in self.sites()? {
+            if !endings.contains(&site.site.tld) {
+                endings.push(site.site.tld);
+            }
+        }
+        Ok(endings)
+    }
+
+    /// What system setup should cover right now.
+    pub fn system_wanted(&self) -> Result<Wanted> {
+        let domains: Vec<String> = self.sites()?.iter().map(ServedSite::domain).collect();
+        Ok(Wanted::new(
+            self.platform.os,
+            &self.endings()?,
+            &domains,
+            &self.root_certificate(),
+        ))
+    }
+
+    /// Where Caddy keeps its local certificate authority's root.
+    pub fn root_certificate(&self) -> PathBuf {
+        caddy::root_certificate(&self.data_dir("caddy"))
+    }
+
+    pub fn home(&self) -> &Path {
+        &self.home
     }
 }
 
@@ -321,9 +408,12 @@ mod tests {
             config: home.join("config/caddy"),
         };
         std::fs::create_dir_all(&ctx.config).unwrap();
-        let spec = caddy::spec(&ctx).unwrap();
+        let spec = caddy::spec(&ctx, Ports::FALLBACK, "\nsite.stack {\n}\n").unwrap();
         let caddyfile = std::fs::read_to_string(ctx.config.join("Caddyfile")).unwrap();
-        assert!(caddyfile.contains("http://127.0.0.1:8080"), "{caddyfile}");
+        assert!(caddyfile.contains("http_port 8080"), "{caddyfile}");
+        assert!(caddyfile.contains("skip_install_trust"), "{caddyfile}");
+        assert!(caddyfile.ends_with("site.stack {\n}\n"), "{caddyfile}");
+        assert_eq!(spec.ports, vec![8080, 8443]);
         assert!(caddyfile.contains(&slash(&ctx.data)));
         assert_eq!(spec.args[0], "run");
         assert!(spec.env.iter().any(|(k, _)| k == "XDG_DATA_HOME"));
@@ -356,7 +446,6 @@ mod tests {
     /// returns the supervisor and the folder so the caller can check more.
     /// Run with `cargo test -p stackyard-core -- --ignored live_`.
     fn live_start(id: &str) -> Option<(crate::supervisor::Supervisor, PathBuf)> {
-        let def = catalog::service(id).unwrap();
         let module = modules::find(id).unwrap();
         if !module.available_here() {
             eprintln!("{id} is not offered on this system; skipping");
@@ -367,16 +456,12 @@ mod tests {
         let installed = manager.install(id, &mut |_| {}).unwrap();
         eprintln!("{id} {} installed", installed.release);
         let spec = manager.spec(id).unwrap();
+        let port = spec.ports[0];
         let supervisor = crate::supervisor::Supervisor::new(home.join("logs"));
         supervisor.start(spec).unwrap();
-        let open = crate::ports::wait_until_open(def.ports[0], std::time::Duration::from_secs(90));
+        let open = crate::ports::wait_until_open(port, std::time::Duration::from_secs(90));
         let log = supervisor.tail_log(id, 40).unwrap_or_default();
-        assert!(
-            open,
-            "{id} did not open port {}:\n{}",
-            def.ports[0],
-            log.join("\n")
-        );
+        assert!(open, "{id} did not open port {}:\n{}", port, log.join("\n"));
         Some((supervisor, home))
     }
 
@@ -395,7 +480,10 @@ mod tests {
         let Some((supervisor, home)) = live_start("caddy") else {
             return;
         };
-        let page = Http::new().get_text("http://127.0.0.1:8080/").unwrap();
+        let port = Ports::current(&home).http;
+        let page = Http::new()
+            .get_text(&format!("http://127.0.0.1:{port}/"))
+            .unwrap();
         assert!(page.contains("Caddy is running"), "{page}");
         live_stop("caddy", supervisor, home);
     }
