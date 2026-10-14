@@ -242,6 +242,11 @@ jobs:
           grep -Eq "ci +start_service +caddy +ok" "$RUNNER_TEMP/mcp-log.txt"
           stackyard stop
 
+          echo "== the log viewer lists every log"
+          stackyard logs | tee "$RUNNER_TEMP/logs.txt"
+          grep -E "^caddy +Caddy" "$RUNNER_TEMP/logs.txt"
+          grep -E "^daemon +Background service" "$RUNNER_TEMP/logs.txt"
+
   terminal:
     name: Terminal commands end to end (${{ matrix.os }})
     needs: check
