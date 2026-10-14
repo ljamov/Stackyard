@@ -81,7 +81,8 @@ impl SiteStore {
     pub fn add(&mut self, site: Site) -> Result<&Site> {
         domain::validate_site_name(&site.name)?;
         let tld = domain::normalize_tld(&site.tld)?;
-        let site = Site { tld, ..site };
+        let path = paths::expand_home(&site.path);
+        let site = Site { tld, path, ..site };
         if self.sites.iter().any(|s| s.domain() == site.domain()) {
             return Err(Error::SiteExists(site.domain()));
         }

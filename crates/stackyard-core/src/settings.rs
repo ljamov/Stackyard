@@ -1,7 +1,7 @@
 //! User settings, stored as TOML.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +18,8 @@ pub struct Settings {
     /// Default version per runtime, e.g. `php = "8.4"`, used by sites and
     /// the shell when a project does not pin its own.
     pub runtimes: BTreeMap<String, String>,
+    /// Parked folders: every project folder inside one becomes a site.
+    pub parked: Vec<PathBuf>,
 }
 
 impl Default for Settings {
@@ -26,6 +28,7 @@ impl Default for Settings {
             tld: domain::DEFAULT_TLD.to_string(),
             modules: BTreeMap::new(),
             runtimes: BTreeMap::new(),
+            parked: Vec::new(),
         }
     }
 }
@@ -99,6 +102,30 @@ impl Settings {
             Some(v) => self.runtimes.insert(kind.id().to_string(), v.to_string()),
             None => self.runtimes.remove(kind.id()),
         };
+    }
+}
+
+impl Settings {
+    /// Parks a folder (`~` is expanded). Parking it twice changes nothing.
+    pub fn park(&mut self, folder: &Path) -> Result<PathBuf> {
+        let folder = paths::expand_home(folder);
+        if !folder.is_dir() {
+            return Err(Error::NotAFolder(folder));
+        }
+        if !self.parked.contains(&folder) {
+            self.parked.push(folder.clone());
+        }
+        Ok(folder)
+    }
+
+    pub fn unpark(&mut self, folder: &Path) -> Result<()> {
+        let folder = paths::expand_home(folder);
+        let before = self.parked.len();
+        self.parked.retain(|p| *p != folder);
+        if self.parked.len() == before {
+            return Err(Error::NotParked(folder));
+        }
+        Ok(())
     }
 }
 

@@ -93,9 +93,10 @@ pub const SERVICES: &[ServiceDef] = &[
         id: "caddy",
         name: "Caddy",
         version: "2",
-        ports: &[8080],
+        // 8080 and 8443 when these are taken; see `web::Ports`.
+        ports: &[80, 443],
         role: "Web server",
-        web: Some("http://127.0.0.1:8080"),
+        web: Some("http://localhost"),
     },
     ServiceDef {
         id: "mysql",

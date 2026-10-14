@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, errorText, type RuntimeFamily } from "../lib/api";
+import { api, errorText, type RuntimeFamily, type Site } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 
@@ -13,61 +13,90 @@ function runtimeOptions(families: RuntimeFamily[], isOn: (id: string) => boolean
       f.versions.map((v) => ({
         value: `${SITE_LABELS[f.kind]} ${v.version}`,
         label: `${SITE_LABELS[f.kind]} ${v.version}${v.installed ? "" : " (not installed)"}`,
-        preferred: f.kind === "php" && v.default,
       })),
     );
-  return [...options, { value: "Static", label: "Static files", preferred: false }];
+  return [{ value: "Auto", label: "Detect from the folder" }, ...options, { value: "Static", label: "Static files" }];
 }
 
 export function Sites() {
   const sites = useLoad(api.listSites, []);
   const runtimes = useLoad(api.listRuntimes, []);
+  const parked = useLoad(api.listParked, []);
+  const system = useLoad(api.systemStatus, null);
   const { isOn } = useModules();
   const options = runtimeOptions(runtimes.data, isOn);
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
-  const [runtime, setRuntime] = useState("");
+  const [runtime, setRuntime] = useState("Auto");
   const [https, setHttps] = useState(true);
+  const [parkDraft, setParkDraft] = useState("");
+  const [settingUp, setSettingUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
-  const fallbackRuntime = (options.find((o) => o.preferred) ?? options[0]).value;
-  const chosenRuntime = options.some((o) => o.value === runtime) ? runtime : fallbackRuntime;
+  const chosenRuntime = options.some((o) => o.value === runtime) ? runtime : "Auto";
+
+  async function attempt(action: () => Promise<unknown>) {
+    try {
+      await action();
+      setError(null);
+      return true;
+    } catch (e) {
+      setError(errorText(e));
+      return false;
+    }
+  }
 
   async function saveTld() {
     if (tldDraft === tldInfo.data.tld) return;
-    try {
-      await api.setTld(tldDraft);
-      setError(null);
-    } catch (e) {
-      setError(errorText(e));
-    }
+    await attempt(() => api.setTld(tldDraft));
     tldInfo.reload();
+    system.reload();
   }
 
   async function create(e: FormEvent) {
     e.preventDefault();
-    try {
-      await saveTld();
-      await api.addSite({ name, path: path || `~/Code/${name}`, runtime: chosenRuntime, https });
+    await saveTld();
+    const ok = await attempt(() =>
+      api.addSite({ name, path: path || `~/Code/${name}`, runtime: chosenRuntime, https }),
+    );
+    if (ok) {
       setName("");
       setPath("");
-      setError(null);
-      sites.reload();
-    } catch (err) {
-      setError(errorText(err));
     }
+    sites.reload();
+    system.reload();
   }
 
-  async function remove(siteName: string) {
-    try {
-      await api.removeSite(siteName);
-      sites.reload();
-    } catch (err) {
-      setError(errorText(err));
-    }
+  async function remove(domain: string) {
+    await attempt(() => api.removeSite(domain));
+    sites.reload();
+    system.reload();
+  }
+
+  async function park(e: FormEvent) {
+    e.preventDefault();
+    if (await attempt(() => api.parkFolder(parkDraft))) setParkDraft("");
+    parked.reload();
+    sites.reload();
+    system.reload();
+  }
+
+  async function unpark(folder: string) {
+    await attempt(() => api.unparkFolder(folder));
+    parked.reload();
+    sites.reload();
+    system.reload();
+  }
+
+  async function setUp() {
+    setSettingUp(true);
+    await attempt(() => api.runSystemSetup());
+    setSettingUp(false);
+    system.reload();
+    sites.reload();
   }
 
   return (
@@ -79,15 +108,47 @@ export function Sites() {
         </div>
       </header>
 
+      {system.data && system.data.needed.length > 0 && (
+        <section aria-labelledby="setup-h" className="card stack">
+          <div className="row between">
+            <h2 id="setup-h">Finish setting up local domains</h2>
+            <button type="button" className="btn primary" onClick={setUp} disabled={settingUp}>
+              {settingUp ? "Waiting for your password…" : "Set up"}
+            </button>
+          </div>
+          <p className="muted">
+            So addresses like <span className="mono">myapp{tldInfo.data.tld}</span> open in your browser. Your computer
+            asks for your password once to:
+          </p>
+          <ul className="muted">
+            {system.data.needed.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <p className="muted small">
+            Until then, every site also works at its <span className="mono">.localhost</span> address.
+          </p>
+        </section>
+      )}
+      {system.data?.waiting_for_certificate && (
+        <p className="notice small">
+          Start the web server once (Services › Caddy) to create the HTTPS certificate, then finish setup here.
+        </p>
+      )}
+      {error && (
+        <p className="error small" role="alert">
+          {error}
+        </p>
+      )}
+
       <div className="split">
         <section aria-label="Site list" className="card table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Domain</th>
+                <th>Site</th>
+                <th>Runs with</th>
                 <th>Folder</th>
-                <th>Runtime</th>
-                <th>HTTPS</th>
                 <th>
                   <span className="sr-only">Actions</span>
                 </th>
@@ -96,95 +157,149 @@ export function Sites() {
             <tbody>
               {sites.data.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="muted">
-                    No sites yet. Create one with the form.
+                  <td colSpan={4} className="muted">
+                    No sites yet. Create one with the form, or park a folder of projects.
                   </td>
                 </tr>
               )}
               {sites.data.map((site) => (
-                <tr key={site.domain}>
-                  <td className="mono">{site.url}</td>
-                  <td className="mono muted small">{site.path}</td>
-                  <td>{site.runtime}</td>
-                  <td className={site.https ? "ok" : "muted"}>{site.https ? "On" : "Off"}</td>
-                  <td className="right">
-                    <button
-                      type="button"
-                      className="btn ghost small"
-                      aria-label={`Remove ${site.domain}`}
-                      onClick={() => remove(site.domain)}
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
+                <SiteRow key={site.domain} site={site} onRemove={remove} />
               ))}
             </tbody>
           </table>
         </section>
 
-        <form className="card stack form" aria-labelledby="new-h" onSubmit={create}>
-          <h2 id="new-h">New site</h2>
-          <div className="field">
-            <label htmlFor="f-name">Name</label>
-            <div className="input-affix">
-              <input
-                id="f-name"
-                className="mono"
-                value={name}
-                placeholder="myapp"
-                required
-                onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-              />
-              <span className="mono muted">{tldDraft}</span>
+        <div className="stack side">
+          <form className="card stack form" aria-labelledby="new-h" onSubmit={create}>
+            <h2 id="new-h">New site</h2>
+            <div className="field">
+              <label htmlFor="f-name">Name</label>
+              <div className="input-affix">
+                <input
+                  id="f-name"
+                  className="mono"
+                  value={name}
+                  placeholder="myapp"
+                  required
+                  onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                />
+                <span className="mono muted">{tldDraft}</span>
+              </div>
             </div>
-          </div>
-          <div className="field">
-            <label htmlFor="f-folder">Project folder</label>
-            <input
-              id="f-folder"
-              className="mono"
-              value={path}
-              placeholder="~/Code/myapp"
-              onChange={(e) => setPath(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="f-rt">Runtime</label>
-            <select id="f-rt" value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
-              {options.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="f-tld">Domain ending</label>
-            <input
-              id="f-tld"
-              className="mono"
-              value={tldDraft}
-              onChange={(e) => setTldDraft(e.target.value)}
-              onBlur={saveTld}
-            />
-            <span className="muted small">Default is .stack. Applies to new sites.</span>
-            {tldInfo.data.warning && <span className="warn small">{tldInfo.data.warning}</span>}
-          </div>
-          <label className="check">
-            <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
-            Secure with local HTTPS certificate
-          </label>
-          {error && (
-            <p className="error small" role="alert">
-              {error}
+            <div className="field">
+              <label htmlFor="f-folder">Project folder</label>
+              <input
+                id="f-folder"
+                className="mono"
+                value={path}
+                placeholder="~/Code/myapp"
+                onChange={(e) => setPath(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="f-rt">Runtime</label>
+              <select id="f-rt" value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
+                {options.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="f-tld">Domain ending</label>
+              <input
+                id="f-tld"
+                className="mono"
+                value={tldDraft}
+                onChange={(e) => setTldDraft(e.target.value)}
+                onBlur={saveTld}
+              />
+              <span className="muted small">Default is .stack. Applies to new sites.</span>
+              {tldInfo.data.warning && <span className="warn small">{tldInfo.data.warning}</span>}
+            </div>
+            <label className="check">
+              <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
+              Secure with local HTTPS certificate
+            </label>
+            <button type="submit" className="btn primary">
+              Create site
+            </button>
+          </form>
+
+          <form className="card stack form" aria-labelledby="park-h" onSubmit={park}>
+            <h2 id="park-h">Parked folders</h2>
+            <p className="muted small">
+              Every project folder inside a parked folder becomes a site, named after its folder.
             </p>
-          )}
-          <button type="submit" className="btn primary">
-            Create site
-          </button>
-        </form>
+            {parked.data.map((folder) => (
+              <div key={folder} className="list-row">
+                <span className="mono small">{folder}</span>
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  aria-label={`Unpark ${folder}`}
+                  onClick={() => unpark(folder)}
+                >
+                  Unpark
+                </button>
+              </div>
+            ))}
+            <div className="field">
+              <label htmlFor="f-park">Folder</label>
+              <input
+                id="f-park"
+                className="mono"
+                value={parkDraft}
+                placeholder="~/Code"
+                required
+                onChange={(e) => setParkDraft(e.target.value)}
+              />
+            </div>
+            <button type="submit" className="btn">
+              Park folder
+            </button>
+          </form>
+        </div>
       </div>
     </>
+  );
+}
+
+function SiteRow({ site, onRemove }: { site: Site; onRemove: (domain: string) => void }) {
+  return (
+    <tr>
+      <td>
+        <button type="button" className="link mono" onClick={() => api.openLocalPage(site.url)}>
+          {site.url}
+        </button>
+        <div className="muted small">
+          {site.https ? "HTTPS" : "HTTP only"}
+          {site.parked && " · parked"}
+          {" · "}
+          <button type="button" className="link small" onClick={() => api.openLocalPage(site.local_url)}>
+            {site.local_url.replace(/^https?:\/\//, "")}
+          </button>
+        </div>
+      </td>
+      <td>
+        {site.framework ? `${site.framework} · ` : ""}
+        {site.runtime}
+        {site.problem && <div className="warn small">{site.problem}</div>}
+      </td>
+      <td className="mono muted small">{site.root}</td>
+      <td className="right">
+        {!site.parked && (
+          <button
+            type="button"
+            className="btn ghost small"
+            aria-label={`Remove ${site.domain}`}
+            onClick={() => onRemove(site.domain)}
+          >
+            Remove
+          </button>
+        )}
+      </td>
+    </tr>
   );
 }
