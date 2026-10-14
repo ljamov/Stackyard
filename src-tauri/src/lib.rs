@@ -2,13 +2,15 @@
 //! `stackyard-core`; errors come back to the interface as plain strings.
 
 use std::collections::HashSet;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use stackyard_core::catalog::RUNTIMES;
 use stackyard_core::catalog::{self, RuntimeKind, SERVICES};
+use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
 use stackyard_core::detect::{self, Needs};
-use stackyard_core::dns::{self, DnsServer};
+use stackyard_core::dns;
+use stackyard_core::engine::Engine;
 use stackyard_core::modules::{ModuleGroup, MODULES};
 use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::services::ServiceManager;
@@ -18,7 +20,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
-use stackyard_core::{domain, paths, platform::Platform};
+use stackyard_core::{domain, paths};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 type CmdResult<T> = Result<T, String>;
@@ -288,10 +290,10 @@ fn service_views(supervisor: &Supervisor, installs: &Installs) -> Vec<ServiceVie
 
 #[tauri::command]
 fn list_services(
-    supervisor: State<'_, Supervisor>,
+    engine: State<'_, Arc<Engine>>,
     installs: State<'_, Installs>,
 ) -> Vec<ServiceView> {
-    service_views(&supervisor, &installs)
+    service_views(engine.supervisor(), &installs)
 }
 
 /// Runs on a worker thread; progress arrives as `service-progress` events.
@@ -327,7 +329,7 @@ async fn install_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceVie
     app.state::<Installs>().0.lock().unwrap().remove(&key);
     result.map_err(|e| e.to_string())?.map_err(err)?;
     Ok(service_views(
-        &app.state::<Supervisor>(),
+        app.state::<Arc<Engine>>().supervisor(),
         &app.state::<Installs>(),
     ))
 }
@@ -335,42 +337,25 @@ async fn install_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceVie
 #[tauri::command]
 fn uninstall_service(
     id: String,
-    supervisor: State<'_, Supervisor>,
+    engine: State<'_, Arc<Engine>>,
     installs: State<'_, Installs>,
 ) -> CmdResult<Vec<ServiceView>> {
-    let manager = ServiceManager::open();
-    if id == "caddy" {
-        manager.stop_web(&supervisor).map_err(err)?;
-    } else if supervisor.state(&id) != ProcessState::Stopped {
-        supervisor.stop(&id).map_err(err)?;
-    }
-    manager.uninstall(&id).map_err(err)?;
-    Ok(service_views(&supervisor, &installs))
+    engine.stop(&id).map_err(err)?;
+    engine.manager().uninstall(&id).map_err(err)?;
+    Ok(service_views(engine.supervisor(), &installs))
 }
 
 /// Preparing a database the first time takes a few seconds, so this runs
 /// on a worker thread.
 #[tauri::command]
 async fn start_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceView>> {
-    Settings::load()
-        .map_err(err)?
-        .require_module(&id)
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.start(&id))
+        .await
+        .map_err(|e| e.to_string())?
         .map_err(err)?;
-    let worker = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let manager = ServiceManager::open();
-        let supervisor = worker.state::<Supervisor>();
-        if id == "caddy" {
-            manager.start_web(&supervisor)
-        } else {
-            supervisor.start(manager.spec(&id)?).map(|_| ())
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(err)?;
     Ok(service_views(
-        &app.state::<Supervisor>(),
+        app.state::<Arc<Engine>>().supervisor(),
         &app.state::<Installs>(),
     ))
 }
@@ -378,15 +363,11 @@ async fn start_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceView>
 #[tauri::command]
 fn stop_service(
     id: String,
-    supervisor: State<'_, Supervisor>,
+    engine: State<'_, Arc<Engine>>,
     installs: State<'_, Installs>,
 ) -> CmdResult<Vec<ServiceView>> {
-    if id == "caddy" {
-        ServiceManager::open().stop_web(&supervisor).map_err(err)?;
-    } else {
-        supervisor.stop(&id).map_err(err)?;
-    }
-    Ok(service_views(&supervisor, &installs))
+    engine.stop(&id).map_err(err)?;
+    Ok(service_views(engine.supervisor(), &installs))
 }
 
 /// Opens a local page (a site or a service's web interface) in the default
@@ -415,11 +396,11 @@ fn open_local_page(url: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-fn service_log(id: String, supervisor: State<'_, Supervisor>) -> CmdResult<Vec<String>> {
+fn service_log(id: String, engine: State<'_, Arc<Engine>>) -> CmdResult<Vec<String>> {
     if catalog::service(&id).is_none() && !id.starts_with("php-") {
         return Err(format!("unknown service {id:?}"));
     }
-    supervisor.tail_log(&id, 200).map_err(err)
+    engine.supervisor().tail_log(&id, 200).map_err(err)
 }
 
 #[tauri::command]
@@ -479,13 +460,13 @@ fn list_modules() -> CmdResult<Vec<ModuleView>> {
 fn set_module(
     id: String,
     enabled: bool,
-    supervisor: State<'_, Supervisor>,
+    engine: State<'_, Arc<Engine>>,
 ) -> CmdResult<Vec<ModuleView>> {
     let mut settings = Settings::load().map_err(err)?;
     settings.set_module(&id, enabled).map_err(err)?;
     settings.save().map_err(err)?;
-    if !enabled && supervisor.state(&id) != ProcessState::Stopped {
-        supervisor.stop(&id).map_err(err)?;
+    if !enabled && catalog::service(&id).is_some() {
+        engine.stop(&id).map_err(err)?;
     }
     if id == "shell" && !enabled {
         terminal_off().map_err(err)?;
@@ -574,8 +555,8 @@ async fn set_terminal(on: bool) -> CmdResult<TerminalView> {
 }
 
 #[tauri::command]
-fn service_states(supervisor: State<'_, Supervisor>) -> Vec<(String, ProcessState)> {
-    supervisor.states()
+fn service_states(engine: State<'_, Arc<Engine>>) -> Vec<(String, ProcessState)> {
+    engine.supervisor().states()
 }
 
 #[tauri::command]
@@ -650,20 +631,10 @@ fn unpark_folder(app: AppHandle, path: String) -> CmdResult<Vec<String>> {
 /// restart a running web server so it serves the new list. Runs in the
 /// background so the interface stays responsive.
 fn sites_changed(app: &AppHandle) {
-    let app = app.clone();
+    let engine = app.state::<Arc<Engine>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let manager = ServiceManager::open();
-        if let (Some(server), Ok(endings)) = (
-            app.state::<Dns>().0.lock().unwrap().as_ref(),
-            manager.endings(),
-        ) {
-            server.set_endings(&endings);
-        }
-        let supervisor = app.state::<Supervisor>();
-        if matches!(supervisor.state("caddy"), ProcessState::Running { .. }) {
-            if let Err(e) = manager.start_web(&supervisor) {
-                eprintln!("could not restart the web server: {e}");
-            }
+        if let Err(e) = engine.sites_changed() {
+            eprintln!("could not restart the web server: {e}");
         }
     });
 }
@@ -693,9 +664,6 @@ fn parse_runtime(
     }
 }
 
-/// The local DNS server, on macOS and Linux once it can bind its port.
-struct Dns(Mutex<Option<DnsServer>>);
-
 #[derive(Serialize)]
 struct SystemView {
     /// What setup would change; empty when everything is set up.
@@ -715,7 +683,7 @@ fn system_view(app: &AppHandle) -> CmdResult<SystemView> {
         needed: status.needed,
         waiting_for_certificate: status.waiting_for_certificate,
         resolver: wanted.resolver,
-        dns_running: app.state::<Dns>().0.lock().unwrap().is_some(),
+        dns_running: app.state::<Arc<Engine>>().dns_running(),
     })
 }
 
@@ -733,11 +701,7 @@ async fn run_system_setup(app: AppHandle) -> CmdResult<SystemView> {
         let manager = ServiceManager::open();
         let wanted = manager.system_wanted()?;
         system::apply(manager.home(), &wanted, Elevate::Dialog)?;
-        let supervisor = worker.state::<Supervisor>();
-        if matches!(supervisor.state("caddy"), ProcessState::Running { .. }) {
-            manager.start_web(&supervisor)?;
-        }
-        Ok::<_, stackyard_core::Error>(())
+        worker.state::<Arc<Engine>>().restart_web()
     })
     .await
     .map_err(|e| e.to_string())?
@@ -745,29 +709,44 @@ async fn run_system_setup(app: AppHandle) -> CmdResult<SystemView> {
     system_view(&app)
 }
 
-/// Starts the DNS server where local names are routed to it.
-fn start_dns() -> Option<DnsServer> {
-    let resolver = Resolver::for_this_system(Platform::current().os);
-    if resolver == Resolver::HostsFile {
-        return None;
-    }
-    let endings = ServiceManager::open().endings().ok()?;
-    match DnsServer::start(dns::PORT, &endings) {
-        Ok(server) => Some(server),
-        Err(e) => {
-            eprintln!("local domains are unavailable: {e}");
-            None
-        }
-    }
-}
+/// The connection that lets the CLI reach this app's services.
+struct Control(Mutex<Option<ControlServer>>);
+
+/// Whether the tray icon is up; without one, closing the window quits.
+struct Tray(bool);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let home = paths::home();
+    // One process runs services at a time.
+    let mut resume = Vec::new();
+    if let Some(client) = control::find(&home) {
+        match client.owner {
+            // Already open: bring that window forward instead.
+            Owner::App => {
+                let _ = client.send(Request::Show);
+                return;
+            }
+            // `stackyard start` or `stackyard up` runs them: take over.
+            Owner::Daemon | Owner::Up => resume = take_over(&home, &client),
+        }
+    }
     refresh_terminal_commands();
+    let engine = Arc::new(Engine::new(&home));
+    if !resume.is_empty() {
+        let engine = engine.clone();
+        std::thread::spawn(move || {
+            for id in resume {
+                if let Err(e) = engine.start(&id) {
+                    eprintln!("could not start {id} again: {e}");
+                }
+            }
+        });
+    }
     let app = tauri::Builder::default()
-        .manage(Supervisor::new(paths::logs_dir()))
+        .manage(engine.clone())
         .manage(Installs::default())
-        .manage(Dns(Mutex::new(start_dns())))
+        .manage(Control(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             list_runtimes,
             install_runtime,
@@ -796,14 +775,153 @@ pub fn run() {
             terminal_status,
             set_terminal
         ])
+        .setup(move |app| {
+            let tray = match build_tray(app.handle()) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("no tray icon: {e}");
+                    false
+                }
+            };
+            app.manage(Tray(tray));
+            // Quit cleanly, stopping services, when the system asks (logout, `kill`).
+            let handle = app.handle().clone();
+            let _ = ctrlc::set_handler(move || handle.exit(0));
+            let handle = app.handle().clone();
+            let server = ControlServer::start(&paths::home(), Owner::App, move |request| {
+                answer_cli(&handle, request)
+            });
+            match server {
+                Ok(server) => *app.state::<Control>().0.lock().unwrap() = Some(server),
+                Err(e) => eprintln!("the stackyard command cannot reach this app: {e}"),
+            }
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building Stackyard");
-    app.run(|handle, event| {
+    app.run(|handle, event| match event {
+        // Closing the window drops it (and its web view) to save memory;
+        // Stackyard keeps running in the tray until Quit.
+        RunEvent::ExitRequested {
+            api, code: None, ..
+        } if handle.state::<Tray>().0 => api.prevent_exit(),
+        // macOS: clicking the Dock icon with no window open.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => show_window(handle),
         // Never leave services running after Stackyard quits.
-        if let RunEvent::Exit = event {
-            handle.state::<Supervisor>().stop_all();
+        RunEvent::Exit => {
+            handle.state::<Control>().0.lock().unwrap().take();
+            handle.state::<Arc<Engine>>().stop_all();
         }
+        _ => {}
     });
+}
+
+/// Asks `stackyard daemon` or `stackyard up` to stop and returns what it
+/// was running, so the app can start the same services itself.
+fn take_over(home: &std::path::Path, client: &control::Client) -> Vec<String> {
+    let running = match client.send(Request::HandOver) {
+        Ok(Response::HandedOver { running }) => running,
+        _ => return Vec::new(),
+    };
+    // Wait until it has quit and let go of the local DNS port.
+    let dns_free = || std::net::UdpSocket::bind(("127.0.0.1", dns::PORT)).is_ok();
+    for _ in 0..50 {
+        if control::find(home).is_none() && dns_free() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    running
+}
+
+/// Requests from the `stackyard` command while the app runs services.
+fn answer_cli(app: &AppHandle, request: Request) -> Response {
+    match request {
+        Request::Show => {
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || show_window(&handle));
+            Response::Done
+        }
+        Request::HandOver => Response::Failed {
+            message: "the Stackyard app is running services; quit it first".into(),
+        },
+        other => app.state::<Arc<Engine>>().handle(other),
+    }
+}
+
+/// Shows the window, creating it again if it was closed.
+fn show_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+    let Some(config) = app.config().app.windows.first().cloned() else {
+        return;
+    };
+    match tauri::WebviewWindowBuilder::from_config(app, &config).and_then(|b| b.build()) {
+        Ok(window) => {
+            let _ = window.set_focus();
+        }
+        Err(e) => eprintln!("could not open the window: {e}"),
+    }
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
+    let menu = Menu::with_items(
+        app,
+        &[
+            &item("open", "Open Stackyard")?,
+            &PredefinedMenuItem::separator(app)?,
+            &item("start-all", "Start all services")?,
+            &item("stop-all", "Stop all services")?,
+            &PredefinedMenuItem::separator(app)?,
+            &item("quit", "Quit Stackyard")?,
+        ],
+    )?;
+    let mut tray = TrayIconBuilder::with_id("main")
+        .tooltip("Stackyard")
+        .menu(&menu)
+        // macOS shows the menu on a click; elsewhere a click opens the window.
+        .show_menu_on_left_click(cfg!(target_os = "macos"))
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => show_window(app),
+            "start-all" => {
+                let engine = app.state::<Arc<Engine>>().inner().clone();
+                std::thread::spawn(move || {
+                    let (_, problems) = engine.start_all();
+                    for problem in problems {
+                        eprintln!("{problem}");
+                    }
+                });
+            }
+            "stop-all" => app.state::<Arc<Engine>>().stop_all(),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                if !cfg!(target_os = "macos") {
+                    show_window(tray.app_handle());
+                }
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
 }
 
 #[cfg(test)]

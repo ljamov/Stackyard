@@ -108,7 +108,7 @@ impl Settings {
 impl Settings {
     /// Parks a folder (`~` is expanded). Parking it twice changes nothing.
     pub fn park(&mut self, folder: &Path) -> Result<PathBuf> {
-        let folder = paths::expand_home(folder);
+        let folder = full_path(folder);
         if !folder.is_dir() {
             return Err(Error::NotAFolder(folder));
         }
@@ -119,7 +119,7 @@ impl Settings {
     }
 
     pub fn unpark(&mut self, folder: &Path) -> Result<()> {
-        let folder = paths::expand_home(folder);
+        let folder = full_path(folder);
         let before = self.parked.len();
         self.parked.retain(|p| *p != folder);
         if self.parked.len() == before {
@@ -144,6 +144,12 @@ fn unavailable(def: &modules::ModuleDef) -> Option<Error> {
 }
 
 /// Reads a TOML file, returning `None` when it does not exist yet.
+/// `~/Code` or `Code` (from the current folder) as a full path.
+fn full_path(folder: &Path) -> PathBuf {
+    let folder = paths::expand_home(folder);
+    std::path::absolute(&folder).unwrap_or(folder)
+}
+
 pub(crate) fn read_toml<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Option<T>> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,

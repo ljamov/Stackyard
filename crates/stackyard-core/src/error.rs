@@ -70,6 +70,8 @@ pub enum Error {
     NotParked(PathBuf),
     #[error("system setup failed: {0}")]
     SystemSetup(String),
+    #[error("{0}")]
+    Control(String),
     #[error("{}: {message}", file.display())]
     BadPin { file: PathBuf, message: String },
     #[error("{0}")]

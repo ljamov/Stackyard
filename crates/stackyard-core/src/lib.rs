@@ -3,10 +3,12 @@
 
 pub mod archive;
 pub mod catalog;
+pub mod control;
 pub mod detect;
 pub mod dns;
 pub mod domain;
 pub mod download;
+pub mod engine;
 pub mod error;
 pub mod install;
 pub(crate) mod manifest;
