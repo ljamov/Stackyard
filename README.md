@@ -7,6 +7,22 @@ with no containers.
 > Status: early prototype. Runtimes, services, local sites with HTTPS, terminal commands, the
 > background service and the tray icon work; installers come next.
 
+## Install
+
+Unsigned prototype installers are built by `.github/workflows/release.yml` for every version tag
+(as a draft release) and can be run by hand from the Actions tab:
+
+| System | Files |
+| --- | --- |
+| Windows 10 and 11 (x64) | `Stackyard_<version>_x64-setup.exe` (installs for you, no admin) or `.msi` |
+| macOS 11 or later | `.dmg` for Apple silicon (`aarch64`) or Intel (`x64`) |
+| Linux (x64) | `.deb`, `.rpm` or `.AppImage` |
+
+They are not signed yet, so the first start needs a click: on macOS right-click Stackyard and
+choose **Open**; on Windows choose **More info**, then **Run anyway**. Each installer ships the
+`stackyard` command next to the app; **Add to PATH** on the Runtimes screen (or
+`stackyard shims on`) puts it and the terminal commands on your PATH.
+
 ## What's here
 
 | Path | What it is |
@@ -112,7 +128,8 @@ Windows. No password is needed, and `stackyard shims off` undoes it. `stackyard 
 terminal with the commands instead, without touching your PATH. `stackyard which` shows which version
 each command runs in the current folder, and why.
 
-The commands lead back to the `stackyard` program, which runs the real one from the runtime's folder.
+The commands lead back to a copy of the `stackyard` program in the same folder (which also puts
+`stackyard` itself on your PATH), and it runs the real one from the runtime's folder.
 Composer is downloaded from getcomposer.org the first time you run `composer`, checked against its
 published SHA-256. `mysql` connects to whichever of MySQL and MariaDB is running.
 

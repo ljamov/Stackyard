@@ -511,6 +511,18 @@ fn terminal_off() -> stackyard_core::Result<()> {
     shims::remove(&home)
 }
 
+/// After an update, points the terminal commands at the new `stackyard`.
+fn refresh_terminal_commands() {
+    std::thread::spawn(|| {
+        let home = paths::home();
+        if let Some(cli) = cli_program().filter(|cli| shims::outdated(&home, cli)) {
+            if let Err(e) = shims::install(&home, &cli) {
+                eprintln!("could not update the terminal commands: {e}");
+            }
+        }
+    });
+}
+
 #[tauri::command]
 async fn terminal_status() -> TerminalView {
     // Reading the Windows Path starts PowerShell; keep it off the UI thread.
@@ -719,6 +731,7 @@ pub fn run() {
             Owner::Daemon | Owner::Up => resume = take_over(&home, &client),
         }
     }
+    refresh_terminal_commands();
     let engine = Arc::new(Engine::new(&home));
     if !resume.is_empty() {
         let engine = engine.clone();
