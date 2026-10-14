@@ -70,6 +70,10 @@ pub enum Error {
     NotParked(PathBuf),
     #[error("system setup failed: {0}")]
     SystemSetup(String),
+    #[error("{}: {message}", file.display())]
+    BadPin { file: PathBuf, message: String },
+    #[error("{0}")]
+    Shell(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

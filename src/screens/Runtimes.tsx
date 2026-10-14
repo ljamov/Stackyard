@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { api, errorText, type InstallProgress, type RuntimeFamily, type RuntimeVersion } from "../lib/api";
+import {
+  api,
+  errorText,
+  type InstallProgress,
+  type RuntimeFamily,
+  type RuntimeVersion,
+  type TerminalStatus,
+} from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 
@@ -102,11 +109,84 @@ export function Runtimes() {
         </section>
       )}
 
-      <p className="card dashed muted">
-        Per-project override: add a <code className="mono">.stackyard</code> file to a project folder, or pick a
-        version on the Sites screen.
-      </p>
+      {isOn("shell") ? (
+        <TerminalCard />
+      ) : (
+        <p className="card dashed muted">
+          Per-project override: add a <code className="mono">.stackyard</code> file to a project folder, or pick a
+          version on the Sites screen.
+        </p>
+      )}
     </>
+  );
+}
+
+/** Puts php, node, npm, composer and mysql on the user's PATH. */
+function TerminalCard() {
+  const status = useLoad<TerminalStatus | null>(api.terminalStatus, null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [shown, setShown] = useState<TerminalStatus | null>(null);
+  useEffect(() => setShown(status.data), [status.data]);
+
+  async function toggle(on: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      setShown(await api.setTerminal(on));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section aria-labelledby="terminal-h" className="card stack">
+      <div className="row between">
+        <h2 id="terminal-h">Use in your terminal</h2>
+        {shown?.available &&
+          (shown.on ? (
+            <button type="button" className="btn small" disabled={busy} onClick={() => toggle(false)}>
+              Turn off
+            </button>
+          ) : (
+            <button type="button" className="btn primary small" disabled={busy} onClick={() => toggle(true)}>
+              {busy ? "Adding…" : "Add to PATH"}
+            </button>
+          ))}
+      </div>
+      <p className="muted">
+        <span className="mono">php</span>, <span className="mono">composer</span>, <span className="mono">node</span>,{" "}
+        <span className="mono">npm</span> and <span className="mono">mysql</span> run the version each project asks
+        for: a <code className="mono">.stackyard</code> file in the project (
+        <code className="mono">stackyard use php 8.3</code> writes one), else its site&apos;s version, else the
+        default above.
+      </p>
+      {shown && !shown.available && (
+        <p className="muted small">
+          Needs the <span className="mono">stackyard</span> command-line program next to the app. Until the installer
+          adds it, run <code className="mono">stackyard shims on</code> from a terminal.
+        </p>
+      )}
+      {shown?.on && (
+        <p className="small">
+          <span className="ok">On.</span> Open a new terminal to use them. Set in{" "}
+          <span className="mono">{shown.places.join(", ")}</span>.
+        </p>
+      )}
+      {shown?.available && !shown.on && (
+        <p className="muted small">
+          Adds <span className="mono">{shown.folder}</span> to your PATH. No password needed. Or run{" "}
+          <code className="mono">stackyard shell</code> for one terminal only.
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="error small">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 
