@@ -1,20 +1,40 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, errorText } from "../lib/api";
+import { api, errorText, type RuntimeFamily } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
+import { useModules } from "../lib/modules";
 
-const RUNTIME_OPTIONS = ["PHP 8.4", "PHP 8.3", "PHP 8.2", "PHP 8.1", "Node 24", "Node 22", "Node 20", "Static"];
+const SITE_LABELS: Partial<Record<RuntimeFamily["kind"], string>> = { php: "PHP", node: "Node" };
+
+/** Choices for the runtime picker, e.g. "PHP 8.4"; installed versions say so. */
+function runtimeOptions(families: RuntimeFamily[], isOn: (id: string) => boolean) {
+  const options = families
+    .filter((f) => f.available && isOn(f.kind) && SITE_LABELS[f.kind])
+    .flatMap((f) =>
+      f.versions.map((v) => ({
+        value: `${SITE_LABELS[f.kind]} ${v.version}`,
+        label: `${SITE_LABELS[f.kind]} ${v.version}${v.installed ? "" : " (not installed)"}`,
+        preferred: f.kind === "php" && v.default,
+      })),
+    );
+  return [...options, { value: "Static", label: "Static files", preferred: false }];
+}
 
 export function Sites() {
   const sites = useLoad(api.listSites, []);
+  const runtimes = useLoad(api.listRuntimes, []);
+  const { isOn } = useModules();
+  const options = runtimeOptions(runtimes.data, isOn);
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
-  const [runtime, setRuntime] = useState("PHP 8.3");
+  const [runtime, setRuntime] = useState("");
   const [https, setHttps] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
+  const fallbackRuntime = (options.find((o) => o.preferred) ?? options[0]).value;
+  const chosenRuntime = options.some((o) => o.value === runtime) ? runtime : fallbackRuntime;
 
   async function saveTld() {
     if (tldDraft === tldInfo.data.tld) return;
@@ -31,7 +51,7 @@ export function Sites() {
     e.preventDefault();
     try {
       await saveTld();
-      await api.addSite({ name, path: path || `~/Code/${name}`, runtime, https });
+      await api.addSite({ name, path: path || `~/Code/${name}`, runtime: chosenRuntime, https });
       setName("");
       setPath("");
       setError(null);
@@ -131,10 +151,10 @@ export function Sites() {
           </div>
           <div className="field">
             <label htmlFor="f-rt">Runtime</label>
-            <select id="f-rt" value={runtime} onChange={(e) => setRuntime(e.target.value)}>
-              {RUNTIME_OPTIONS.map((r) => (
-                <option key={r} value={r}>
-                  {r === "Static" ? "Static files" : r}
+            <select id="f-rt" value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
+              {options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </select>

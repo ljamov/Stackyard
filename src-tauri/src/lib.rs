@@ -1,14 +1,18 @@
 //! Tauri commands the React interface calls. They are thin wrappers over
 //! `stackyard-core`; errors come back to the interface as plain strings.
 
+use std::collections::HashSet;
+use std::sync::Mutex;
+
 use serde::Serialize;
-use stackyard_core::catalog::{RuntimeFamily, ServiceDef, RUNTIMES, SERVICES};
+use stackyard_core::catalog::{self, RuntimeKind, ServiceDef, RUNTIMES, SERVICES};
 use stackyard_core::modules::{ModuleDef, MODULES};
+use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::{domain, paths};
-use tauri::{Manager, RunEvent, State};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -50,9 +54,147 @@ fn err(e: stackyard_core::Error) -> String {
     e.to_string()
 }
 
+#[derive(Serialize)]
+struct RuntimeView {
+    kind: RuntimeKind,
+    name: &'static str,
+    available: bool,
+    versions: Vec<VersionView>,
+}
+
+#[derive(Serialize)]
+struct VersionView {
+    version: &'static str,
+    /// Exact installed release, e.g. `8.4.26`, or null when not installed.
+    installed: Option<String>,
+    default: bool,
+    installing: bool,
+}
+
+/// Installs in progress, as `kind/version`, so a double click cannot start two.
+#[derive(Default)]
+struct Installs(Mutex<HashSet<String>>);
+
+#[derive(Clone, Serialize)]
+struct InstallProgress {
+    kind: RuntimeKind,
+    version: String,
+    #[serde(flatten)]
+    step: Step,
+}
+
+fn runtime_views(installs: &Installs) -> CmdResult<Vec<RuntimeView>> {
+    let settings = Settings::load().map_err(err)?;
+    let manager = RuntimeManager::open();
+    let busy = installs.0.lock().unwrap().clone();
+    Ok(RUNTIMES
+        .iter()
+        .map(|family| RuntimeView {
+            kind: family.kind,
+            name: family.name,
+            available: family.available,
+            versions: family
+                .versions
+                .iter()
+                .map(|&version| VersionView {
+                    version,
+                    installed: manager.get(family.kind, version).map(|i| i.release),
+                    default: settings.default_runtime(family.kind) == Some(version),
+                    installing: busy.contains(&format!("{}/{version}", family.kind.id())),
+                })
+                .collect(),
+        })
+        .collect())
+}
+
+fn parse_kind(kind: &str) -> CmdResult<RuntimeKind> {
+    RuntimeKind::from_id(kind).ok_or_else(|| format!("unknown runtime {kind:?}"))
+}
+
 #[tauri::command]
-fn list_runtimes() -> &'static [RuntimeFamily] {
-    RUNTIMES
+fn list_runtimes(installs: State<'_, Installs>) -> CmdResult<Vec<RuntimeView>> {
+    runtime_views(&installs)
+}
+
+/// Runs on a worker thread; progress arrives as `runtime-progress` events.
+#[tauri::command]
+async fn install_runtime(
+    app: AppHandle,
+    kind: String,
+    version: String,
+) -> CmdResult<Vec<RuntimeView>> {
+    let kind = parse_kind(&kind)?;
+    Settings::load()
+        .map_err(err)?
+        .require_module(kind.id())
+        .map_err(err)?;
+    let key = format!("{}/{version}", kind.id());
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(key.clone())
+    {
+        return Err(format!(
+            "{} {version} is already being installed",
+            catalog::runtime(kind).name
+        ));
+    }
+    let worker = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let manager = RuntimeManager::open();
+        manager.install(kind, &version, &mut |step| {
+            let _ = worker.emit(
+                "runtime-progress",
+                InstallProgress {
+                    kind,
+                    version: version.clone(),
+                    step,
+                },
+            );
+        })?;
+        let mut settings = Settings::load()?;
+        if manager.fix_default(&mut settings, kind) {
+            settings.save()?;
+        }
+        Ok::<_, stackyard_core::Error>(())
+    })
+    .await;
+    app.state::<Installs>().0.lock().unwrap().remove(&key);
+    result.map_err(|e| e.to_string())?.map_err(err)?;
+    runtime_views(&app.state::<Installs>())
+}
+
+#[tauri::command]
+fn uninstall_runtime(
+    kind: String,
+    version: String,
+    installs: State<'_, Installs>,
+) -> CmdResult<Vec<RuntimeView>> {
+    let kind = parse_kind(&kind)?;
+    let manager = RuntimeManager::open();
+    manager.uninstall(kind, &version).map_err(err)?;
+    let mut settings = Settings::load().map_err(err)?;
+    if manager.fix_default(&mut settings, kind) {
+        settings.save().map_err(err)?;
+    }
+    runtime_views(&installs)
+}
+
+#[tauri::command]
+fn set_default_runtime(
+    kind: String,
+    version: String,
+    installs: State<'_, Installs>,
+) -> CmdResult<Vec<RuntimeView>> {
+    let kind = parse_kind(&kind)?;
+    let mut settings = Settings::load().map_err(err)?;
+    RuntimeManager::open()
+        .set_default(&mut settings, kind, &version)
+        .map_err(err)?;
+    settings.save().map_err(err)?;
+    runtime_views(&installs)
 }
 
 #[tauri::command]
@@ -174,8 +316,12 @@ fn parse_runtime(label: &str) -> CmdResult<SiteRuntime> {
 pub fn run() {
     let app = tauri::Builder::default()
         .manage(Supervisor::new(paths::logs_dir()))
+        .manage(Installs::default())
         .invoke_handler(tauri::generate_handler![
             list_runtimes,
+            install_runtime,
+            uninstall_runtime,
+            set_default_runtime,
             list_services,
             list_modules,
             set_module,

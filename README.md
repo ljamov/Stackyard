@@ -4,8 +4,8 @@ A local development environment for Windows, macOS and Linux. Manage PHP, Node.j
 databases, web servers and local HTTPS sites such as `https://myapp.stack` from one desktop app,
 with no containers.
 
-> Status: early prototype. The app shell, screens, site list and settings work; installing
-> runtimes and running services arrive in the next milestones.
+> Status: early prototype. The app shell, site list, settings and runtime installs work;
+> running services arrives in the next milestone.
 
 ## What's here
 
@@ -25,6 +25,22 @@ New sites end in `.stack` by default. Change it in the app (Sites › Domain end
 `stackyard tld .test`. If `.stack` ever becomes a public domain ending, the default moves to `.test`,
 which is reserved for testing. `.local` works but is not recommended because Bonjour/mDNS uses it.
 
+## Runtimes
+
+Each version installs into its own folder (`runtimes/php/8.4`, `runtimes/node/22`) inside the data
+folder, so versions sit side by side. Every download is checked against a published SHA-256
+checksum before it is unpacked.
+
+| Runtime | Windows | macOS and Linux |
+| --- | --- | --- |
+| Node.js 20, 22, 24, 26 | Official builds from nodejs.org | Official builds from nodejs.org |
+| PHP 7.4 to 8.5 | Official builds from the PHP project | Built from the official PHP source by `.github/workflows/php-builds.yml` |
+
+The PHP build job uses static-php-cli to produce self-contained `php` and `php-fpm` binaries for
+x86_64 and ARM64, and publishes them with their checksums and licenses on the `php-builds` release.
+Download sources can be pointed at a mirror with `STACKYARD_NODE_MIRROR`,
+`STACKYARD_PHP_WINDOWS_MIRROR` and `STACKYARD_PHP_MANIFEST`.
+
 ## Develop
 
 Requirements: Rust (stable), Node.js 22, and on Linux the WebKitGTK libraries:
@@ -38,6 +54,7 @@ npm install
 npm run tauri dev          # run the desktop app with hot reload
 npm run dev                # interface only, in a browser, with sample data
 cargo test --workspace     # Rust tests
+cargo test -p stackyard-core -- --ignored live_   # real downloads from nodejs.org and php.net
 cargo run -p stackyard-cli -- sites list
 ```
 
@@ -48,7 +65,10 @@ stackyard sites add myapp --php 8.3 --path ~/Code/myapp
 stackyard sites add shop --node 22 --port 5173
 stackyard sites list
 stackyard sites remove shop
-stackyard runtimes
+stackyard runtimes                    # versions, with installed and default marked
+stackyard runtimes install php 8.4
+stackyard runtimes default php 8.4
+stackyard runtimes uninstall node 20
 stackyard services
 stackyard tld            # show the domain ending
 stackyard tld .test      # change it
