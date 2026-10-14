@@ -90,6 +90,14 @@ impl SiteStore {
         Ok(self.sites.last().expect("just pushed"))
     }
 
+    /// A site by its domain (`myapp.stack`) or bare name (`myapp`), to change it.
+    pub fn get_mut(&mut self, name_or_domain: &str) -> Result<&mut Site> {
+        self.sites
+            .iter_mut()
+            .find(|s| s.domain() == name_or_domain || s.name == name_or_domain)
+            .ok_or_else(|| Error::SiteNotFound(name_or_domain.to_string()))
+    }
+
     /// Removes a site by its domain (`myapp.stack`) or bare name (`myapp`).
     pub fn remove(&mut self, name_or_domain: &str) -> Result<Site> {
         let index = self

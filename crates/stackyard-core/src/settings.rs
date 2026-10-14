@@ -1,6 +1,6 @@
 //! User settings, stored as TOML.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,16 @@ pub struct Settings {
     pub runtimes: BTreeMap<String, String>,
     /// Parked folders: every project folder inside one becomes a site.
     pub parked: Vec<PathBuf>,
+    pub mcp: McpSettings,
+}
+
+/// What AI tools may do through the MCP server.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpSettings {
+    /// Action tools the user turned on, e.g. `start_service`; every other
+    /// action tool is off. Tools that only read are always on.
+    pub allow: BTreeSet<String>,
 }
 
 impl Default for Settings {
@@ -29,6 +39,7 @@ impl Default for Settings {
             modules: BTreeMap::new(),
             runtimes: BTreeMap::new(),
             parked: Vec::new(),
+            mcp: McpSettings::default(),
         }
     }
 }

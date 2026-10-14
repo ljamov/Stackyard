@@ -76,6 +76,8 @@ pub enum Error {
     BadPin { file: PathBuf, message: String },
     #[error("{0}")]
     Shell(String),
+    #[error("{0}")]
+    Mcp(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -186,6 +186,20 @@ impl Supervisor {
     }
 }
 
+/// The log file of a process Stackyard runs: a service such as `caddy`,
+/// `php-8.4` or `daemon`. Other names are refused, which also keeps the
+/// path inside the logs folder.
+pub fn log_file(home: &Path, id: &str) -> Result<PathBuf> {
+    let php = |v: &str| crate::catalog::runtime(crate::catalog::RuntimeKind::Php).offers(v);
+    let known = crate::catalog::service(id).is_some()
+        || id == "daemon"
+        || id.strip_prefix("php-").is_some_and(php);
+    if !known {
+        return Err(Error::UnknownProcess(id.into()));
+    }
+    Ok(home.join("logs").join(format!("{id}.log")))
+}
+
 /// The last `lines` lines of a log file (empty if it does not exist).
 pub fn tail_file(path: &Path, lines: usize) -> Result<Vec<String>> {
     let io = |source| Error::Io {

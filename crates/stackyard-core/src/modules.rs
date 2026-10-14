@@ -143,9 +143,9 @@ pub const MODULES: &[ModuleDef] = &[
         "mcp",
         "MCP server",
         Feature,
-        "Lets AI coding tools manage sites and services",
+        "Lets AI coding tools see and manage sites and services",
         false,
-        false,
+        true,
     ),
     module(
         "databases",

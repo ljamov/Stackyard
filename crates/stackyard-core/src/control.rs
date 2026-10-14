@@ -226,6 +226,118 @@ pub fn find(home: &Path) -> Option<Client> {
     client.connect(CONNECT_TIMEOUT).ok().map(|_| client)
 }
 
+/// The process that runs services, starting `program daemon` in the
+/// background (logging to `logs/daemon.log`) when there is none.
+pub fn start_background(home: &Path, program: &Path) -> Result<Client> {
+    if let Some(client) = find(home) {
+        return Ok(client);
+    }
+    let logs = home.join("logs");
+    let io = |source| Error::Io {
+        path: logs.clone(),
+        source,
+    };
+    std::fs::create_dir_all(&logs).map_err(io)?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(logs.join("daemon.log"))
+        .map_err(io)?;
+    let mut command = std::process::Command::new(program);
+    command
+        .arg("daemon")
+        .env("STACKYARD_HOME", home)
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone().map_err(io)?)
+        .stderr(log);
+    detach(&mut command);
+    let mut child = spawn_alone(&mut command).map_err(|source| Error::Spawn {
+        program: program.display().to_string(),
+        source,
+    })?;
+    for _ in 0..100 {
+        if let Some(client) = find(home) {
+            return Ok(client);
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            let tail =
+                crate::supervisor::tail_file(&logs.join("daemon.log"), 5).unwrap_or_default();
+            return Err(Error::Control(format!(
+                "the background service stopped ({status}): {}",
+                tail.join(" / ")
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Err(Error::Control(
+        "the background service did not start".into(),
+    ))
+}
+
+/// Starts `command` without handing it this process's own stdin, stdout and
+/// stderr. On Windows a child inherits every inheritable handle, so a
+/// background service would keep the pipes of whoever started this process
+/// (an AI tool, a script) open, and they would wait for it forever.
+fn spawn_alone(command: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{
+            GetHandleInformation, SetHandleInformation, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
+        };
+        use windows_sys::Win32::System::Console::{
+            GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+        };
+        let mut hidden = Vec::new();
+        for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            // SAFETY: reads and changes flags of this process's own standard handles.
+            unsafe {
+                let handle = GetStdHandle(which);
+                let mut flags = 0u32;
+                if !handle.is_null()
+                    && handle != INVALID_HANDLE_VALUE
+                    && GetHandleInformation(handle, &mut flags) != 0
+                    && flags & HANDLE_FLAG_INHERIT != 0
+                    && SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) != 0
+                {
+                    hidden.push(handle);
+                }
+            }
+        }
+        let child = command.spawn();
+        for handle in hidden {
+            // SAFETY: as above, restoring what was there.
+            unsafe {
+                SetHandleInformation(handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+            }
+        }
+        child
+    }
+    #[cfg(not(windows))]
+    command.spawn()
+}
+
+/// Keeps a background process running after the terminal that started it closes.
+fn detach(command: &mut std::process::Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: setsid is async-signal-safe and only affects the child.
+        unsafe {
+            command.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+}
+
 impl Client {
     fn connect(&self, timeout: Duration) -> std::io::Result<TcpStream> {
         TcpStream::connect_timeout(&SocketAddr::from((Ipv4Addr::LOCALHOST, self.port)), timeout)
