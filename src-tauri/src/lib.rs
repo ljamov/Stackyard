@@ -530,6 +530,18 @@ fn terminal_off() -> stackyard_core::Result<()> {
     shims::remove(&home)
 }
 
+/// After an update, points the terminal commands at the new `stackyard`.
+fn refresh_terminal_commands() {
+    std::thread::spawn(|| {
+        let home = paths::home();
+        if let Some(cli) = cli_program().filter(|cli| shims::outdated(&home, cli)) {
+            if let Err(e) = shims::install(&home, &cli) {
+                eprintln!("could not update the terminal commands: {e}");
+            }
+        }
+    });
+}
+
 #[tauri::command]
 async fn terminal_status() -> TerminalView {
     // Reading the Windows Path starts PowerShell; keep it off the UI thread.
@@ -751,6 +763,7 @@ fn start_dns() -> Option<DnsServer> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    refresh_terminal_commands();
     let app = tauri::Builder::default()
         .manage(Supervisor::new(paths::logs_dir()))
         .manage(Installs::default())

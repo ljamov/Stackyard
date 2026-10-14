@@ -1,0 +1,145 @@
+name: Installers
+
+# Unsigned installers for Windows, macOS and Linux. They run for version
+# tags (and then go on a draft release), by hand, and for pull requests
+# that change how the installers are made.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - src-tauri/tauri.conf.json
+      - src-tauri/tauri.release.conf.json
+
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Performance budget from the spec: installers stay under 15 MB.
+  MAX_INSTALLER_MB: 15
+
+jobs:
+  bundle:
+    name: Installers (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: macos-x64
+            os: macos-latest
+            target: x86_64-apple-darwin
+          # The oldest supported Ubuntu, so the packages run on more systems.
+          - name: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev patchelf file
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: npm ci
+      - name: Build the stackyard command to ship next to the app
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p stackyard-cli --target ${{ matrix.target }}
+          ext=""; [ "$RUNNER_OS" = Windows ] && ext=".exe"
+          mkdir -p src-tauri/binaries
+          cp "target/${{ matrix.target }}/release/stackyard$ext" "src-tauri/binaries/stackyard-${{ matrix.target }}$ext"
+      - name: Build the installers
+        run: npx tauri build --target ${{ matrix.target }} --config src-tauri/tauri.release.conf.json
+      - name: Check the installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="target/${{ matrix.target }}/release/bundle"
+          mkdir -p out
+          find "$bundle" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp {} out/ \;
+          ls -l out
+          [ -n "$(ls out)" ] || { echo "no installers were made"; exit 1; }
+
+          echo "== the stackyard command ships next to the app, and installs"
+          case "$RUNNER_OS" in
+            macOS)
+              app="$bundle/macos/Stackyard.app/Contents/MacOS"
+              ls -l "$app"
+              file "$app/stackyard" | grep -q "${{ matrix.target == 'aarch64-apple-darwin' && 'arm64' || 'x86_64' }}"
+              if [ "${{ matrix.target }}" = aarch64-apple-darwin ]; then "$app/stackyard" --version; fi ;;
+            Linux)
+              sudo apt-get install -y ./out/*.deb
+              stackyard --version
+              test -x /usr/bin/stackyard-app ;;
+            Windows)
+              # The setup program installs for this user without asking.
+              ./out/*-setup.exe //S
+              dir="$LOCALAPPDATA/Stackyard"
+              for _ in $(seq 30); do [ -f "$dir/stackyard.exe" ] && break; sleep 1; done
+              ls -l "$dir"
+              "$dir/stackyard.exe" --version ;;
+          esac
+
+          echo "== sizes"
+          {
+            echo "### Installers for ${{ matrix.name }}"
+            echo
+            echo "| File | Size |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in out/*; do
+            bytes=$(wc -c < "$f")
+            mb=$(awk "BEGIN { printf \"%.1f\", $bytes / 1048576 }")
+            echo "| $(basename "$f") | $mb MB |" >> "$GITHUB_STEP_SUMMARY"
+            echo "$(basename "$f"): $mb MB"
+            if [ "$bytes" -gt $((MAX_INSTALLER_MB * 1048576)) ]; then
+              echo "::warning file=$(basename "$f")::$(basename "$f") is $mb MB, over the $MAX_INSTALLER_MB MB budget"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stackyard-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: bundle
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Put the installers on a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l out
+          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --draft \
+            --title "Stackyard $GITHUB_REF_NAME" \
+            --notes "Unsigned prototype installers. macOS: right-click the app and choose Open the first time. Windows: choose More info, then Run anyway."
