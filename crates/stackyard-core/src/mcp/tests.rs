@@ -422,7 +422,10 @@ fn creates_sites_and_switches_versions() {
         json!({ "site": "blog", "version": "8.3" }),
     );
     assert_eq!(switched["site"]["runtime"]["version"], "8.3");
-    assert_eq!(switched["saved_in"], json!(parked.join("blog/.stackyard")));
+    assert_eq!(
+        switched["saved_in"],
+        json!(parked.join("blog").join(".stackyard"))
+    );
     let pin = crate::shell::pins::pinned(&parked.join("blog"), crate::catalog::RuntimeKind::Php)
         .unwrap()
         .unwrap();
