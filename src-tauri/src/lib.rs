@@ -13,6 +13,7 @@ use stackyard_core::modules::{ModuleGroup, MODULES};
 use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
+use stackyard_core::shell::{path as user_path, shims};
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
@@ -486,7 +487,78 @@ fn set_module(
     if !enabled && supervisor.state(&id) != ProcessState::Stopped {
         supervisor.stop(&id).map_err(err)?;
     }
+    if id == "shell" && !enabled {
+        terminal_off().map_err(err)?;
+    }
     Ok(module_views(&settings))
+}
+
+#[derive(Serialize)]
+struct TerminalView {
+    /// The `stackyard` command-line program was found next to the app.
+    available: bool,
+    /// The commands exist and new terminals will find them.
+    on: bool,
+    folder: String,
+    /// Start-up files or the Windows Path that carry the setting.
+    places: Vec<String>,
+}
+
+/// The `stackyard` program, which every terminal command leads back to.
+/// It ships next to the app.
+fn cli_program() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let cli = exe.with_file_name(format!("stackyard{}", std::env::consts::EXE_SUFFIX));
+    cli.is_file().then_some(cli)
+}
+
+fn terminal_view() -> TerminalView {
+    let home = paths::home();
+    let bin = shims::bin_dir(&home);
+    let status = user_path::status(&bin);
+    TerminalView {
+        available: cli_program().is_some(),
+        on: shims::installed(&home) && status.on_path,
+        folder: bin.display().to_string(),
+        places: status.places,
+    }
+}
+
+fn terminal_off() -> stackyard_core::Result<()> {
+    let home = paths::home();
+    user_path::remove(&shims::bin_dir(&home))?;
+    shims::remove(&home)
+}
+
+#[tauri::command]
+async fn terminal_status() -> TerminalView {
+    // Reading the Windows Path starts PowerShell; keep it off the UI thread.
+    tauri::async_runtime::spawn_blocking(terminal_view)
+        .await
+        .unwrap_or_else(|_| terminal_view())
+}
+
+#[tauri::command]
+async fn set_terminal(on: bool) -> CmdResult<TerminalView> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if on {
+            Settings::load()?.require_module("shell")?;
+            let cli = cli_program().ok_or_else(|| {
+                stackyard_core::Error::Shell(
+                    "the stackyard command-line program is not next to the app".into(),
+                )
+            })?;
+            let home = paths::home();
+            shims::install(&home, &cli)?;
+            user_path::add(&shims::bin_dir(&home))?;
+        } else {
+            terminal_off()?;
+        }
+        Ok(terminal_view())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(err)
 }
 
 #[tauri::command]
@@ -707,7 +779,9 @@ pub fn run() {
             park_folder,
             unpark_folder,
             system_status,
-            run_system_setup
+            run_system_setup,
+            terminal_status,
+            set_terminal
         ])
         .build(tauri::generate_context!())
         .expect("error while building Stackyard");

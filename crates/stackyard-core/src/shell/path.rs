@@ -129,17 +129,17 @@ fn targets(home: &Path, shell: &str, os: Os) -> Vec<PathBuf> {
         .into_iter()
         .filter(|f| f.exists())
         .collect();
-    let own = match shell.rsplit('/').next().unwrap_or_default() {
-        "zsh" => Some(".zshrc"),
-        // Terminal on macOS starts bash as a login shell.
-        "bash" if os == Os::Macos => Some(".bash_profile"),
-        "bash" => Some(".bashrc"),
-        "fish" => None,
-        _ => Some(".profile"),
+    let own: &[&str] = match shell.rsplit('/').next().unwrap_or_default() {
+        "zsh" => &[".zshrc"],
+        // Terminal on macOS starts bash as a login shell; editors may not.
+        "bash" if os == Os::Macos => &[".bash_profile", ".bashrc"],
+        "bash" => &[".bashrc"],
+        "fish" => &[],
+        _ => &[".profile"],
     };
-    if let Some(own) = own.map(|f| home.join(f)) {
-        if !files.contains(&own) {
-            files.push(own);
+    for file in own.iter().map(|f| home.join(f)) {
+        if !files.contains(&file) {
+            files.push(file);
         }
     }
     files
@@ -341,7 +341,7 @@ mod tests {
         assert_eq!(names(targets(&home, "/bin/zsh", Os::Macos)), [".zshrc"]);
         assert_eq!(
             names(targets(&home, "/bin/bash", Os::Macos)),
-            [".bash_profile"]
+            [".bash_profile", ".bashrc"]
         );
         assert_eq!(
             names(targets(&home, "/usr/bin/bash", Os::Linux)),
