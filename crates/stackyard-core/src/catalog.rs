@@ -1,5 +1,5 @@
-//! What Stackyard can install. Download sources and checksums are added
-//! in the runtime-manager milestone; for now this is the list the UI shows.
+//! What Stackyard can install. Where each runtime is downloaded from lives
+//! in [`crate::runtimes`].
 
 use serde::Serialize;
 
@@ -11,6 +11,25 @@ pub enum RuntimeKind {
     Python,
     Go,
     Java,
+}
+
+impl RuntimeKind {
+    pub const ALL: [RuntimeKind; 5] = [Self::Php, Self::Node, Self::Python, Self::Go, Self::Java];
+
+    /// Lowercase id used in settings, folder names and commands.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Php => "php",
+            Self::Node => "node",
+            Self::Python => "python",
+            Self::Go => "go",
+            Self::Java => "java",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.id() == id)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,13 +46,13 @@ pub const RUNTIMES: &[RuntimeFamily] = &[
     RuntimeFamily {
         kind: RuntimeKind::Php,
         name: "PHP",
-        versions: &["8.4", "8.3", "8.2", "8.1"],
+        versions: &["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"],
         available: true,
     },
     RuntimeFamily {
         kind: RuntimeKind::Node,
         name: "Node.js",
-        versions: &["24", "22", "20"],
+        versions: &["26", "24", "22", "20"],
         available: true,
     },
     RuntimeFamily {
@@ -89,6 +108,12 @@ pub const SERVICES: &[ServiceDef] = &[
     },
 ];
 
+impl RuntimeFamily {
+    pub fn offers(&self, version: &str) -> bool {
+        self.versions.contains(&version)
+    }
+}
+
 pub fn runtime(kind: RuntimeKind) -> &'static RuntimeFamily {
     RUNTIMES
         .iter()
@@ -102,16 +127,12 @@ mod tests {
 
     #[test]
     fn every_kind_is_listed_once() {
-        for kind in [
-            RuntimeKind::Php,
-            RuntimeKind::Node,
-            RuntimeKind::Python,
-            RuntimeKind::Go,
-            RuntimeKind::Java,
-        ] {
+        for kind in RuntimeKind::ALL {
             assert_eq!(RUNTIMES.iter().filter(|r| r.kind == kind).count(), 1);
             assert!(!runtime(kind).versions.is_empty());
+            assert_eq!(RuntimeKind::from_id(kind.id()), Some(kind));
         }
+        assert_eq!(RuntimeKind::from_id("../php"), None);
     }
 
     #[test]

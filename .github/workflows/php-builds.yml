@@ -1,0 +1,199 @@
+# Builds self-contained PHP (cli + fpm) for macOS and Linux from the official
+# PHP source with static-php-cli, then publishes the archives with SHA-256
+# checksums on the rolling "php-builds" release, plus a manifest.json that the
+# Stackyard app reads to find them. Windows uses the PHP project's own builds.
+#
+# Each archive ships PHP's license and the licenses of every bundled library
+# in its licenses/ folder.
+
+name: PHP builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: PHP versions to build, separated by spaces
+        default: "8.5 8.4 8.3 8.2 8.1 8.0 7.4"
+      publish:
+        description: Publish to the php-builds release
+        type: boolean
+        default: true
+  schedule:
+    # Mondays, to pick up PHP security releases.
+    - cron: "17 3 * * 1"
+  pull_request:
+    paths: [".github/workflows/php-builds.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php-builds-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # A broad set that covers Laravel, Symfony and WordPress. Kept in one place
+  # so every version and platform gets the same extensions.
+  EXTENSIONS: "bcmath,bz2,calendar,ctype,curl,dom,exif,fileinfo,filter,ftp,gd,iconv,intl,mbregex,mbstring,mysqli,mysqlnd,opcache,openssl,pcntl,pdo,pdo_mysql,pdo_pgsql,pdo_sqlite,pgsql,phar,posix,readline,redis,session,simplexml,sockets,sodium,sqlite3,tokenizer,xml,xmlreader,xmlwriter,xsl,zip,zlib"
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          VERSIONS: ${{ inputs.versions }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          platforms='[
+            {"platform": "linux-x86_64",  "runner": "ubuntu-24.04",     "spc": "spc-linux-x86_64"},
+            {"platform": "linux-aarch64", "runner": "ubuntu-24.04-arm", "spc": "spc-linux-aarch64"},
+            {"platform": "macos-x86_64",  "runner": "macos-15-intel",   "spc": "spc-macos-x86_64"},
+            {"platform": "macos-aarch64", "runner": "macos-15",         "spc": "spc-macos-aarch64"}
+          ]'
+          case "$EVENT" in
+            pull_request)
+              # Smoke test of this file: one version, one platform, nothing published.
+              versions="8.4"; publish=false
+              platforms=$(jq -c '[.[0]]' <<<"$platforms") ;;
+            schedule)
+              versions="8.5 8.4 8.3 8.2 8.1 8.0 7.4"; publish=true ;;
+            *)
+              versions="$VERSIONS"; publish="$PUBLISH" ;;
+          esac
+          for v in $versions; do
+            [[ "$v" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "::error::not a PHP version: $v"; exit 1; }
+          done
+          matrix=$(jq -cn --arg versions "$versions" --argjson platforms "$platforms" \
+            '[($versions | split(" ") | map(select(. != "")))[] as $v | $platforms[] | . + {version: $v}]')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: PHP ${{ matrix.version }} (${{ matrix.platform }})
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      # Older versions may not build everywhere; the others still publish.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      VERSION: ${{ matrix.version }}
+      PLATFORM: ${{ matrix.platform }}
+      SPC: ${{ matrix.spc }}
+    steps:
+      - name: Get static-php-cli
+        run: |
+          curl -fsSL --retry 3 -o spc "https://dl.static-php.dev/static-php-cli/spc-bin/nightly/$SPC"
+          chmod +x spc
+          ./spc --version
+
+      - name: Install build tools
+        run: ./spc doctor --auto-fix
+
+      - name: Download PHP and library sources
+        run: ./spc download --with-php="$VERSION" --for-extensions="$EXTENSIONS" --prefer-pre-built --retry=3
+
+      - name: Build
+        run: ./spc build "$EXTENSIONS" --build-cli --build-fpm
+
+      - name: Check the binaries run
+        run: |
+          ./buildroot/bin/php -v
+          ./buildroot/bin/php -r 'exit(extension_loaded("pdo_mysql") && extension_loaded("intl") ? 0 : 1);'
+          ./buildroot/bin/php-fpm -v
+
+      - name: Package
+        run: |
+          full=$(./buildroot/bin/php -r 'echo PHP_VERSION;')
+          case "$full" in
+            "$VERSION".*) ;;
+            *) echo "::error::built PHP $full, expected $VERSION.x"; exit 1 ;;
+          esac
+          name="php-$full-$PLATFORM"
+          mkdir -p "dist/$name/bin"
+          cp buildroot/bin/php buildroot/bin/php-fpm "dist/$name/bin/"
+          cp source/php-src/php.ini-development source/php-src/php.ini-production "dist/$name/"
+          ./spc dump-license --for-extensions="$EXTENSIONS" --dump-dir="dist/$name/licenses"
+          ./buildroot/bin/php -m > "dist/$name/extensions.txt"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          sha=$(shasum -a 256 "dist/$name.tar.gz" | cut -d' ' -f1)
+          jq -n --arg major "$VERSION" --arg version "$full" --arg platform "$PLATFORM" \
+            --arg file "$name.tar.gz" --arg sha256 "$sha" \
+            '{major: $major, version: $version, platform: $platform, file: $file, sha256: $sha256}' \
+            > "dist/$name.json"
+          cat "dist/$name.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: php-${{ matrix.version }}-${{ matrix.platform }}
+          path: |
+            dist/*.tar.gz
+            dist/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [plan, build]
+    # Publish whatever built, even if some versions failed.
+    if: ${{ !cancelled() && needs.plan.outputs.publish == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: php-builds
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish archives and manifest
+        run: |
+          shopt -s nullglob
+          builds=(dist/*.json)
+          if [ ${#builds[@]} -eq 0 ]; then echo "::error::nothing was built"; exit 1; fi
+
+          if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" -R "$REPO" --latest=false --title "PHP builds" \
+              --notes "Self-contained PHP for macOS and Linux, built from the official PHP source for Stackyard. Each archive includes PHP's license and the licenses of the libraries it bundles. manifest.json lists every build with its SHA-256 checksum."
+          fi
+
+          mkdir -p old
+          gh release download "$TAG" -R "$REPO" -p manifest.json -D old 2>/dev/null \
+            || echo '{"schema": 1, "builds": []}' > old/manifest.json
+
+          base="https://github.com/$REPO/releases/download/$TAG"
+          jq -s --arg base "$base" 'map(. + {url: ($base + "/" + .file)})' "${builds[@]}" > new.json
+          # New builds replace older ones for the same version and platform.
+          jq --slurpfile new new.json '{
+              schema: 1,
+              generated: (now | todate),
+              builds: ([.builds[] | . as $b
+                        | select($new[0] | any(.major == $b.major and .platform == $b.platform) | not)]
+                       + $new[0] | sort_by(.platform, (.major | split(".") | map(tonumber))))
+            }' old/manifest.json > manifest.json
+          cat manifest.json
+
+          # Archives first, so the manifest never points at a missing file.
+          gh release upload "$TAG" -R "$REPO" --clobber dist/*.tar.gz
+          gh release upload "$TAG" -R "$REPO" --clobber manifest.json
+
+          # Remove archives the manifest no longer lists.
+          keep=$(jq -r '.builds[].file' manifest.json)
+          gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name' | while read -r asset; do
+            case "$asset" in
+              manifest.json) ;;
+              *) grep -qxF "$asset" <<<"$keep" || gh release delete-asset "$TAG" "$asset" -R "$REPO" -y ;;
+            esac
+          done
