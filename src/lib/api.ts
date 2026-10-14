@@ -28,6 +28,16 @@ export type Site = {
   https: boolean;
 };
 
+export type Module = {
+  id: string;
+  name: string;
+  group: "runtime" | "service" | "feature";
+  description: string;
+  on_by_default: boolean;
+  available: boolean;
+  enabled: boolean;
+};
+
 export type TldInfo = { tld: string; warning: string | null };
 
 export type NewSite = { name: string; path: string; runtime: string; https: boolean };
@@ -37,6 +47,8 @@ export interface Api {
   listServices(): Promise<ServiceDef[]>;
   getTld(): Promise<TldInfo>;
   setTld(value: string): Promise<TldInfo>;
+  listModules(): Promise<Module[]>;
+  setModule(id: string, enabled: boolean): Promise<Module[]>;
   listSites(): Promise<Site[]>;
   addSite(site: NewSite): Promise<Site>;
   removeSite(name: string): Promise<void>;
@@ -47,6 +59,8 @@ const tauriApi: Api = {
   listServices: () => invoke("list_services"),
   getTld: () => invoke("get_tld"),
   setTld: (value) => invoke("set_tld", { value }),
+  listModules: () => invoke("list_modules"),
+  setModule: (id, enabled) => invoke("set_module", { id, enabled }),
   listSites: () => invoke("list_sites"),
   addSite: (site) => invoke("add_site", site),
   removeSite: (name) => invoke("remove_site", { name }),
@@ -65,6 +79,25 @@ function browserApi(): Api {
     { id: "mariadb", name: "MariaDB", version: "11.4", ports: [3306], role: "Database" },
     { id: "mailpit", name: "Mailpit", version: "1.20", ports: [1025, 8025], role: "Mail catcher" },
   ];
+  const mod = (
+    id: string,
+    name: string,
+    group: Module["group"],
+    description: string,
+    on: boolean,
+    available: boolean,
+  ): Module => ({ id, name, group, description, on_by_default: on, available, enabled: on && available });
+  let modules: Module[] = [
+    mod("php", "PHP", "runtime", "PHP versions for sites and the shell", true, true),
+    mod("node", "Node.js", "runtime", "Node.js versions for sites and the shell", true, true),
+    mod("python", "Python", "runtime", "Python versions", false, false),
+    mod("nginx", "Nginx", "service", "Web server for PHP sites", true, true),
+    mod("mariadb", "MariaDB", "service", "MySQL-compatible database", true, true),
+    mod("mailpit", "Mailpit", "service", "Catches outgoing mail for testing", false, true),
+    mod("redis", "Redis", "service", "Cache and queues", false, false),
+    mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, false),
+    mod("mcp", "MCP server", "feature", "Lets AI coding tools manage sites and services", false, false),
+  ];
   let tld = ".stack";
   let sites: Site[] = [];
   const warn = (t: string) =>
@@ -78,6 +111,11 @@ function browserApi(): Api {
       if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(clean)) throw `invalid domain ending "${value}"`;
       tld = `.${clean}`;
       return { tld, warning: warn(tld) };
+    },
+    listModules: async () => modules,
+    setModule: async (id, enabled) => {
+      modules = modules.map((m) => (m.id === id && m.available ? { ...m, enabled } : m));
+      return modules;
     },
     listSites: async () => sites,
     addSite: async ({ name, path, runtime, https }) => {

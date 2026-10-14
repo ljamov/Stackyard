@@ -3004,7 +3004,9 @@ name = "stackyard-core"
 version = "0.1.0"
 dependencies = [
  "dirs 6.0.0",
+ "libc",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "toml 0.8.23",
 ]

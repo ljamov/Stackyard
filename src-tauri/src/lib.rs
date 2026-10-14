@@ -3,9 +3,12 @@
 
 use serde::Serialize;
 use stackyard_core::catalog::{RuntimeFamily, ServiceDef, RUNTIMES, SERVICES};
-use stackyard_core::domain;
+use stackyard_core::modules::{ModuleDef, MODULES};
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
+use stackyard_core::supervisor::{ProcessState, Supervisor};
+use stackyard_core::{domain, paths};
+use tauri::{Manager, RunEvent, State};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -77,6 +80,48 @@ fn set_tld(value: String) -> CmdResult<TldView> {
     })
 }
 
+#[derive(Serialize)]
+struct ModuleView {
+    #[serde(flatten)]
+    def: &'static ModuleDef,
+    enabled: bool,
+}
+
+fn module_views(settings: &Settings) -> Vec<ModuleView> {
+    MODULES
+        .iter()
+        .map(|def| ModuleView {
+            def,
+            enabled: settings.module_enabled(def.id),
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn list_modules() -> CmdResult<Vec<ModuleView>> {
+    Ok(module_views(&Settings::load().map_err(err)?))
+}
+
+#[tauri::command]
+fn set_module(
+    id: String,
+    enabled: bool,
+    supervisor: State<'_, Supervisor>,
+) -> CmdResult<Vec<ModuleView>> {
+    let mut settings = Settings::load().map_err(err)?;
+    settings.set_module(&id, enabled).map_err(err)?;
+    settings.save().map_err(err)?;
+    if !enabled && supervisor.state(&id) != ProcessState::Stopped {
+        supervisor.stop(&id).map_err(err)?;
+    }
+    Ok(module_views(&settings))
+}
+
+#[tauri::command]
+fn service_states(supervisor: State<'_, Supervisor>) -> Vec<(String, ProcessState)> {
+    supervisor.states()
+}
+
 #[tauri::command]
 fn list_sites() -> CmdResult<Vec<SiteView>> {
     let store = SiteStore::load().map_err(err)?;
@@ -127,18 +172,28 @@ fn parse_runtime(label: &str) -> CmdResult<SiteRuntime> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        .manage(Supervisor::new(paths::logs_dir()))
         .invoke_handler(tauri::generate_handler![
             list_runtimes,
             list_services,
+            list_modules,
+            set_module,
+            service_states,
             get_tld,
             set_tld,
             list_sites,
             add_site,
             remove_site
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Stackyard");
+        .build(tauri::generate_context!())
+        .expect("error while building Stackyard");
+    app.run(|handle, event| {
+        // Never leave services running after Stackyard quits.
+        if let RunEvent::Exit = event {
+            handle.state::<Supervisor>().stop_all();
+        }
+    });
 }
 
 #[cfg(test)]
