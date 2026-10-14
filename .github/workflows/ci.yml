@@ -167,6 +167,41 @@ jobs:
             curl -fsS "https://php-app.stack$(suffix)/" | grep "PHP 8.4"
           fi
           stop
+      - name: Background service shared by every stackyard command
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            curl() { /c/Windows/System32/curl.exe --ssl-no-revoke "$@"; }
+          elif [ "$RUNNER_OS" = macOS ]; then
+            curl() { /usr/bin/curl "$@"; }
+          fi
+          trap 'tail -n 30 "$STACKYARD_HOME/logs/daemon.log" "$STACKYARD_HOME/logs/caddy.log" || true' ERR
+          stackyard status | grep -q "Nothing is running"
+
+          echo "== start runs the web server in the background and returns"
+          stackyard start caddy
+          stackyard status | tee "$RUNNER_TEMP/status.txt"
+          grep -q "in the background" "$RUNNER_TEMP/status.txt"
+          grep -Eq "Caddy +running" "$RUNNER_TEMP/status.txt"
+          port=$(sed -n 's/^https = //p' "$STACKYARD_HOME/config/caddy/ports.toml")
+          page() { curl -fsSk --max-time 5 "https://$1.localhost:$port/"; }
+          for _ in $(seq 30); do page hello >/dev/null 2>&1 && break; sleep 1; done
+          page hello | grep "Hello from Stackyard"
+
+          echo "== a site added from another command is served right away"
+          mkdir -p "$RUNNER_TEMP/later"
+          echo '<p>Added later</p>' > "$RUNNER_TEMP/later/index.html"
+          stackyard sites add later --path "$RUNNER_TEMP/later" --static
+          for _ in $(seq 30); do page later 2>/dev/null | grep -q "Added later" && break; sleep 1; done
+          page later | grep "Added later"
+          stackyard logs caddy -n 5
+
+          echo "== stop ends everything"
+          stackyard stop
+          sleep 2
+          stackyard status | grep -q "Nothing is running"
+          if page hello >/dev/null 2>&1; then echo "still serving after stop"; exit 1; fi
 
   terminal:
     name: Terminal commands end to end (${{ matrix.os }})

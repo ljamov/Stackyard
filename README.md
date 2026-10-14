@@ -4,8 +4,8 @@ A local development environment for Windows, macOS and Linux. Manage PHP, Node.j
 databases, web servers and local HTTPS sites such as `https://myapp.stack` from one desktop app,
 with no containers.
 
-> Status: early prototype. Runtimes, services, local sites with HTTPS and terminal commands work;
-> a background service, tray icon and installers come next.
+> Status: early prototype. Runtimes, services, local sites with HTTPS, terminal commands, the
+> background service and the tray icon work; installers come next.
 
 ## Install
 
@@ -89,6 +89,22 @@ x86_64 and ARM64, and publishes them with their checksums and licenses on the `p
 Download sources can be pointed at a mirror with `STACKYARD_NODE_MIRROR`,
 `STACKYARD_PHP_WINDOWS_MIRROR` and `STACKYARD_PHP_MANIFEST`.
 
+## Running in the background
+
+One process at a time runs services, and every other part of Stackyard talks to it:
+
+- **The app.** Closing the window keeps Stackyard in the tray (menu bar on macOS) and frees the
+  window's memory; the tray menu opens it again, starts or stops every service, or quits. Quitting
+  stops all services. Opening the app a second time brings the first window forward.
+- **`stackyard start`** when the app is closed: it starts a small background process
+  (`stackyard daemon`) that keeps services running after the terminal closes. `stackyard stop`
+  stops everything and ends it; opening the app takes its services over.
+- **`stackyard up`**: the same in the foreground of one terminal, until Ctrl+C.
+
+`stackyard start`, `stop`, `status` and site changes from the CLI all reach whichever of these runs
+services, so a site added in a terminal is served right away by the app. They talk over
+`127.0.0.1` with a secret token kept in `run/control.json`, readable only by you.
+
 ## Terminal
 
 `php`, `composer`, `node`, `npm`, `npx`, `mysql` and `mysqldump` run the version each project asks
@@ -161,6 +177,10 @@ stackyard sites park ~/Code           # every project folder in ~/Code becomes a
 stackyard sites list
 stackyard sites remove shop
 stackyard system setup                # local domains and HTTPS, asks for your password once
+stackyard start caddy                 # run the web server in the background (`stackyard start` = everything)
+stackyard status                      # what is running, and where
+stackyard logs caddy -n 100           # the end of a service's log
+stackyard stop                        # stop everything (`stackyard stop mysql` for one)
 stackyard up                          # run the web server (and e.g. `stackyard up mysql`) until Ctrl+C
 stackyard runtimes                    # versions, with installed and default marked
 stackyard runtimes install php 8.4

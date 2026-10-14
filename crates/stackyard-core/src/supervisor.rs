@@ -14,7 +14,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{ports, Error, Result};
 
@@ -41,7 +41,7 @@ pub struct ProcessSpec {
     pub restart_on_crash: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum ProcessState {
     Stopped,
@@ -182,26 +182,30 @@ impl Supervisor {
 
     /// The last `lines` lines of a process's log (empty if it never ran).
     pub fn tail_log(&self, id: &str, lines: usize) -> Result<Vec<String>> {
-        let path = self.log_path(id);
-        let io = |source| Error::Io {
-            path: path.clone(),
-            source,
-        };
-        let mut file = match File::open(&path) {
-            Ok(file) => file,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(io(e)),
-        };
-        let len = file.metadata().map_err(io)?.len();
-        file.seek(SeekFrom::Start(len.saturating_sub(TAIL_WINDOW)))
-            .map_err(io)?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes).map_err(io)?;
-        let text = String::from_utf8_lossy(&bytes);
-        let all: Vec<&str> = text.lines().collect();
-        let skip = all.len().saturating_sub(lines);
-        Ok(all[skip..].iter().map(|l| l.to_string()).collect())
+        tail_file(&self.log_path(id), lines)
     }
+}
+
+/// The last `lines` lines of a log file (empty if it does not exist).
+pub fn tail_file(path: &Path, lines: usize) -> Result<Vec<String>> {
+    let io = |source| Error::Io {
+        path: path.to_owned(),
+        source,
+    };
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io(e)),
+    };
+    let len = file.metadata().map_err(io)?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(TAIL_WINDOW)))
+        .map_err(io)?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(io)?;
+    let text = String::from_utf8_lossy(&bytes);
+    let all: Vec<&str> = text.lines().collect();
+    let skip = all.len().saturating_sub(lines);
+    Ok(all[skip..].iter().map(|l| l.to_string()).collect())
 }
 
 impl Drop for Supervisor {
