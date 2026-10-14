@@ -1,6 +1,7 @@
 //! `stackyard` command-line tool. Every command goes through `stackyard-core`,
 //! so the CLI, the desktop app and the MCP server always agree.
 
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitCode, Stdio};
@@ -18,6 +19,7 @@ use stackyard_core::modules::MODULES;
 use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
+use stackyard_core::shell::{self, path as user_path, pins, shims, Tool};
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{self, ProcessState};
 use stackyard_core::system::{self, Elevate};
@@ -91,6 +93,32 @@ enum Command {
         #[command(subcommand)]
         action: Option<SystemAction>,
     },
+    /// Open Stackyard Shell: php, node, npm, composer and mysql use each project's versions
+    Shell,
+    /// Show the terminal commands, or put them on your PATH for every terminal
+    Shims {
+        #[command(subcommand)]
+        action: Option<ShimsAction>,
+    },
+    /// Show which version a command runs in this folder, and why
+    Which {
+        /// e.g. `php`, `node` or `composer`; all of them when left out
+        tool: Option<String>,
+    },
+    /// Pin a version for this project in its `.stackyard` file, e.g. `use php 8.3`
+    Use(RuntimeArgs),
+}
+
+#[derive(Subcommand)]
+enum ShimsAction {
+    /// Create the commands and add them to your PATH (no password needed)
+    On {
+        /// Print the PATH change instead of making it
+        #[arg(long)]
+        print: bool,
+    },
+    /// Remove the commands and take them off your PATH
+    Off,
 }
 
 #[derive(Subcommand)]
@@ -178,6 +206,18 @@ struct AddSite {
 }
 
 fn main() -> ExitCode {
+    // Started as `php`, `node`... through a shim: run that tool.
+    let mut args = std::env::args_os();
+    let tool = args
+        .next()
+        .as_deref()
+        .map(Path::new)
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .and_then(Tool::from_name);
+    if let Some(tool) = tool {
+        return run_shim(tool, args.collect());
+    }
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -398,6 +438,9 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             if !on {
                 notify(Request::Stop { ids: vec![id.clone()] });
             }
+            if id == "shell" && !on {
+                turn_shims_off()?;
+            }
             println!("{id} is now {}", if on { "on" } else { "off" });
         }
         Command::Up { services } => up(&services)?,
@@ -477,6 +520,86 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             println!("Done. Local domains and HTTPS are set up.");
             if wanted.certificate.is_none() {
                 println!("Start the web server once, then run this again to trust its HTTPS certificate.");
+            }
+        }
+        Command::Shell => open_shell()?,
+        Command::Shims { action: None } => {
+            let home = paths::home();
+            let bin = shims::bin_dir(&home);
+            if !shims::installed(&home) {
+                println!("The terminal commands are off. Turn them on with `stackyard shims on`, or open `stackyard shell`.");
+            } else {
+                let status = user_path::status(&bin);
+                println!("Commands: {}", bin.display());
+                if status.on_path {
+                    println!("On your PATH through {}", status.places.join(", "));
+                } else {
+                    println!(
+                        "Not on your PATH yet: run `stackyard shims on`, or use `stackyard shell`."
+                    );
+                }
+            }
+        }
+        Command::Shims {
+            action: Some(ShimsAction::On { print }),
+        } => {
+            Settings::load()?.require_module("shell")?;
+            let home = paths::home();
+            let bin = shims::bin_dir(&home);
+            if print {
+                print!("{}", user_path::preview(&bin));
+                return Ok(());
+            }
+            shims::install(&home, &own_program()?)?;
+            let changed = user_path::add(&bin)?;
+            println!(
+                "Created php, composer, node, npm, npx, mysql and mysqldump in {}",
+                bin.display()
+            );
+            println!("Added them to your PATH in {}", changed.join(", "));
+            println!("Open a new terminal to use them.");
+        }
+        Command::Shims {
+            action: Some(ShimsAction::Off),
+        } => {
+            turn_shims_off()?;
+            println!("Removed the terminal commands. Open a new terminal for this to take effect.");
+        }
+        Command::Which { tool } => {
+            let context = shell::Context::load(&paths::home())?;
+            let dir = current_dir()?;
+            let tools = match tool {
+                Some(name) => vec![Tool::from_name(&name)
+                    .ok_or_else(|| Error::Shell(format!("{name:?} is not a Stackyard command; try php, composer, node, npm, npx, mysql or mysqldump")))?],
+                None => Tool::ALL.to_vec(),
+            };
+            for tool in tools {
+                match context.launch(tool, &dir, Vec::new()) {
+                    Ok(launch) => println!(
+                        "{:<10} {}  {}",
+                        tool.name(),
+                        launch.summary,
+                        launch.program.display()
+                    ),
+                    Err(e) => println!("{:<10} {e}", tool.name()),
+                }
+            }
+        }
+        Command::Use(args) => {
+            let kind = parse_kind(&args.kind)?;
+            let file = pins::pin(&current_dir()?, kind, &args.version)?;
+            println!(
+                "{} {} pinned in {}",
+                catalog::runtime(kind).name,
+                args.version,
+                file.display()
+            );
+            if RuntimeManager::open().get(kind, &args.version).is_none() {
+                println!(
+                    "It is not installed yet: run `stackyard runtimes install {} {}`",
+                    kind.id(),
+                    args.version
+                );
             }
         }
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
@@ -783,6 +906,94 @@ fn print_sites(manager: &ServiceManager) -> stackyard_core::Result<()> {
         println!("  {}", ports.url(&site.domain(), site.https));
     }
     Ok(())
+}
+
+/// Runs the real program behind a shim such as `php` and passes on its exit code.
+fn run_shim(tool: Tool, args: Vec<OsString>) -> ExitCode {
+    let result = (|| {
+        let home = paths::home();
+        if tool == Tool::Composer && !shell::composer_phar(&home).exists() {
+            shell::install_composer(&home, &mut progress_line("Composer"))?;
+            eprintln!();
+        }
+        let launch = shell::Context::load(&home)?.launch(tool, &current_dir()?, args)?;
+        if std::env::var_os("STACKYARD_DEBUG").is_some() {
+            eprintln!(
+                "stackyard: {} → {}",
+                launch.summary,
+                launch.program.display()
+            );
+        }
+        let mut command = Process::new(&launch.program);
+        command.args(&launch.args).env("PATH", launch.path_var());
+        command.envs(launch.env.iter().map(|(k, v)| (k, v)));
+        run_in_place(command, &launch.program)
+    })();
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("stackyard ({}): {e}", tool.name());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Replaces this process with `command` (macOS, Linux), or runs it and exits
+/// with its code (Windows), so the tool behaves as if started directly.
+fn run_in_place(mut command: Process, program: &Path) -> stackyard_core::Result<ExitCode> {
+    let spawn_error = |source| Error::Spawn {
+        program: program.display().to_string(),
+        source,
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        Err(spawn_error(command.exec()))
+    }
+    #[cfg(not(unix))]
+    {
+        // Ctrl+C reaches the tool too; let it decide, and wait for it.
+        let _ = ctrlc::set_handler(|| {});
+        let status = command.status().map_err(spawn_error)?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
+}
+
+/// Starts the user's shell with the shims first on its PATH.
+fn open_shell() -> stackyard_core::Result<()> {
+    Settings::load()?.require_module("shell")?;
+    let home = paths::home();
+    if !shims::installed(&home) {
+        shims::install(&home, &own_program()?)?;
+    }
+    let bin = shims::bin_dir(&home);
+    let program = if cfg!(windows) {
+        std::env::var_os("STACKYARD_SHELL_PROGRAM").unwrap_or_else(|| "powershell.exe".into())
+    } else {
+        std::env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into())
+    };
+    let rest = std::env::var_os("PATH").unwrap_or_default();
+    let path =
+        std::env::join_paths(std::iter::once(bin.clone()).chain(std::env::split_paths(&rest)))
+            .map_err(|e| Error::Shell(format!("could not build PATH: {e}")))?;
+    println!(
+        "Stackyard Shell: php, composer, node, npm and mysql use each project's versions here."
+    );
+    println!("Run `stackyard which` to see them. Type `exit` to leave.");
+    let mut command = Process::new(&program);
+    command.env("PATH", path).env("STACKYARD_SHELL", "1");
+    let _ = ctrlc::set_handler(|| {});
+    let status = command.status().map_err(|source| Error::Spawn {
+        program: PathBuf::from(&program).display().to_string(),
+        source,
+    })?;
+    std::process::exit(status.code().unwrap_or(0));
+}
+
+fn turn_shims_off() -> stackyard_core::Result<()> {
+    let home = paths::home();
+    user_path::remove(&shims::bin_dir(&home))?;
+    shims::remove(&home)
 }
 
 /// This program, which every shim leads back to.
