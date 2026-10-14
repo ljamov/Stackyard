@@ -223,8 +223,9 @@ jobs:
           stackyard status | grep "Nothing is running" >/dev/null
 
           stackyard mcp allow all
+          site=$(printf '{"name":"ai-made","folder":"%s","runtime":"static"}' "$folder")
           session \
-            "$(call 1 create_site "{\"name\":\"ai-made\",\"folder\":\"$folder\",\"runtime\":\"static\"}")" \
+            "$(call 1 create_site "$site")" \
             "$(call 2 start_service '{"service":"caddy"}')" \
             "$(call 3 list_sites '{}')" \
             "$(call 4 read_logs '{"service":"caddy","lines":5}')"
