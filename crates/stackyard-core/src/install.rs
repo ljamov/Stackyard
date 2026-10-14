@@ -164,3 +164,15 @@ fn in_use(path: &Path, source: std::io::Error) -> Error {
         ),
     }
 }
+
+/// Marks `dir` as an installed release, for tests elsewhere in the crate.
+#[cfg(test)]
+pub(crate) fn write_receipt_for_tests(dir: &Path, release: &str) {
+    let receipt = Receipt {
+        release: release.into(),
+        url: "https://example.com/x.tar.gz".into(),
+        checksum: "0".repeat(64),
+    };
+    std::fs::create_dir_all(dir).unwrap();
+    settings::write_toml(&dir.join(RECEIPT), &receipt).unwrap();
+}
