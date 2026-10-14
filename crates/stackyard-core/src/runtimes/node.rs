@@ -55,7 +55,7 @@ pub(super) fn resolve(http: &Http, dist: &str, major: &str, platform: Platform) 
 
     let file_name = format!("node-{version}-{file_part}.{ext}");
     let sums_url = format!("{dist}/{version}/SHASUMS256.txt");
-    let sha256 =
+    let checksum =
         find_checksum(&http.get_text(&sums_url)?, &file_name).ok_or_else(|| Error::Download {
             url: sums_url,
             message: format!("no checksum listed for {file_name}"),
@@ -64,7 +64,7 @@ pub(super) fn resolve(http: &Http, dist: &str, major: &str, platform: Platform) 
         version: version.trim_start_matches('v').to_string(),
         url: format!("{dist}/{version}/{file_name}"),
         file_name,
-        sha256,
+        checksum,
     })
 }
 

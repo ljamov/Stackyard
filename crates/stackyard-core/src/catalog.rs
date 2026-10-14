@@ -82,31 +82,50 @@ pub struct ServiceDef {
     pub version: &'static str,
     pub ports: &'static [u16],
     pub role: &'static str,
+    /// Page to open in a browser while it runs, if it has one.
+    pub web: Option<&'static str>,
 }
 
+/// `version` is the release line Stackyard installs and keeps updated:
+/// the newest `8.4.x` for MySQL 8.4, the newest `2.x` for Caddy.
 pub const SERVICES: &[ServiceDef] = &[
     ServiceDef {
-        id: "nginx",
-        name: "Nginx",
-        version: "1.27",
+        id: "caddy",
+        name: "Caddy",
+        version: "2",
         ports: &[8080],
         role: "Web server",
+        web: Some("http://127.0.0.1:8080"),
+    },
+    ServiceDef {
+        id: "mysql",
+        name: "MySQL",
+        version: "8.4",
+        ports: &[3306],
+        role: "Database",
+        web: None,
     },
     ServiceDef {
         id: "mariadb",
         name: "MariaDB",
-        version: "11.4",
+        version: "11.8",
         ports: &[3306],
         role: "Database",
+        web: None,
     },
     ServiceDef {
         id: "mailpit",
         name: "Mailpit",
-        version: "1.20",
+        version: "1",
         ports: &[1025, 8025],
         role: "Mail catcher",
+        web: Some("http://127.0.0.1:8025"),
     },
 ];
+
+pub fn service(id: &str) -> Option<&'static ServiceDef> {
+    SERVICES.iter().find(|s| s.id == id)
+}
 
 impl RuntimeFamily {
     pub fn offers(&self, version: &str) -> bool {
