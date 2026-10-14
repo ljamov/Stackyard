@@ -7,6 +7,7 @@ export const SCREENS = [
   "Services",
   "Runtimes",
   "Databases",
+  "Scheduler",
   "AI tools",
   "MCP server",
   "Settings",
@@ -17,6 +18,7 @@ export type Screen = (typeof SCREENS)[number];
 /** Screens that belong to a module and disappear when it is switched off. */
 const SCREEN_MODULE: Partial<Record<Screen, string>> = {
   Databases: "databases",
+  Scheduler: "scheduler",
   "AI tools": "mcp",
   "MCP server": "mcp",
 };

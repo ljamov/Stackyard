@@ -5,7 +5,8 @@ databases, web servers and local HTTPS sites such as `https://myapp.stack` from 
 with no containers.
 
 > Status: early prototype. Runtimes, services, local sites with HTTPS, terminal commands, the
-> background service, the tray icon, installers and the MCP server for AI coding tools work.
+> background service, the tray icon, installers, the MCP server for AI coding tools and the task
+> scheduler work.
 
 ## Install
 
@@ -168,6 +169,23 @@ or files is never offered. Every call is recorded with the AI tool's name; see i
 server screen or with `stackyard mcp log`. An AI tool that is already connected sees allowed
 tools appear without reconnecting.
 
+## Scheduled tasks
+
+The **Task scheduler** module (off by default; switch it on in Settings or with
+`stackyard modules on scheduler`) runs commands on a schedule, such as Laravel's
+`php artisan schedule:run` every minute or a nightly backup script. Each task runs with the
+system shell in its project folder, with Stackyard's terminal commands first on `PATH`, so `php`,
+`node` and `composer` are the versions that project uses.
+
+Schedules use crontab's five fields, `minute hour day month weekday`: `*/5 * * * *` is every five
+minutes, `30 2 * * *` every day at 02:30, `0 9 * * mon-fri` weekdays at 09:00. `@hourly`,
+`@daily`, `@weekly`, `@monthly` and `@yearly` work too. Times are this computer's local time.
+
+Tasks run while Stackyard runs: the app (also when only its tray icon is left) or
+`stackyard start` in the background. A task still running when it is due again is not started
+twice, and a minute missed while the computer slept is not caught up. Each task's output goes to
+`logs/task-<id>.log`; the Scheduler screen shows it, and how the last run went.
+
 ## Develop
 
 Requirements: Rust (stable), Node.js 22, and on Linux the WebKitGTK libraries:
@@ -217,6 +235,11 @@ stackyard mcp setup      # how to add Stackyard to Claude Code, Cursor and other
 stackyard mcp tools      # what AI tools may do
 stackyard mcp allow start_service   # or `allow all`; `deny` turns it off again
 stackyard mcp log        # what AI tools did
+stackyard tasks add "Laravel scheduler" --run "php artisan schedule:run" --every "* * * * *"
+stackyard tasks          # tasks, with their next and last runs
+stackyard tasks run "Laravel scheduler"   # run one now, here in the terminal
+stackyard tasks off "Laravel scheduler"   # `on` switches it back on; `remove` deletes it
+stackyard tasks check "0 9 * * mon-fri"   # when a schedule would run
 ```
 
 ## License
