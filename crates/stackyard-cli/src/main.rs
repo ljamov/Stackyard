@@ -2,21 +2,25 @@
 //! so the CLI, the desktop app and the MCP server always agree.
 
 use std::io::Write;
-use std::path::PathBuf;
-use std::process::ExitCode;
+use std::path::{Path, PathBuf};
+use std::process::{Command as Process, ExitCode, Stdio};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 use stackyard_core::catalog::{self, RuntimeKind, RUNTIMES, SERVICES};
+use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
 use stackyard_core::detect::{self, Needs};
-use stackyard_core::dns::{self, DnsServer};
 use stackyard_core::domain;
+use stackyard_core::engine::Engine;
 use stackyard_core::modules::MODULES;
 use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
-use stackyard_core::supervisor::Supervisor;
-use stackyard_core::system::{self, Elevate, Resolver};
+use stackyard_core::supervisor::{self, ProcessState};
+use stackyard_core::system::{self, Elevate};
 use stackyard_core::web::{self, Backend, Ports};
 use stackyard_core::{paths, platform, Error};
 
@@ -54,11 +58,34 @@ enum Command {
         /// New ending, e.g. `.stack` or `.test`
         value: Option<String>,
     },
-    /// Run the web server (and any services named) until Ctrl+C
+    /// Start services in the background: the web server with `start caddy`, everything with `start`
+    Start {
+        /// e.g. `caddy mysql`; every installed service when left out
+        services: Vec<String>,
+    },
+    /// Stop services: everything when none are named
+    Stop {
+        /// e.g. `mysql`
+        services: Vec<String>,
+    },
+    /// Show what is running
+    Status,
+    /// Show the end of a service's log, e.g. `logs caddy`
+    Logs {
+        /// `caddy`, `mysql`, `php-8.4`…
+        id: String,
+        /// How many lines
+        #[arg(short = 'n', long, default_value_t = 50)]
+        lines: usize,
+    },
+    /// Run the web server (and any services named) in this terminal until Ctrl+C
     Up {
         /// Other services to run too, e.g. `mysql mailpit`
         services: Vec<String>,
     },
+    /// Run services in the background for `start` (started for you)
+    #[command(hide = true)]
+    Daemon,
     /// Show or run the one-time setup for local domains and HTTPS
     System {
         #[command(subcommand)]
@@ -202,7 +229,8 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         } => {
             let settings = Settings::load()?;
             let path = match args.path {
-                Some(path) => paths::expand_home(&path),
+                // Relative to this folder, so the web server finds it.
+                Some(path) => current_dir()?.join(paths::expand_home(&path)),
                 None => current_dir()?,
             };
             let runtime = match (args.php, args.node) {
@@ -228,6 +256,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 })?
                 .url();
             store.save()?;
+            notify(Request::SitesChanged);
             println!("Added {url}");
         }
         Command::Sites {
@@ -240,6 +269,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             let mut settings = Settings::load()?;
             let folder = settings.park(&folder)?;
             settings.save()?;
+            notify(Request::SitesChanged);
             println!(
                 "Parked {}: each project folder in it is now a site ending in {}",
                 folder.display(),
@@ -256,6 +286,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             let mut settings = Settings::load()?;
             settings.unpark(&folder)?;
             settings.save()?;
+            notify(Request::SitesChanged);
             println!("Unparked {}", paths::expand_home(&folder).display());
         }
         Command::Sites {
@@ -275,6 +306,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             let mut store = SiteStore::load()?;
             let site = store.remove(&name)?;
             store.save()?;
+            notify(Request::SitesChanged);
             println!("Removed {}", site.domain());
         }
         Command::Runtimes { action: None } => {
@@ -363,9 +395,52 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             let mut settings = Settings::load()?;
             settings.set_module(&id, on)?;
             settings.save()?;
+            if !on {
+                notify(Request::Stop { ids: vec![id.clone()] });
+            }
             println!("{id} is now {}", if on { "on" } else { "off" });
         }
         Command::Up { services } => up(&services)?,
+        Command::Start { services } => {
+            let client = running_stackyard()?;
+            let request = if services.is_empty() {
+                Request::StartAll
+            } else {
+                Request::Start { ids: services }
+            };
+            let result = client.send(request);
+            print_status(&client, client.send(Request::Status)?);
+            result?;
+        }
+        Command::Stop { services } => match control::find(&paths::home()) {
+            None => println!("Nothing is running."),
+            Some(client) if services.is_empty() => {
+                client.send(Request::StopAll)?;
+                println!("Stopped everything.");
+            }
+            Some(client) => print_status(&client, client.send(Request::Stop { ids: services })?),
+        },
+        Command::Status => match control::find(&paths::home()) {
+            None => println!(
+                "Nothing is running. Start the web server with `stackyard start caddy`, or everything with `stackyard start`."
+            ),
+            Some(client) => print_status(&client, client.send(Request::Status)?),
+        },
+        Command::Logs { id, lines } => {
+            // Only names Stackyard uses, which also keeps the path inside the logs folder.
+            let php = |v: &str| catalog::runtime(RuntimeKind::Php).offers(v);
+            let known = catalog::service(&id).is_some()
+                || id == "daemon"
+                || id.strip_prefix("php-").is_some_and(php);
+            if !known {
+                return Err(Error::UnknownProcess(id));
+            }
+            let path = paths::logs_dir().join(format!("{id}.log"));
+            for line in supervisor::tail_file(&path, lines)? {
+                println!("{line}");
+            }
+        }
+        Command::Daemon => daemon()?,
         Command::System { action: None } => {
             let manager = ServiceManager::open();
             let wanted = manager.system_wanted()?;
@@ -409,6 +484,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             let mut settings = Settings::load()?;
             settings.set_tld(&value)?;
             settings.save()?;
+            notify(Request::SitesChanged);
             println!("New sites will end in {}", settings.tld);
             if let Some(warning) = domain::tld_warning(&settings.tld) {
                 eprintln!("warning: {warning}");
@@ -486,48 +562,44 @@ fn progress_line(what: &str) -> impl FnMut(Step) + '_ {
 /// Runs the web server, the local DNS server and any named services in
 /// the foreground; Ctrl+C (or a termination signal) stops them all.
 fn up(services: &[String]) -> stackyard_core::Result<()> {
+    let home = paths::home();
+    if let Some(client) = control::find(&home) {
+        return Err(Error::Control(format!(
+            "Stackyard is already running services ({}). Use `stackyard start`, `stackyard stop` and `stackyard status` instead.",
+            owner_name(client.owner)
+        )));
+    }
     let settings = Settings::load()?;
     settings.require_module("caddy")?;
     for id in services {
         settings.require_module(id)?;
     }
-    let manager = ServiceManager::open();
-    let supervisor = Supervisor::new(paths::logs_dir());
-    let wanted = manager.system_wanted()?;
-    let dns = match wanted.resolver {
-        Resolver::HostsFile => None,
-        _ => match DnsServer::start(dns::PORT, &manager.endings()?) {
-            Ok(server) => Some(server),
-            Err(e) => {
-                eprintln!("warning: local domains are unavailable: {e}");
-                None
-            }
-        },
-    };
-    let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+    let engine = Arc::new(Engine::new(&home));
+    let (quit, quit_rx) = std::sync::mpsc::channel();
+    let _server = serve_control(&home, Owner::Up, &engine, quit.clone())?;
     ctrlc::set_handler(move || {
-        let _ = stop_tx.send(());
+        let _ = quit.send(());
     })
     .map_err(|e| Error::SystemSetup(format!("could not watch for Ctrl+C: {e}")))?;
 
     let started = (|| {
-        manager.start_web(&supervisor)?;
+        engine.start("caddy")?;
         for id in services {
-            supervisor.start(manager.spec(id)?)?;
+            engine.start(id)?;
         }
         Ok::<_, Error>(())
     })();
     if let Err(e) = started {
-        supervisor.stop_all();
+        engine.stop_all();
         return Err(e);
     }
+    let manager = engine.manager();
     let ports = Ports::current(manager.home());
     println!("Web server on ports {} and {}", ports.http, ports.https);
-    for served in manager.sites()? {
-        let site = &served.site;
-        println!("  {}", ports.url(&site.domain(), site.https));
-    }
-    let status = wanted.status(&system::applied(manager.home()));
+    print_sites(manager)?;
+    let status = manager
+        .system_wanted()?
+        .status(&system::applied(manager.home()));
     if !status.needed.is_empty() {
         println!(
             "Local domains need `stackyard system setup` first; .localhost addresses work now."
@@ -535,11 +607,190 @@ fn up(services: &[String]) -> stackyard_core::Result<()> {
     }
     println!("Logs: {}", paths::logs_dir().display());
     println!("Press Ctrl+C to stop.");
-    let _ = stop_rx.recv();
+    let _ = quit_rx.recv();
     eprintln!("Stopping...");
-    supervisor.stop_all();
-    drop(dns);
+    engine.stop_all();
     Ok(())
+}
+
+/// `stackyard daemon`: runs services in the background for `stackyard
+/// start`, until `stackyard stop` or the app takes over.
+fn daemon() -> stackyard_core::Result<()> {
+    let home = paths::home();
+    if control::find(&home).is_some() {
+        return Err(Error::Control(
+            "Stackyard is already running services".into(),
+        ));
+    }
+    let engine = Arc::new(Engine::new(&home));
+    let (quit, quit_rx) = std::sync::mpsc::channel();
+    let server = serve_control(&home, Owner::Daemon, &engine, quit.clone())?;
+    let _ = ctrlc::set_handler(move || {
+        let _ = quit.send(());
+    });
+    let _ = quit_rx.recv();
+    // Let the answer to `stop` or `hand-over` reach the caller.
+    std::thread::sleep(Duration::from_millis(300));
+    drop(server);
+    engine.stop_all();
+    Ok(())
+}
+
+/// Answers other processes for `engine`; `quit` fires when asked to stop
+/// everything or to hand over to the app.
+fn serve_control(
+    home: &Path,
+    owner: Owner,
+    engine: &Arc<Engine>,
+    quit: Sender<()>,
+) -> stackyard_core::Result<ControlServer> {
+    let engine = engine.clone();
+    let quit = Mutex::new(quit);
+    ControlServer::start(home, owner, move |request| {
+        let ends = matches!(request, Request::StopAll | Request::HandOver);
+        let response = engine.handle(request);
+        if ends {
+            let _ = quit.lock().unwrap_or_else(|e| e.into_inner()).send(());
+        }
+        response
+    })
+}
+
+/// The process running services, starting `stackyard daemon` if there is none.
+fn running_stackyard() -> stackyard_core::Result<control::Client> {
+    let home = paths::home();
+    if let Some(client) = control::find(&home) {
+        return Ok(client);
+    }
+    let logs = paths::logs_dir();
+    let io = |source| Error::Io {
+        path: logs.clone(),
+        source,
+    };
+    std::fs::create_dir_all(&logs).map_err(io)?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(logs.join("daemon.log"))
+        .map_err(io)?;
+    let mut command = Process::new(own_program()?);
+    command
+        .arg("daemon")
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().map_err(io)?)
+        .stderr(log);
+    detach(&mut command);
+    let program = own_program()?;
+    let mut child = command.spawn().map_err(|source| Error::Spawn {
+        program: program.display().to_string(),
+        source,
+    })?;
+    for _ in 0..100 {
+        if let Some(client) = control::find(&home) {
+            return Ok(client);
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            let tail = supervisor::tail_file(&logs.join("daemon.log"), 5).unwrap_or_default();
+            return Err(Error::Control(format!(
+                "the background service stopped ({status}): {}",
+                tail.join(" / ")
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Err(Error::Control(
+        "the background service did not start".into(),
+    ))
+}
+
+/// Keeps the background service running after this terminal closes.
+fn detach(command: &mut Process) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: setsid is async-signal-safe and only affects the child.
+        unsafe {
+            command.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+}
+
+/// Tells the process running services that something changed, if one runs.
+fn notify(request: Request) {
+    if let Some(client) = control::find(&paths::home()) {
+        if let Err(e) = client.send(request) {
+            eprintln!("warning: the running Stackyard did not pick up the change: {e}");
+        }
+    }
+}
+
+fn owner_name(owner: Owner) -> &'static str {
+    match owner {
+        Owner::App => "in the Stackyard app",
+        Owner::Daemon => "in the background",
+        Owner::Up => "in `stackyard up`",
+    }
+}
+
+fn print_status(client: &control::Client, response: Response) {
+    let Response::Services { services } = response else {
+        return;
+    };
+    println!(
+        "Stackyard is running {} (pid {}).",
+        owner_name(client.owner),
+        client.pid
+    );
+    for service in &services {
+        let state = match service.state {
+            ProcessState::Stopped => "stopped".to_string(),
+            ProcessState::Running { pid } => format!("running (pid {pid})"),
+            ProcessState::Restarting { attempt } => format!("restarting (attempt {attempt})"),
+            ProcessState::Crashed { code: Some(code) } => {
+                format!(
+                    "crashed (exit code {code}); see `stackyard logs {}`",
+                    service.id
+                )
+            }
+            ProcessState::Crashed { code: None } => {
+                format!("crashed; see `stackyard logs {}`", service.id)
+            }
+        };
+        println!("  {:<9} {state}", service.name);
+    }
+    let web = services
+        .iter()
+        .any(|s| s.id == "caddy" && matches!(s.state, ProcessState::Running { .. }));
+    if web {
+        let _ = print_sites(&ServiceManager::open());
+    }
+}
+
+fn print_sites(manager: &ServiceManager) -> stackyard_core::Result<()> {
+    let ports = Ports::current(manager.home());
+    for served in manager.sites()? {
+        let site = &served.site;
+        println!("  {}", ports.url(&site.domain(), site.https));
+    }
+    Ok(())
+}
+
+/// This program, which every shim leads back to.
+fn own_program() -> stackyard_core::Result<PathBuf> {
+    std::env::current_exe().map_err(|source| Error::Io {
+        path: PathBuf::from("stackyard"),
+        source,
+    })
 }
 
 fn current_dir() -> stackyard_core::Result<PathBuf> {
