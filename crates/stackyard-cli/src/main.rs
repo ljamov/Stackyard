@@ -7,6 +7,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use stackyard_core::catalog::{RUNTIMES, SERVICES};
 use stackyard_core::domain;
+use stackyard_core::modules::MODULES;
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 
@@ -26,11 +27,24 @@ enum Command {
     Runtimes,
     /// List services Stackyard can run
     Services,
+    /// List modules, or switch one on or off
+    Modules {
+        #[command(subcommand)]
+        action: Option<ModuleAction>,
+    },
     /// Show or change the domain ending for new sites (default .stack)
     Tld {
         /// New ending, e.g. `.stack` or `.test`
         value: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum ModuleAction {
+    /// Switch a module on
+    On { id: String },
+    /// Switch a module off
+    Off { id: String },
 }
 
 #[derive(Subcommand)]
@@ -142,6 +156,29 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                     ports.join(", ")
                 );
             }
+        }
+        Command::Modules { action: None } => {
+            let settings = Settings::load()?;
+            for module in MODULES {
+                let state = match (module.available, settings.module_enabled(module.id)) {
+                    (false, _) => "coming soon",
+                    (true, true) => "on",
+                    (true, false) => "off",
+                };
+                println!("{:<12} {:<12} {}", module.id, state, module.description);
+            }
+        }
+        Command::Modules {
+            action: Some(action),
+        } => {
+            let (id, on) = match action {
+                ModuleAction::On { id } => (id, true),
+                ModuleAction::Off { id } => (id, false),
+            };
+            let mut settings = Settings::load()?;
+            settings.set_module(&id, on)?;
+            settings.save()?;
+            println!("{id} is now {}", if on { "on" } else { "off" });
         }
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
         Command::Tld { value: Some(value) } => {

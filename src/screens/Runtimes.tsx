@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { api } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
+import { useModules } from "../lib/modules";
 
 export function Runtimes() {
   const runtimes = useLoad(api.listRuntimes, []);
+  const { isOn } = useModules();
+  const shown = runtimes.data.filter((r) => isOn(r.kind));
   const [selected, setSelected] = useState("php");
-  const family = runtimes.data.find((r) => r.kind === selected);
+  const family = shown.find((r) => r.kind === selected) ?? shown[0];
 
   return (
     <>
@@ -17,12 +20,13 @@ export function Runtimes() {
       </header>
 
       <div role="group" aria-label="Language" className="row wrap">
-        {runtimes.data.map((r) => (
+        {shown.length === 0 && <p className="muted">All runtimes are switched off in Settings.</p>}
+        {shown.map((r) => (
           <button
             key={r.kind}
             type="button"
             className="tab"
-            aria-pressed={r.kind === selected}
+            aria-pressed={r.kind === family?.kind}
             onClick={() => setSelected(r.kind)}
           >
             {r.name}

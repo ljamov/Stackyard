@@ -22,3 +22,7 @@ pub fn settings_file() -> PathBuf {
 pub fn sites_file() -> PathBuf {
     home().join("sites.toml")
 }
+
+pub fn logs_dir() -> PathBuf {
+    home().join("logs")
+}

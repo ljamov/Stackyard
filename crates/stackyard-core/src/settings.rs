@@ -1,25 +1,26 @@
 //! User settings, stored as TOML.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{domain, paths, Error, Result};
+use crate::{domain, modules, paths, Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     /// Domain ending for new sites, e.g. `.stack`.
     pub tld: String,
-    /// Expose the MCP server to AI coding tools (step 4).
-    pub mcp_enabled: bool,
+    /// Modules the user switched on or off; anything missing uses its default.
+    pub modules: BTreeMap<String, bool>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             tld: domain::DEFAULT_TLD.to_string(),
-            mcp_enabled: false,
+            modules: BTreeMap::new(),
         }
     }
 }
@@ -44,6 +45,29 @@ impl Settings {
     /// Validates and stores a new domain ending.
     pub fn set_tld(&mut self, input: &str) -> Result<()> {
         self.tld = domain::normalize_tld(input)?;
+        Ok(())
+    }
+
+    /// Whether a module is on. Unknown and not-yet-available modules are off.
+    pub fn module_enabled(&self, id: &str) -> bool {
+        match modules::find(id) {
+            Some(def) if def.available => {
+                self.modules.get(id).copied().unwrap_or(def.on_by_default)
+            }
+            _ => false,
+        }
+    }
+
+    pub fn set_module(&mut self, id: &str, on: bool) -> Result<()> {
+        let def = modules::find(id).ok_or_else(|| Error::UnknownModule(id.to_string()))?;
+        if on && !def.available {
+            return Err(Error::ModuleUnavailable(def.name.to_string()));
+        }
+        if on == def.on_by_default {
+            self.modules.remove(id);
+        } else {
+            self.modules.insert(id.to_string(), on);
+        }
         Ok(())
     }
 }
@@ -77,7 +101,12 @@ pub(crate) fn write_toml<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(io)?;
     }
-    std::fs::write(path, text).map_err(io)
+    // Write a sibling file, then rename over the old one, so a crash
+    // mid-write can never leave a half-written config behind.
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    std::fs::write(&tmp, text).map_err(io)?;
+    std::fs::rename(&tmp, path).map_err(io)
 }
 
 #[cfg(test)]
@@ -99,5 +128,28 @@ mod tests {
         settings.set_tld("Test").unwrap();
         settings.save_to(&path).unwrap();
         assert_eq!(Settings::load_from(&path).unwrap().tld, ".test");
+        assert!(!dir.join("settings.toml.tmp").exists());
+    }
+
+    #[test]
+    fn modules_default_and_override() {
+        let mut settings = Settings::default();
+        assert!(settings.module_enabled("php"));
+        assert!(!settings.module_enabled("mailpit"));
+        assert!(!settings.module_enabled("redis"), "not available yet");
+        assert!(!settings.module_enabled("nope"));
+
+        settings.set_module("php", false).unwrap();
+        settings.set_module("mailpit", true).unwrap();
+        assert!(!settings.module_enabled("php"));
+        assert!(settings.module_enabled("mailpit"));
+
+        settings.set_module("php", true).unwrap();
+        assert!(
+            !settings.modules.contains_key("php"),
+            "defaults are not stored"
+        );
+        assert!(settings.set_module("redis", true).is_err());
+        assert!(settings.set_module("nope", false).is_err());
     }
 }
