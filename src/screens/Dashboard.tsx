@@ -1,14 +1,16 @@
 import { api } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
+import { useServices } from "../lib/useServices";
+import { ServiceCard } from "../components/ServiceCard";
 import { useModules } from "../lib/modules";
 import type { Screen } from "../components/Sidebar";
 
 export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
-  const services = useLoad(api.listServices, []);
+  const services = useServices();
   const sites = useLoad(api.listSites, []);
   const runtimes = useLoad(api.listRuntimes, []);
   const { isOn } = useModules();
-  const shownServices = services.data.filter((s) => isOn(s.id));
+  const shownServices = services.services.filter((s) => isOn(s.id));
 
   return (
     <>
@@ -26,25 +28,10 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
 
       <section aria-labelledby="svc-h" className="stack">
         <h2 id="svc-h">Services</h2>
-        <p className="notice">Installing and starting services arrives in the next milestones.</p>
         <div className="grid">
           {shownServices.length === 0 && <p className="muted">All services are switched off in Settings.</p>}
           {shownServices.map((s) => (
-            <div key={s.id} className="card service">
-              <div className="row between">
-                <div>
-                  <div className="strong">{s.name}</div>
-                  <div className="mono muted small">
-                    {s.version} · port {s.ports.join(", ")}
-                  </div>
-                </div>
-                <span className="status">
-                  <span className="dot" aria-hidden="true" />
-                  Not installed
-                </span>
-              </div>
-              <div className="muted small">{s.role}</div>
-            </div>
+            <ServiceCard key={s.id} service={s} hook={services} compact />
           ))}
         </div>
       </section>

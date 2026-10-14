@@ -56,7 +56,7 @@ impl Settings {
     /// Whether a module is on. Unknown and not-yet-available modules are off.
     pub fn module_enabled(&self, id: &str) -> bool {
         match modules::find(id) {
-            Some(def) if def.available => {
+            Some(def) if def.available_here() => {
                 self.modules.get(id).copied().unwrap_or(def.on_by_default)
             }
             _ => false,
@@ -69,19 +69,15 @@ impl Settings {
             return Ok(());
         }
         let def = modules::find(id).ok_or_else(|| Error::UnknownModule(id.to_string()))?;
-        if def.available {
-            Err(Error::ModuleOff {
-                name: def.name.to_string(),
-            })
-        } else {
-            Err(Error::ModuleUnavailable(def.name.to_string()))
-        }
+        Err(unavailable(def).unwrap_or_else(|| Error::ModuleOff {
+            name: def.name.to_string(),
+        }))
     }
 
     pub fn set_module(&mut self, id: &str, on: bool) -> Result<()> {
         let def = modules::find(id).ok_or_else(|| Error::UnknownModule(id.to_string()))?;
-        if on && !def.available {
-            return Err(Error::ModuleUnavailable(def.name.to_string()));
+        if let Some(err) = unavailable(def).filter(|_| on) {
+            return Err(err);
         }
         if on == def.on_by_default {
             self.modules.remove(id);
@@ -103,6 +99,20 @@ impl Settings {
             Some(v) => self.runtimes.insert(kind.id().to_string(), v.to_string()),
             None => self.runtimes.remove(kind.id()),
         };
+    }
+}
+
+/// Why a module cannot be switched on here, if it cannot.
+fn unavailable(def: &modules::ModuleDef) -> Option<Error> {
+    if !def.available {
+        Some(Error::ModuleUnavailable(def.name.to_string()))
+    } else if !def.available_here() {
+        Some(Error::NotOnThisSystem {
+            name: def.name.to_string(),
+            system: crate::platform::Platform::current().os.to_string(),
+        })
+    } else {
+        None
     }
 }
 

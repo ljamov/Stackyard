@@ -8,76 +8,22 @@
 mod node;
 mod php;
 
-use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::catalog::{self, RuntimeKind};
-use crate::download::{self, Http};
-use crate::settings::{self, Settings};
-use crate::{archive, paths, Error, Result};
+use crate::download::Http;
+use crate::settings::Settings;
+use crate::{install, paths, Error, Result};
 
-pub use php::build_platform as php_build_platform;
+pub use crate::install::{Release, Step};
+pub use crate::platform::{Arch, Os, Platform};
 
 const NODE_DIST: &str = "https://nodejs.org/dist";
 const PHP_WINDOWS: &str = "https://www.php.net/~windows/releases";
 const PHP_MANIFEST: &str =
     "https://github.com/ljamov/stackyard-php/releases/download/php-builds/manifest.json";
-const RECEIPT: &str = ".stackyard-install.toml";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Os {
-    Linux,
-    Macos,
-    Windows,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Arch {
-    X64,
-    Arm64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Platform {
-    pub os: Os,
-    pub arch: Arch,
-}
-
-impl Platform {
-    pub fn current() -> Self {
-        let os = if cfg!(windows) {
-            Os::Windows
-        } else if cfg!(target_os = "macos") {
-            Os::Macos
-        } else {
-            Os::Linux
-        };
-        let arch = if cfg!(target_arch = "aarch64") {
-            Arch::Arm64
-        } else {
-            Arch::X64
-        };
-        Self { os, arch }
-    }
-}
-
-impl fmt::Display for Platform {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let os = match self.os {
-            Os::Linux => "Linux",
-            Os::Macos => "macOS",
-            Os::Windows => "Windows",
-        };
-        let arch = match self.arch {
-            Arch::X64 => "x64",
-            Arch::Arm64 => "ARM64",
-        };
-        write!(f, "{os} {arch}")
-    }
-}
 
 /// Where downloads come from. Each can be pointed at a mirror with an
 /// environment variable, which also lets tests use a local server.
@@ -100,15 +46,6 @@ impl Default for Sources {
     }
 }
 
-/// One downloadable release: an exact version and its verified archive.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Release {
-    pub version: String,
-    pub url: String,
-    pub file_name: String,
-    pub sha256: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Installed {
     pub kind: RuntimeKind,
@@ -118,15 +55,6 @@ pub struct Installed {
     pub release: String,
     pub path: PathBuf,
     pub binary: PathBuf,
-}
-
-/// What an install is doing right now, for progress bars.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-#[serde(tag = "step", rename_all = "lowercase")]
-pub enum Step {
-    Resolving,
-    Downloading { done: u64, total: Option<u64> },
-    Unpacking,
 }
 
 pub struct RuntimeManager {
@@ -181,7 +109,7 @@ impl RuntimeManager {
 
     pub fn get(&self, kind: RuntimeKind, version: &str) -> Option<Installed> {
         let path = self.dir(kind, version);
-        let receipt: Receipt = settings::read_toml(&path.join(RECEIPT)).ok()??;
+        let receipt = install::read_receipt(&path)?;
         Some(Installed {
             kind,
             version: version.to_string(),
@@ -227,69 +155,14 @@ impl RuntimeManager {
         progress: &mut dyn FnMut(Step),
     ) -> Result<Installed> {
         check_offered(kind, version)?;
-        let archive_path = self.downloads.join(&release.file_name);
-        let reusable = archive_path.is_file()
-            && download::sha256_file(&archive_path)
-                .is_ok_and(|sha| sha.eq_ignore_ascii_case(&release.sha256));
-        if !reusable {
-            self.http.download(
-                &release.url,
-                &archive_path,
-                &release.sha256,
-                &mut |done, total| progress(Step::Downloading { done, total }),
-            )?;
-        }
-
-        progress(Step::Unpacking);
-        let kind_dir = self.root.join(kind.id());
-        let staging = kind_dir.join(unique(".staging", version));
-        let result = self.unpack_into_place(kind, version, release, &archive_path, &staging);
-        let _ = std::fs::remove_dir_all(&staging);
-        // Keep disk use down: the archive is only needed again for a reinstall.
-        let _ = std::fs::remove_file(&archive_path);
-        result
-    }
-
-    fn unpack_into_place(
-        &self,
-        kind: RuntimeKind,
-        version: &str,
-        release: &Release,
-        archive_path: &Path,
-        staging: &Path,
-    ) -> Result<Installed> {
-        let content = archive::extract(archive_path, staging)?;
-        let binary = binary_path(kind, self.platform.os);
-        if !content.join(binary).is_file() {
-            return Err(Error::Archive {
-                path: archive_path.to_owned(),
-                message: format!("it does not contain {binary}"),
-            });
-        }
-        let receipt = Receipt {
-            release: release.version.clone(),
-            url: release.url.clone(),
-            sha256: release.sha256.clone(),
-        };
-        settings::write_toml(&content.join(RECEIPT), &receipt)?;
-
-        // Swap the new folder in; the old one (if any) is removed afterwards
-        // so a failure part-way never leaves this version half-installed.
-        let dest = self.dir(kind, version);
-        let old = dest.with_file_name(unique(".old", version));
-        let had_old = dest.exists();
-        if had_old {
-            std::fs::rename(&dest, &old).map_err(|source| in_use(&dest, source))?;
-        }
-        if let Err(source) = std::fs::rename(&content, &dest) {
-            if had_old {
-                let _ = std::fs::rename(&old, &dest);
-            }
-            return Err(Error::Io { path: dest, source });
-        }
-        if had_old {
-            let _ = std::fs::remove_dir_all(&old);
-        }
+        install::install(
+            &self.http,
+            &self.downloads,
+            release,
+            &self.dir(kind, version),
+            binary_path(kind, self.platform.os),
+            progress,
+        )?;
         self.get(kind, version).ok_or(Error::NotInstalled {
             name: catalog::runtime(kind).name.into(),
             version: version.into(),
@@ -305,14 +178,7 @@ impl RuntimeManager {
                 version: version.into(),
             });
         }
-        // Move it aside first so the version disappears in one step, even if
-        // deleting thousands of files is interrupted.
-        let trash = dest.with_file_name(unique(".trash", version));
-        std::fs::rename(&dest, &trash).map_err(|source| in_use(&dest, source))?;
-        std::fs::remove_dir_all(&trash).map_err(|source| Error::Io {
-            path: trash,
-            source,
-        })
+        install::remove(&dest)
     }
 }
 
@@ -357,13 +223,6 @@ impl RuntimeManager {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct Receipt {
-    release: String,
-    url: String,
-    sha256: String,
-}
-
 /// The main program inside an installed runtime folder.
 pub fn binary_path(kind: RuntimeKind, os: Os) -> &'static str {
     match (kind, os) {
@@ -395,25 +254,6 @@ fn check_offered(kind: RuntimeKind, version: &str) -> Result<()> {
     Ok(())
 }
 
-fn unique(prefix: &str, version: &str) -> String {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    format!(
-        "{prefix}-{version}-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    )
-}
-
-fn in_use(path: &Path, source: std::io::Error) -> Error {
-    Error::Io {
-        path: path.to_owned(),
-        source: std::io::Error::new(
-            source.kind(),
-            format!("{source} (is a site or terminal still using it?)"),
-        ),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,13 +274,13 @@ mod tests {
         (std::fs::read(&path).unwrap(), sha256_file(&path).unwrap())
     }
 
-    fn release(base: &str, version: &str, sha256: String) -> Release {
+    fn release(base: &str, version: &str, checksum: String) -> Release {
         let file_name = format!("node-v{version}-test.tar.gz");
         Release {
             version: version.into(),
             url: format!("{base}/{file_name}"),
             file_name,
-            sha256,
+            checksum,
         }
     }
 
@@ -547,7 +387,7 @@ mod tests {
             version: "1".into(),
             url: "http://127.0.0.1:9/x.tar.gz".into(),
             file_name: "x.tar.gz".into(),
-            sha256: "0".repeat(64),
+            checksum: "0".repeat(64),
         };
         for version in ["../../etc", "19", ""] {
             let err = manager

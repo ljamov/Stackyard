@@ -1,4 +1,4 @@
-//! Unpacks downloaded `.tar.gz` and `.zip` files.
+//! Unpacks downloaded `.tar.gz`, `.tar.xz` and `.zip` files.
 //!
 //! Entries that would land outside the target folder (absolute paths, `..`)
 //! are refused, so a hostile archive cannot overwrite files elsewhere.
@@ -22,7 +22,11 @@ pub fn extract(archive: &Path, dest: &Path) -> Result<PathBuf> {
         .map(|n| n.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
-        extract_tar_gz(archive, dest).map_err(fail)?;
+        let file = File::open(archive).map_err(|e| fail(e.to_string()))?;
+        extract_tar(flate2::read::GzDecoder::new(file), dest).map_err(fail)?;
+    } else if name.ends_with(".tar.xz") {
+        let file = File::open(archive).map_err(|e| fail(e.to_string()))?;
+        extract_tar(liblzma::read::XzDecoder::new(file), dest).map_err(fail)?;
     } else if name.ends_with(".zip") {
         extract_zip(archive, dest).map_err(fail)?;
     } else {
@@ -31,9 +35,8 @@ pub fn extract(archive: &Path, dest: &Path) -> Result<PathBuf> {
     content_root(dest).map_err(|e| fail(e.to_string()))
 }
 
-fn extract_tar_gz(archive: &Path, dest: &Path) -> std::result::Result<(), String> {
-    let file = File::open(archive).map_err(|e| e.to_string())?;
-    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(file));
+fn extract_tar(stream: impl std::io::Read, dest: &Path) -> std::result::Result<(), String> {
+    let mut tar = tar::Archive::new(std::io::BufReader::new(stream));
     tar.set_preserve_permissions(true);
     tar.set_preserve_mtime(true);
     tar.set_overwrite(true);
@@ -156,6 +159,27 @@ mod tests {
                 .mode();
             assert_eq!(mode & 0o111, 0o111, "executable bit kept");
         }
+    }
+
+    #[test]
+    fn unpacks_tar_xz() {
+        let dir = crate::testutil::tempdir();
+        let tar_path = dir.join("plain.tar");
+        let mut tar = tar::Builder::new(std::fs::File::create(&tar_path).unwrap());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(2);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar.append_data(&mut header, "mysql-8.4/bin/mysqld", &b"hi"[..])
+            .unwrap();
+        tar.into_inner().unwrap();
+        let archive = dir.join("mysql.tar.xz");
+        let mut xz = liblzma::write::XzEncoder::new(std::fs::File::create(&archive).unwrap(), 1);
+        std::io::copy(&mut std::fs::File::open(&tar_path).unwrap(), &mut xz).unwrap();
+        xz.finish().unwrap();
+
+        let root = extract(&archive, &dir.join("out")).unwrap();
+        assert_eq!(std::fs::read(root.join("bin/mysqld")).unwrap(), b"hi");
     }
 
     #[test]
