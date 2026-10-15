@@ -200,7 +200,8 @@ key built into it.
 The public key is in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`; the private key
 lives only in the `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository
 secrets, and the Installers workflow checks that the two match. To publish an update, raise the
-version, push a `v*` tag, and publish the draft release the Installers workflow makes. The app downloads updates from
+version, then either push a `v*` tag or run the Installers workflow on master with "release" ticked,
+and publish the draft release it makes (with "Set as the latest release" ticked). The app downloads updates from
 `https://github.com/<repo>/releases/latest`, so that repository must be public; set the
 `STACKYARD_RELEASES_REPO` variable (and a `STACKYARD_RELEASES_TOKEN` secret that can write to it)
 to publish releases somewhere other than this repository.
