@@ -83,7 +83,7 @@ checksum before it is unpacked.
 | Runtime | Windows | macOS and Linux |
 | --- | --- | --- |
 | Node.js 20, 22, 24, 26 | Official builds from nodejs.org | Official builds from nodejs.org |
-| PHP 7.4 to 8.5 | Official builds from the PHP project | Built from the official PHP source by `.github/workflows/php-builds.yml` |
+| PHP 7.4 to 8.5 | Official builds from the PHP project | PHP 8.1 and later, built from the official PHP source by `.github/workflows/php-builds.yml` |
 
 The PHP build job uses static-php-cli to produce self-contained `php` and `php-fpm` binaries for
 x86_64 and ARM64, and publishes them with their checksums and licenses on the `php-builds` release.

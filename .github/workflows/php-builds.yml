@@ -3,6 +3,9 @@
 # checksums on the rolling "php-builds" release, plus a manifest.json that the
 # Stackyard app reads to find them. Windows uses the PHP project's own builds.
 #
+# Builds start at PHP 8.1: 7.4 and 8.0 don't compile against OpenSSL 3, so
+# Stackyard offers them on Windows only.
+#
 # Each archive ships PHP's license and the licenses of every bundled library
 # in its licenses/ folder.
 
@@ -13,7 +16,7 @@ on:
     inputs:
       versions:
         description: PHP versions to build, separated by spaces
-        default: "8.5 8.4 8.3 8.2 8.1 8.0 7.4"
+        default: "8.5 8.4 8.3 8.2 8.1"
       publish:
         description: Publish to the php-builds release
         type: boolean
@@ -62,7 +65,7 @@ jobs:
               versions="8.4"; publish=false
               platforms=$(jq -c '[.[0]]' <<<"$platforms") ;;
             schedule)
-              versions="8.5 8.4 8.3 8.2 8.1 8.0 7.4"; publish=true ;;
+              versions="8.5 8.4 8.3 8.2 8.1"; publish=true ;;
             *)
               versions="$VERSIONS"; publish="$PUBLISH" ;;
           esac
@@ -101,11 +104,6 @@ jobs:
       # Every library is compiled from source too (no --prefer-pre-built):
       # slower, but nothing in the archive is a third-party binary, and the
       # pre-built SQLite fails static-php-cli's own sanity check.
-      # static-php-cli can only build opcache into PHP 8.0 and later.
-      - name: Pick extensions
-        if: matrix.version == '7.4'
-        run: echo "EXTENSIONS=$(tr ',' '\n' <<<"$EXTENSIONS" | grep -vx opcache | paste -sd, -)" >> "$GITHUB_ENV"
-
       # The token lifts GitHub's limit on unauthenticated API calls, which
       # runners sharing an address quickly reach.
       - name: Download PHP and library sources

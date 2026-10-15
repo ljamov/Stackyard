@@ -3,6 +3,8 @@
 
 use serde::Serialize;
 
+use crate::platform::Os;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RuntimeKind {
@@ -40,6 +42,10 @@ pub struct RuntimeFamily {
     pub versions: &'static [&'static str],
     /// `false` = shown as "coming soon" in the prototype.
     pub available: bool,
+    /// Versions only Windows gets: Stackyard's macOS and Linux PHP builds
+    /// start at 8.1, the first release that builds against OpenSSL 3.
+    #[serde(skip)]
+    pub windows_only: &'static [&'static str],
 }
 
 pub const RUNTIMES: &[RuntimeFamily] = &[
@@ -48,30 +54,35 @@ pub const RUNTIMES: &[RuntimeFamily] = &[
         name: "PHP",
         versions: &["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"],
         available: true,
+        windows_only: &["8.0", "7.4"],
     },
     RuntimeFamily {
         kind: RuntimeKind::Node,
         name: "Node.js",
         versions: &["26", "24", "22", "20"],
         available: true,
+        windows_only: &[],
     },
     RuntimeFamily {
         kind: RuntimeKind::Python,
         name: "Python",
         versions: &["3.13", "3.12", "3.11"],
         available: false,
+        windows_only: &[],
     },
     RuntimeFamily {
         kind: RuntimeKind::Go,
         name: "Go",
         versions: &["1.23", "1.22"],
         available: false,
+        windows_only: &[],
     },
     RuntimeFamily {
         kind: RuntimeKind::Java,
         name: "Java",
         versions: &["21", "17"],
         available: false,
+        windows_only: &[],
     },
 ];
 
@@ -156,6 +167,19 @@ impl RuntimeFamily {
     pub fn offers(&self, version: &str) -> bool {
         self.versions.contains(&version)
     }
+
+    /// Whether `version` can be installed on `os`.
+    pub fn offers_on(&self, version: &str, os: Os) -> bool {
+        self.offers(version) && (os == Os::Windows || !self.windows_only.contains(&version))
+    }
+
+    /// The versions that can be installed on `os`, newest first.
+    pub fn versions_on(&self, os: Os) -> impl Iterator<Item = &'static str> + '_ {
+        self.versions
+            .iter()
+            .copied()
+            .filter(move |v| self.offers_on(v, os))
+    }
 }
 
 pub fn runtime(kind: RuntimeKind) -> &'static RuntimeFamily {
@@ -168,6 +192,18 @@ pub fn runtime(kind: RuntimeKind) -> &'static RuntimeFamily {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_php_is_windows_only() {
+        let php = runtime(RuntimeKind::Php);
+        assert!(php.offers_on("7.4", Os::Windows));
+        assert!(!php.offers_on("7.4", Os::Macos));
+        assert!(!php.offers_on("8.0", Os::Linux));
+        assert!(php.offers_on("8.1", Os::Linux));
+        assert_eq!(php.versions_on(Os::Macos).last(), Some("8.1"));
+        assert_eq!(php.versions_on(Os::Windows).last(), Some("7.4"));
+        assert!(!php.offers_on("9.9", Os::Windows));
+    }
 
     #[test]
     fn every_kind_is_listed_once() {
