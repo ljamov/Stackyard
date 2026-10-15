@@ -82,6 +82,8 @@ pub enum Error {
     Database(String),
     #[error("{0}")]
     Task(String),
+    #[error("{0}")]
+    Cleanup(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

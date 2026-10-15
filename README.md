@@ -175,6 +175,15 @@ a copy under another name. Dropping a database asks you to type its name; `mysql
 other system databases can't be dropped from here. Switch the screen off in Settings if you use
 another database tool.
 
+## Disk space
+
+**Settings → Disk space** shows how much Stackyard's own folder takes (runtimes, services, their
+data, logs, downloads) and what can go. Safe items are picked for you: downloads and folders left
+by interrupted installs, previous logs, versions Stackyard no longer offers. Others are yours to
+pick: emptying the current logs, runtime versions that are not the default and that no site uses
+or pins, and the kept data of a service you removed, which asks once more because it can't be
+undone. Nothing is read until you ask, and project folders are never counted or touched.
+
 ## AI coding tools (MCP)
 
 `stackyard mcp` is an [MCP](https://modelcontextprotocol.io) server, so Claude Code, Cursor,
@@ -262,6 +271,9 @@ stackyard db query shop "SELECT * FROM orders LIMIT 5"
 stackyard db backup shop              # backups/shop/shop-<date>-<time>.sql.gz
 stackyard db restore shop             # the newest backup (or name a file; --into another database)
 stackyard db drop shop --yes
+stackyard cleanup                     # what takes space, and what can go
+stackyard cleanup --recommended       # remove what is safe to remove
+stackyard cleanup runtime-php-8.2     # or name items; service data also needs --yes
 stackyard mcp setup      # how to add Stackyard to Claude Code, Cursor and others
 stackyard mcp tools      # what AI tools may do
 stackyard mcp allow start_service   # or `allow all`; `deny` turns it off again
