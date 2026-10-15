@@ -63,6 +63,7 @@ button, input, select { font: inherit; color: inherit; }
 .list-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
 .version-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); }
 .version-row:last-child { border-bottom: 0; }
+.version-all { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 
 table { width: 100%; min-width: 560px; border-collapse: collapse; }
 th { text-align: left; font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 14px 18px; }
