@@ -1,0 +1,224 @@
+# Builds Redis for macOS and Linux from the official source, checked against
+# the SHA-256 Redis publishes in github.com/redis/redis-hashes, and publishes
+# the archives with SHA-256 checksums on the rolling "redis-builds" release,
+# plus a manifest.json that the Stackyard app reads to find them. Redis has
+# no Windows release, so there is no Windows build.
+#
+# Each archive ships Redis's license files; the source each one was built
+# from is published next to it.
+
+name: Redis builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: Redis major versions to build, separated by spaces
+        default: "8"
+      publish:
+        description: Publish to the redis-builds release
+        type: boolean
+        default: true
+  schedule:
+    # Mondays, to pick up Redis patch releases.
+    - cron: "53 3 * * 1"
+  pull_request:
+    paths: [".github/workflows/redis-builds.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redis-builds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          VERSIONS: ${{ inputs.versions }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          # Linux builds on the older Ubuntu, so they run on older systems too.
+          platforms='[
+            {"platform": "linux-x86_64",  "runner": "ubuntu-22.04"},
+            {"platform": "linux-aarch64", "runner": "ubuntu-22.04-arm"},
+            {"platform": "macos-x86_64",  "runner": "macos-15-intel"},
+            {"platform": "macos-aarch64", "runner": "macos-15"}
+          ]'
+          case "$EVENT" in
+            pull_request)
+              # Smoke test of this file: one platform, nothing published.
+              majors="8"; publish=false
+              platforms=$(jq -c '[.[0]]' <<<"$platforms") ;;
+            schedule)
+              majors="8"; publish=true ;;
+            *)
+              majors="$VERSIONS"; publish="$PUBLISH" ;;
+          esac
+
+          # Lines look like: hash redis-8.2.2.tar.gz sha256 <hex> <url>
+          hashes=$(curl -fsSL --retry 3 https://raw.githubusercontent.com/redis/redis-hashes/master/README)
+          versions='[]'
+          for major in $majors; do
+            [[ "$major" =~ ^[0-9]+$ ]] || { echo "::error::not a Redis major version: $major"; exit 1; }
+            line=$(grep -E "^hash redis-$major\.[0-9]+\.[0-9]+\.tar\.gz sha256 [0-9a-f]{64} " <<<"$hashes" \
+              | sort -V -k2,2 | tail -1)
+            [ -n "$line" ] || { echo "::error::no Redis $major release found"; exit 1; }
+            read -r _ file _ sha url <<<"$line"
+            version=${file#redis-}; version=${version%.tar.gz}
+            echo "Redis $major: $version"
+            versions=$(jq -c --arg major "$major" --arg version "$version" --arg sha "$sha" \
+              '. + [{major: $major, version: $version, source_sha256: $sha}]' <<<"$versions")
+          done
+
+          matrix=$(jq -cn --argjson versions "$versions" --argjson platforms "$platforms" \
+            '[$versions[] as $v | $platforms[] | . + $v]')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Redis ${{ matrix.version }} (${{ matrix.platform }})
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      MAJOR: ${{ matrix.major }}
+      VERSION: ${{ matrix.version }}
+      PLATFORM: ${{ matrix.platform }}
+      SOURCE_SHA256: ${{ matrix.source_sha256 }}
+    steps:
+      - name: Download and check the source
+        run: |
+          file="redis-$VERSION.tar.gz"
+          curl -fsSL --retry 3 -o "$file" "https://download.redis.io/releases/$file"
+          actual=$(shasum -a 256 "$file" | cut -d' ' -f1)
+          [ "$actual" = "$SOURCE_SHA256" ] \
+            || { echo "::error::SHA-256 mismatch for $file ($actual, expected $SOURCE_SHA256)"; exit 1; }
+          echo "Checksum OK: $file"
+          tar -xzf "$file"
+          mkdir -p dist
+          mv "$file" "dist/redis-$VERSION-source.tar.gz"
+
+      - name: Build
+        run: |
+          jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)
+          # No TLS: Redis only listens on 127.0.0.1, and nothing outside the
+          # archive is needed beyond the system's C library.
+          make -C "redis-$VERSION" -j"$jobs" BUILD_TLS=no
+
+      - name: Package
+        run: |
+          name="redis-$VERSION-$PLATFORM"
+          echo "NAME=$name" >> "$GITHUB_ENV"
+          src="redis-$VERSION"
+          mkdir -p "dist/$name/bin"
+          cp "$src/src/redis-server" "$src/src/redis-cli" "dist/$name/bin/"
+          strip "dist/$name/bin/"*
+          cp "$src/redis.conf" "dist/$name/"
+          for f in "$src"/LICENSE* "$src"/*LICENSE* "$src"/AGPL* "$src"/RSAL* "$src"/SSPL* "$src"/COPYING*; do
+            [ -f "$f" ] && cp "$f" "dist/$name/"
+          done
+          ls "dist/$name"
+          echo "Built from https://download.redis.io/releases/redis-$VERSION.tar.gz, published next to this archive as redis-$VERSION-source.tar.gz." \
+            > "dist/$name/SOURCE.txt"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          sha=$(shasum -a 256 "dist/$name.tar.gz" | cut -d' ' -f1)
+          jq -n --arg major "$MAJOR" --arg version "$VERSION" --arg platform "$PLATFORM" \
+            --arg file "$name.tar.gz" --arg sha256 "$sha" --arg source "redis-$VERSION-source.tar.gz" \
+            '{major: $major, version: $version, platform: $platform, file: $file, sha256: $sha256, source: $source}' \
+            > "dist/$name.json"
+          cat "dist/$name.json"
+          du -sh "dist/$name.tar.gz"
+
+      # Unpacked somewhere else, the way Stackyard runs it.
+      - name: Check it runs from another folder
+        run: |
+          mkdir -p elsewhere data
+          tar -C elsewhere -xzf "dist/$NAME.tar.gz"
+          rm -rf "dist/$NAME"
+          bin="$PWD/elsewhere/$NAME/bin"
+          "$bin/redis-server" --version
+          "$bin/redis-server" --bind 127.0.0.1 --port 6390 --dir "$PWD/data" --daemonize yes --logfile "$PWD/redis.log"
+          for _ in $(seq 20); do "$bin/redis-cli" -p 6390 ping 2>/dev/null | grep -q PONG && break; sleep 0.5; done
+          "$bin/redis-cli" -p 6390 set check ok
+          [ "$("$bin/redis-cli" -p 6390 get check)" = ok ]
+          "$bin/redis-cli" -p 6390 shutdown nosave || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redis-${{ matrix.version }}-${{ matrix.platform }}
+          path: |
+            dist/*.tar.gz
+            dist/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [plan, build]
+    # Publish whatever built, even if some platforms failed.
+    if: ${{ !cancelled() && needs.plan.outputs.publish == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: redis-builds
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish archives and manifest
+        run: |
+          shopt -s nullglob
+          builds=(dist/*.json)
+          if [ ${#builds[@]} -eq 0 ]; then echo "::error::nothing was built"; exit 1; fi
+
+          if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" -R "$REPO" --latest=false --title "Redis builds" \
+              --notes "Redis for Stackyard, built for macOS and Linux from the official Redis source, which is published here too. Each archive includes Redis's license files. manifest.json lists every build with its SHA-256 checksum."
+          fi
+
+          mkdir -p old
+          gh release download "$TAG" -R "$REPO" -p manifest.json -D old 2>/dev/null \
+            || echo '{"schema": 1, "builds": []}' > old/manifest.json
+
+          base="https://github.com/$REPO/releases/download/$TAG"
+          jq -s --arg base "$base" 'map(. + {url: ($base + "/" + .file)})' "${builds[@]}" > new.json
+          # New builds replace older ones for the same major version and platform.
+          jq --slurpfile new new.json '{
+              schema: 1,
+              generated: (now | todate),
+              builds: ([.builds[] | . as $b
+                        | select($new[0] | any(.major == $b.major and .platform == $b.platform) | not)]
+                       + $new[0] | sort_by(.platform, (.major | tonumber)))
+            }' old/manifest.json > manifest.json
+          cat manifest.json
+
+          # Archives first, so the manifest never points at a missing file.
+          gh release upload "$TAG" -R "$REPO" --clobber dist/*.tar.gz
+          gh release upload "$TAG" -R "$REPO" --clobber manifest.json
+
+          # Remove archives and sources the manifest no longer lists.
+          keep=$(jq -r '.builds[] | .file, (.source // empty)' manifest.json)
+          gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name' | while read -r asset; do
+            case "$asset" in
+              manifest.json) ;;
+              *) grep -qxF "$asset" <<<"$keep" || gh release delete-asset "$TAG" "$asset" -R "$REPO" -y ;;
+            esac
+          done

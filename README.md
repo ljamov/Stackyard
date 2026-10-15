@@ -132,29 +132,42 @@ each command runs in the current folder, and why.
 The commands lead back to a copy of the `stackyard` program in the same folder (which also puts
 `stackyard` itself on your PATH), and it runs the real one from the runtime's folder.
 Composer is downloaded from getcomposer.org the first time you run `composer`, checked against its
-published SHA-256. `mysql` connects to whichever of MySQL and MariaDB is running.
+published SHA-256. `mysql` connects to whichever of MySQL and MariaDB is running. `psql`, `pg_dump`
+and `redis-cli` come from Stackyard's PostgreSQL and Redis, and `psql` and `pg_dump` connect as user
+`postgres` without a password.
 
 ## Services
 
 Services install into `services/<id>/<line>`, keep their data in `data/<id>` (kept when a service
 is removed, so reinstalling brings databases back) and their config in `config/<id>`. Everything
-listens on `127.0.0.1` only. Databases start with user `root` and no password.
+listens on `127.0.0.1` only. MySQL and MariaDB start with user `root` and PostgreSQL with user
+`postgres`, all without a password.
 
 | Service | Ports | Source | Checked against |
 | --- | --- | --- | --- |
 | Caddy 2 (web server) | 80, 443 (8080, 8443 when taken) | Official GitHub releases | Caddy's SHA-512 list |
 | MySQL 8.4 | 3306 | Oracle's official downloads | SHA-256 from `.github/workflows/mysql-manifest.yml`, which first checks Oracle's GnuPG signature |
 | MariaDB 11.8 (Windows, Linux) | 3306 | MariaDB Foundation downloads | The Foundation's SHA-256 |
+| PostgreSQL 18 | 5432 | Built from the official source (macOS, Linux); the official EDB binaries without pgAdmin (Windows) | SHA-256 from `.github/workflows/postgres-builds.yml`, which first checks postgresql.org's SHA-256 |
+| Redis 8 (macOS, Linux) | 6379 | Built from the official source | SHA-256 from `.github/workflows/redis-builds.yml`, which first checks Redis's published SHA-256 |
 | Mailpit (mail catcher) | 1025, 8025 | Official GitHub releases | GitHub's SHA-256 digest |
 | Meilisearch 1 (search engine) | 7700 | Official GitHub releases | GitHub's SHA-256 digest |
 
-Each service is a module: MySQL and Caddy are on by default, MariaDB, Mailpit and Meilisearch can
-be switched on in Settings. `STACKYARD_MYSQL_MANIFEST` points MySQL at another manifest, and
+Each service is a module: MySQL and Caddy are on by default, MariaDB, PostgreSQL, Redis, Mailpit
+and Meilisearch can be switched on in Settings. `STACKYARD_MYSQL_MANIFEST`,
+`STACKYARD_POSTGRES_MANIFEST` and `STACKYARD_REDIS_MANIFEST` point those services at another
+manifest, and
 `STACKYARD_GITHUB_TOKEN` raises the GitHub API limit for Caddy, Mailpit and Meilisearch lookups.
 
 Meilisearch runs in development mode with no master key, so apps connect to
 `http://127.0.0.1:7700` without one and the address opens its search preview page. Its indexes
 live in `data/meilisearch` and are carried over when Stackyard updates it to a newer 1.x release.
+
+PostgreSQL keeps its databases in `data/postgres/db`, created the first time it starts with the C
+locale and UTF-8, so sorting is the same on every system. It only accepts connections over TCP
+(`127.0.0.1:5432`), never a socket file, so every client connects the same way everywhere. Redis
+saves to `data/redis/dump.rdb` every few minutes while keys change, so queued jobs survive a
+restart. Redis publishes no Windows version, so it is not offered there.
 
 ## Logs
 
@@ -288,6 +301,9 @@ stackyard db query shop "SELECT * FROM orders LIMIT 5"
 stackyard db backup shop              # backups/shop/shop-<date>-<time>.sql.gz
 stackyard db restore shop             # the newest backup (or name a file; --into another database)
 stackyard db drop shop --yes
+psql -c "create database shop"        # PostgreSQL, once it runs (`stackyard start postgres`)
+pg_dump shop > shop.sql
+redis-cli ping                        # Redis (`stackyard start redis`)
 stackyard cleanup                     # what takes space, and what can go
 stackyard cleanup --recommended       # remove what is safe to remove
 stackyard cleanup runtime-php-8.2     # or name items; service data also needs --yes
