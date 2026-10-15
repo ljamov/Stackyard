@@ -23,6 +23,7 @@ export function Sites() {
   const runtimes = useLoad(api.listRuntimes, []);
   const parked = useLoad(api.listParked, []);
   const system = useLoad(api.systemStatus, null);
+  const sitesFolder = useLoad(api.sitesFolder, "");
   const { isOn } = useModules();
   const options = runtimeOptions(runtimes.data, isOn);
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
@@ -75,15 +76,31 @@ export function Sites() {
   async function create(e: FormEvent) {
     e.preventDefault();
     await saveTld();
-    const ok = await attempt(() =>
-      api.addSite({ name, path: path || `~/Code/${name}`, runtime: chosenRuntime, https }),
-    );
+    // An empty folder means a new folder in the sites folder, made by the app.
+    const ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https }));
     if (ok) {
       setName("");
       setPath("");
     }
     sites.reload();
     system.reload();
+  }
+
+  function folderFor(site: string) {
+    const base = sitesFolder.data;
+    if (!base) return `~/Code/${site}`;
+    const sep = base.includes("\\") ? "\\" : "/";
+    return `${base.replace(/[\\/]+$/, "")}${sep}${site}`;
+  }
+
+  async function browseProject() {
+    const folder = await api.pickFolder("Select the project folder", path || sitesFolder.data);
+    if (folder) setPath(folder);
+  }
+
+  async function browsePark() {
+    const folder = await api.pickFolder("Select a folder to park", parkDraft || sitesFolder.data);
+    if (folder) setParkDraft(folder);
   }
 
   async function remove(domain: string) {
@@ -157,37 +174,10 @@ export function Sites() {
         </p>
       )}
 
-      <div className="split">
-        <section aria-label="Site list" className="card table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Site</th>
-                <th>Runs with</th>
-                <th>Folder</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sites.data.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="muted">
-                    No sites yet. Create one with the form, or park a folder of projects.
-                  </td>
-                </tr>
-              )}
-              {sites.data.map((site) => (
-                <SiteRow key={site.domain} site={site} onRemove={remove} />
-              ))}
-            </tbody>
-          </table>
-        </section>
-
-        <div className="stack side">
-          <form className="card stack form" aria-labelledby="new-h" onSubmit={create}>
-            <h2 id="new-h">New site</h2>
+      <div className="sites-top">
+        <form className="card stack form new-site" aria-labelledby="new-h" onSubmit={create}>
+          <h2 id="new-h">New site</h2>
+          <div className="form-grid">
             <div className="field">
               <label htmlFor="f-name">Name</label>
               <div className="input-affix">
@@ -204,13 +194,18 @@ export function Sites() {
             </div>
             <div className="field">
               <label htmlFor="f-folder">Project folder</label>
-              <input
-                id="f-folder"
-                className="mono"
-                value={path}
-                placeholder="~/Code/myapp"
-                onChange={(e) => setPath(e.target.value)}
-              />
+              <div className="row folder-input">
+                <input
+                  id="f-folder"
+                  className="mono grow"
+                  value={path}
+                  placeholder={folderFor(name || "myapp")}
+                  onChange={(e) => setPath(e.target.value)}
+                />
+                <button type="button" className="btn" onClick={browseProject}>
+                  Browse…
+                </button>
+              </div>
             </div>
             <div className="field">
               <label htmlFor="f-rt">Runtime</label>
@@ -231,53 +226,91 @@ export function Sites() {
                 onChange={(e) => setTldDraft(e.target.value)}
                 onBlur={saveTld}
               />
-              <span className="muted small">Default is .stack. Applies to new sites.</span>
               {tldInfo.data.warning && <span className="warn small">{tldInfo.data.warning}</span>}
             </div>
+          </div>
+          <span className="muted small">
+            Leave the folder empty to create <span className="mono">{folderFor(name || "myapp")}</span>. The domain
+            ending applies to new sites.
+          </span>
+          <div className="row between centered">
             <label className="check">
               <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
-              Secure with local HTTPS certificate
+              Secure with local HTTPS (SSL) certificate
             </label>
             <button type="submit" className="btn primary">
               Create site
             </button>
-          </form>
+          </div>
+        </form>
 
-          <form className="card stack form" aria-labelledby="park-h" onSubmit={park}>
-            <h2 id="park-h">Parked folders</h2>
-            <p className="muted small">
-              Every project folder inside a parked folder becomes a site, named after its folder.
-            </p>
-            {parked.data.map((folder) => (
-              <div key={folder} className="list-row">
-                <span className="mono small">{folder}</span>
-                <button
-                  type="button"
-                  className="btn ghost small"
-                  aria-label={`Unpark ${folder}`}
-                  onClick={() => unpark(folder)}
-                >
-                  Unpark
-                </button>
-              </div>
-            ))}
-            <div className="field">
-              <label htmlFor="f-park">Folder</label>
+        <form className="card stack form parked" aria-labelledby="park-h" onSubmit={park}>
+          <h2 id="park-h">Parked folders</h2>
+          <p className="muted small">
+            Every folder inside a parked folder is a site, named after the folder. New folders show up within a few
+            seconds.
+          </p>
+          {parked.data.map((folder) => (
+            <div key={folder} className="list-row">
+              <span className="mono small">{folder}</span>
+              <button
+                type="button"
+                className="btn ghost small"
+                aria-label={`Unpark ${folder}`}
+                onClick={() => unpark(folder)}
+              >
+                Unpark
+              </button>
+            </div>
+          ))}
+          <div className="field">
+            <label htmlFor="f-park">Folder</label>
+            <div className="row folder-input">
               <input
                 id="f-park"
-                className="mono"
+                className="mono grow"
                 value={parkDraft}
-                placeholder="~/Code"
+                placeholder={sitesFolder.data || "~/Code"}
                 required
                 onChange={(e) => setParkDraft(e.target.value)}
               />
+              <button type="button" className="btn" onClick={browsePark}>
+                Browse…
+              </button>
             </div>
-            <button type="submit" className="btn">
-              Park folder
-            </button>
-          </form>
-        </div>
+          </div>
+          <button type="submit" className="btn">
+            Park folder
+          </button>
+        </form>
       </div>
+
+      <section aria-label="Site list" className="card table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Site</th>
+              <th>Runs with</th>
+              <th>Folder</th>
+              <th>
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sites.data.length === 0 && (
+              <tr>
+                <td colSpan={4} className="muted">
+                  No sites yet. Create one above, or add a folder to a parked folder.
+                </td>
+              </tr>
+            )}
+            {sites.data.map((site) => (
+              <SiteRow key={site.domain} site={site} onRemove={remove} />
+            ))}
+          </tbody>
+        </table>
+      </section>
     </>
   );
 }

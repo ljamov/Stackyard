@@ -4,6 +4,32 @@
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+
+export type SetupOffer = {
+  id: string;
+  name: string;
+  group: "runtime" | "service";
+  description: string;
+  /** Runtimes: the version setup installs. */
+  version: string | null;
+  recommended: boolean;
+};
+
+export type SetupChoices = { sites_folder: string; install: string[] };
+
+export type SetupStatus = {
+  needed: boolean;
+  home: string;
+  default_home: string;
+  default_sites_folder: string;
+  /** An earlier installation's folder, whose files move along to a new folder. */
+  existing: string | null;
+  /** Picked before a restart, waiting to be applied. */
+  choices: SetupChoices | null;
+  move_error: string | null;
+  offers: SetupOffer[];
+};
 
 export type RuntimeKind = "php" | "node" | "python" | "go" | "java";
 
@@ -240,6 +266,15 @@ export interface Api {
   addSite(site: NewSite): Promise<Site[]>;
   removeSite(name: string): Promise<Site[]>;
   listParked(): Promise<string[]>;
+  /** Where new sites get their folder. */
+  sitesFolder(): Promise<string>;
+  /** Opens the system's folder picker; null when cancelled. */
+  pickFolder(title: string, start?: string): Promise<string | null>;
+  setupStatus(): Promise<SetupStatus>;
+  /** Saves the picks; true when the app restarts to move to the new folder. */
+  setupChoose(home: string, sitesFolder: string, install: string[]): Promise<boolean>;
+  setupApply(): Promise<void>;
+  setupFinish(): Promise<void>;
   parkFolder(path: string): Promise<string[]>;
   unparkFolder(path: string): Promise<string[]>;
   systemStatus(): Promise<SystemStatus>;
@@ -310,6 +345,15 @@ const tauriApi: Api = {
   addSite: (site) => invoke("add_site", site),
   removeSite: (name) => invoke("remove_site", { name }),
   listParked: () => invoke("list_parked"),
+  sitesFolder: () => invoke("sites_folder"),
+  pickFolder: async (title, start) => {
+    const picked = await openDialog({ directory: true, multiple: false, title, defaultPath: start || undefined });
+    return typeof picked === "string" ? picked : null;
+  },
+  setupStatus: () => invoke("setup_status"),
+  setupChoose: (home, sitesFolder, install) => invoke("setup_choose", { home, sitesFolder, install }),
+  setupApply: () => invoke("setup_apply"),
+  setupFinish: () => invoke("setup_finish"),
   parkFolder: (path) => invoke("park_folder", { path }),
   unparkFolder: (path) => invoke("unpark_folder", { path }),
   systemStatus: () => invoke("system_status"),
@@ -647,6 +691,30 @@ function browserApi(): Api {
       return sites;
     },
     listParked: async () => parked,
+    sitesFolder: async () => "C:\\stackyard\\www",
+    pickFolder: async (_title, start) => window.prompt("Folder", start ?? "") || null,
+    setupStatus: async () => ({
+      needed: new URLSearchParams(location.search).has("setup"),
+      home: "C:\\stackyard",
+      default_home: "C:\\stackyard",
+      default_sites_folder: "C:\\stackyard\\www",
+      existing: null,
+      choices: null,
+      move_error: null,
+      offers: [
+        { id: "php", name: "PHP", group: "runtime", description: "PHP versions for sites and the shell", version: "8.5", recommended: true },
+        { id: "node", name: "Node.js", group: "runtime", description: "Node.js versions for sites and the shell", version: "24", recommended: true },
+        { id: "caddy", name: "Caddy", group: "service", description: "Web server for local sites, with automatic HTTPS", version: null, recommended: true },
+        { id: "mysql", name: "MySQL", group: "service", description: "MySQL database server", version: null, recommended: true },
+        { id: "mariadb", name: "MariaDB", group: "service", description: "MySQL-compatible database (Windows and Linux)", version: null, recommended: false },
+        { id: "mailpit", name: "Mailpit", group: "service", description: "Catches outgoing mail for testing", version: null, recommended: true },
+        { id: "postgres", name: "PostgreSQL", group: "service", description: "PostgreSQL database server", version: null, recommended: false },
+        { id: "meilisearch", name: "Meilisearch", group: "service", description: "Fast search engine for apps", version: null, recommended: false },
+      ],
+    }),
+    setupChoose: async () => false,
+    setupApply: async () => {},
+    setupFinish: async () => {},
     parkFolder: async (path) => {
       if (!path.trim()) throw "choose a folder";
       parked = parked.includes(path) ? parked : [...parked, path];

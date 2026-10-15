@@ -24,6 +24,7 @@ pub mod runtimes;
 pub mod scheduler;
 pub mod services;
 pub mod settings;
+pub mod setup;
 pub mod shell;
 pub mod sites;
 pub mod supervisor;

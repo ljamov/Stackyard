@@ -178,6 +178,52 @@ impl Engine {
         Ok(())
     }
 
+    /// Watches the parked folders while the engine lives: a project folder
+    /// added, renamed or removed there becomes (or stops being) a site
+    /// within a few seconds, without a restart. Calls `changed` after the
+    /// web server has the new list.
+    pub fn watch_parked(
+        engine: &std::sync::Arc<Self>,
+        home: &Path,
+        changed: impl Fn() + Send + 'static,
+    ) {
+        let weak = std::sync::Arc::downgrade(engine);
+        let settings_file = home.join("settings.toml");
+        let seen = move || -> Vec<(std::path::PathBuf, Vec<String>)> {
+            let settings = Settings::load_from(&settings_file).unwrap_or_default();
+            settings
+                .parked
+                .iter()
+                .map(|folder| {
+                    let names = crate::web::project_folders(folder)
+                        .into_iter()
+                        .map(|(name, _)| name)
+                        .collect();
+                    (folder.clone(), names)
+                })
+                .collect()
+        };
+        std::thread::spawn(move || {
+            let mut last = seen();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                let Some(engine) = weak.upgrade() else {
+                    return;
+                };
+                let now = seen();
+                // Parking or unparking already restarts the web server.
+                let same_folders = now.iter().map(|(f, _)| f).eq(last.iter().map(|(f, _)| f));
+                if now != last && same_folders {
+                    if let Err(e) = engine.sites_changed() {
+                        eprintln!("could not restart the web server: {e}");
+                    }
+                    changed();
+                }
+                last = now;
+            }
+        });
+    }
+
     /// Restarts a running web server, e.g. after system setup freed ports 80 and 443.
     pub fn restart_web(&self) -> Result<()> {
         if self.is_running("caddy") {

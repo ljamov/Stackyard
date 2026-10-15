@@ -204,3 +204,24 @@ table.result-grid td { padding: 6px 12px; max-width: 360px; white-space: pre; ov
 /* Updates */
 .sidebar .nav-item .badge { margin-left: 8px; }
 .update-notes { white-space: pre-wrap; color: var(--text-2); }
+
+/* First-run setup */
+.setup { height: 100%; overflow-y: auto; display: grid; place-items: center; padding: 32px 20px; }
+.setup-card { width: min(720px, 100%); gap: 20px; padding: 28px; }
+.setup-actions { justify-content: flex-end; }
+.setup-offers { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.setup-offer {
+  display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--surface-2); cursor: pointer;
+}
+.setup-offer input { margin-top: 3px; accent-color: var(--accent); }
+.setup-progress { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.setup-progress li { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.folder-input .grow { flex: 1 1 auto; min-width: 0; }
+
+/* Sites: the new-site form (two thirds) beside parked folders (one third). */
+.sites-top { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.sites-top > .new-site { flex: 2 1 480px; min-width: 0; }
+.sites-top > .parked { flex: 1 1 260px; min-width: 0; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+@media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
