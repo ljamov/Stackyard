@@ -512,6 +512,11 @@ mod tests {
             return;
         };
         assert!(home.join("data/mariadb/db/mysql").is_dir());
+        // The Databases screen against it: queries, backup and restore.
+        let mut settings = Settings::default();
+        settings.set_module("mariadb", true).unwrap();
+        settings.save_to(&home.join("settings.toml")).unwrap();
+        crate::databases::tests::exercise(&home);
         live_stop("mariadb", supervisor, home);
     }
 }
