@@ -1,326 +1,244 @@
+<div align="center">
+
+<img src="public/logo.svg" alt="Stackyard logo" width="88" height="88">
+
 # Stackyard
 
-A local development environment for Windows, macOS and Linux. Manage PHP, Node.js and more,
-databases, web servers and local HTTPS sites such as `https://myapp.stack` from one desktop app,
-with no containers.
+**Your whole local dev stack in one fast desktop app. No containers.**
 
-> Status: early prototype. Runtimes, services, local sites with HTTPS, terminal commands, the
-> background service, the tray icon, installers, the MCP server for AI coding tools and the task
-> scheduler work.
+PHP, Node.js, MySQL, PostgreSQL, Redis and more, running natively on Windows, macOS and Linux,
+with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for AI coding tools.
 
-## Install
+[![Latest release](https://img.shields.io/github/v/release/ljamov/Stackyard?color=F2B035&label=release)](https://github.com/ljamov/Stackyard/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/ljamov/Stackyard/ci.yml?branch=master&label=CI)](https://github.com/ljamov/Stackyard/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-1F242C)
+![Built with Tauri 2 and Rust](https://img.shields.io/badge/built%20with-Tauri%202%20%2B%20Rust-F7CD72)
 
-Unsigned prototype installers are built by `.github/workflows/release.yml` for every version tag
-(as a draft release) and can be run by hand from the Actions tab:
+[**Download**](https://github.com/ljamov/Stackyard/releases/latest) ·
+[Features](#features) ·
+[Quick start](#quick-start) ·
+[CLI](docs/cli.md) ·
+[MCP](docs/mcp.md) ·
+[Contributing](CONTRIBUTING.md)
 
-| System | Files |
-| --- | --- |
-| Windows 10 and 11 (x64) | `Stackyard_<version>_x64-setup.exe` (installs for you, no admin) or `.msi` |
-| macOS 11 or later | `.dmg` for Apple silicon (`aarch64`) or Intel (`x64`) |
-| Linux (x64) | `.deb`, `.rpm` or `.AppImage` |
+<br>
 
-They are not signed yet, so the first start needs a click: on macOS right-click Stackyard and
-choose **Open**; on Windows choose **More info**, then **Run anyway**. Each installer ships the
-`stackyard` command next to the app; **Add to PATH** on the Runtimes screen (or
-`stackyard shims on`) puts it and the terminal commands on your PATH.
+<img src="docs/images/sites.png" alt="The Sites screen: three local HTTPS sites running Laravel, Vite and WordPress, each with its own runtime version" width="900">
 
-## What's here
+</div>
 
-| Path | What it is |
-| --- | --- |
-| `crates/stackyard-core` | Core logic shared by the app, the CLI and the MCP server: settings, sites, domain rules, catalog |
-| `crates/stackyard-cli` | The `stackyard` command-line tool |
-| `src-tauri` | Tauri 2 desktop app: thin commands over the core |
-| `src` | React + TypeScript interface |
+## Why Stackyard
 
-Settings and sites are stored as TOML in the OS data folder (for example
-`~/Library/Application Support/Stackyard` on macOS). Set `STACKYARD_HOME` to use another folder.
+- **Native, not virtual.** Services run straight on your OS. No Docker, no VM, no waiting for
+  containers to boot.
+- **Per-project versions.** One project on PHP 7.4, the next on 8.5, a third on Node 22. The browser
+  and the terminal always agree on which version a project uses.
+- **Real HTTPS on real-looking domains.** Every project gets `https://<name>.stack` with a trusted
+  certificate, set up with one click.
+- **Small and switch-off-able.** Every runtime, service and screen is a module. Off means nothing is
+  downloaded, nothing runs and the screen is gone.
+- **AI-ready.** A built-in MCP server lets Claude Code, Cursor and others see your stack, and act on
+  it only where you allow.
 
-## Local domains
+## Features
 
-New sites end in `.stack` by default. Change it in the app (Sites › Domain ending) or with
-`stackyard tld .test`. If `.stack` ever becomes a public domain ending, the default moves to `.test`,
-which is reserved for testing. `.local` works but is not recommended because Bonjour/mDNS uses it.
+<table>
+<tr>
+<td width="50%" valign="top">
 
-## Sites
+### 🌐 Sites and HTTPS
+- Local domains ending in `.stack` (or `.test`, or any ending you like)
+- Trusted HTTPS for every site, powered by Caddy
+- **Park a folder** and every project inside becomes a site
+- Detects Laravel, Symfony, WordPress, Drupal, Craft, Magento, Vite, Next.js, Astro and more
+- Node dev servers proxied automatically; static sites served as is
 
-Add a site by hand, or park a folder (`stackyard sites park ~/Code`) so every project folder in it
-becomes a site named after the folder. Stackyard looks at each project to decide how to serve it:
+</td>
+<td width="50%" valign="top">
 
-- **PHP**: Laravel, Symfony, CodeIgniter, Magento, CakePHP, Craft CMS, Yii, Drupal, WordPress
-  (including Bedrock), or any folder with an `index.php`. The right public folder is served, through
-  `php-fpm` on macOS and Linux and `php-cgi` on Windows, one process per PHP version in use.
-  Each version has its own `php.ini` in `config/php/<version>/`, created once with development
-  defaults and then left to you.
-- **Node**: a project with a `dev` or `start` script is proxied to its dev server. The port comes
-  from the script (`--port 4000`) or the framework's usual one (Vite 5173, Next.js 3000, Astro 4321…).
-- **Static files**: anything else, from `public/` or `dist/` when the page lives there.
+### ⚙️ Runtimes
+- **PHP 7.4 to 8.5** and **Node.js 20 to 26**, side by side
+- Pin a version per project with a `.stackyard` file
+- `php`, `composer`, `node`, `npm` and `mysql` pick the right version in any terminal
+- Every download checked against a published SHA-256
+- Own `php.ini` per PHP version
 
-Every site answers at `https://<name><ending>` (`.stack` by default) and at `<name>.localhost`, which
-browsers send to your own computer, so sites work before setup.
+</td>
+</tr>
+<tr>
+<td valign="top">
 
-### Local domains and HTTPS
+### 🗄️ Databases and services
+- **MySQL 8.4**, **MariaDB 11.8**, **PostgreSQL 18**, **Redis 8**
+- **Meilisearch** for search, **Mailpit** to catch outgoing mail
+- Everything listens on `127.0.0.1` only
+- Data kept when a service is removed, so reinstalling brings it back
 
-`stackyard system setup` (or **Set up** on the Sites screen) asks for your password once and:
+</td>
+<td valign="top">
 
-| | macOS | Linux | Windows |
+### 🧰 Built-in tools
+- **Databases screen**: browse tables, run SQL, back up and restore
+- **Live logs** for every service, with text and regex search
+- **Task scheduler** with crontab syntax, in each project's folder
+- **Disk space cleanup** that never touches your projects
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🤖 AI coding tools (MCP)
+- `stackyard mcp` works with Claude Code, Cursor, Claude Desktop, Windsurf
+- Read-only by default; you allow each action
+- Never offers to delete sites, databases or files
+- Every call is logged with the tool's name
+
+</td>
+<td valign="top">
+
+### 🖥️ Desktop and CLI
+- Lives in the tray (menu bar on macOS) with services running in the background
+- A full `stackyard` CLI that drives the same engine as the app
+- Signed auto-updates you install when you choose
+- Windows 10/11, macOS 11+ (Intel and Apple silicon), Linux x64
+
+</td>
+</tr>
+</table>
+
+## Quick start
+
+1. **Download** the installer for your system from the
+   [latest release](https://github.com/ljamov/Stackyard/releases/latest):
+
+   | System | File |
+   | --- | --- |
+   | Windows 10 and 11 (x64) | `Stackyard_<version>_x64-setup.exe` (no admin needed) or `.msi` |
+   | macOS 11 or later | `.dmg`, `aarch64` for Apple silicon or `x64` for Intel |
+   | Linux (x64) | `.deb`, `.rpm` or `.AppImage` |
+
+   > The installers are not code-signed yet, so the first start needs one extra click. On Windows
+   > choose **More info**, then **Run anyway**. On macOS right-click Stackyard and choose **Open**.
+
+2. **Open Stackyard** and click **Set up** on the Sites screen. It asks for your password once to
+   make `.stack` names and HTTPS work. Until then, every site also works at `<name>.localhost`.
+3. **Add a site**, or park your code folder so every project in it becomes one.
+4. **Start Caddy** (and MySQL if you need it) from the Dashboard, then open `https://<name>.stack`.
+
+Prefer the terminal? The same steps as commands:
+
+```sh
+stackyard system setup                 # local domains and HTTPS
+stackyard sites park ~/Code            # every folder in ~/Code becomes a site
+stackyard runtimes install php 8.4
+stackyard start                        # run every installed service in the background
+stackyard use php 8.3                  # pin a version for the current project
+```
+
+## A quick look
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/dashboard.png" alt="Dashboard with services, sites and runtimes"></td>
+<td width="50%"><img src="docs/images/runtimes.png" alt="Runtimes screen with PHP versions 7.4 to 8.5"></td>
+</tr>
+<tr>
+<td><img src="docs/images/databases.png" alt="Databases screen listing tables"></td>
+<td><img src="docs/images/logs.png" alt="Logs screen with warnings and errors highlighted"></td>
+</tr>
+</table>
+
+## What you get out of the box
+
+| Service | Port | Platforms | Default |
 | --- | --- | --- | --- |
-| Local names | `/etc/resolver/<ending>` pointing at Stackyard's DNS server on 127.0.0.1:53535 | A systemd-resolved drop-in doing the same (the hosts file without systemd-resolved) | A marked block in the hosts file |
-| HTTPS | Trusts Caddy's local root certificate in the System keychain | Adds it to the system certificates (and Chrome's list when `certutil` is installed) | Adds it to the trusted root certificates |
-| Ports 80 and 443 | Already allowed | Lets programs use ports from 80 (`/etc/sysctl.d/50-stackyard.conf`) | Already allowed |
+| Caddy 2 (web server, HTTPS) | 80, 443 (8080, 8443 when taken) | All | On |
+| MySQL 8.4 | 3306 | All | On |
+| MariaDB 11.8 | 3306 | Windows, Linux | Off |
+| PostgreSQL 18 | 5432 | All | Off |
+| Redis 8 | 6379 | macOS, Linux | Off |
+| Meilisearch 1 | 7700 | All | Off |
+| Mailpit | 1025 (SMTP), 8025 (web) | All | Off |
 
-Only Stackyard's domain endings go to its DNS server; everything else resolves as before. The DNS
-server answers `127.0.0.1` for names under those endings and refuses everything else. When ports
-80 and 443 are taken, the web server uses 8080 and 8443 instead. `stackyard system setup --print`
-shows the exact commands first. With the hosts file, adding a site asks for setup again.
+MySQL and MariaDB start with user `root` and PostgreSQL with user `postgres`, all without a
+password. Switch modules on in **Settings** or with `stackyard modules on <id>`.
 
-## Runtimes
+## Pin versions per project
 
-Each version installs into its own folder (`runtimes/php/8.4`, `runtimes/node/22`) inside the data
-folder, so versions sit side by side. Every download is checked against a published SHA-256
-checksum before it is unpacked.
+Drop a `.stackyard` file in a project (or run `stackyard use php 8.3`):
 
-| Runtime | Windows | macOS and Linux |
-| --- | --- | --- |
-| Node.js 20, 22, 24, 26 | Official builds from nodejs.org | Official builds from nodejs.org |
-| PHP 7.4 to 8.5 | Official builds from the PHP project | PHP 8.1 and later, built from the official PHP source by `.github/workflows/php-builds.yml` |
+```toml
+php = "8.3"
+node = "22"
+```
 
-The PHP build job uses static-php-cli to produce self-contained `php` and `php-fpm` binaries for
-x86_64 and ARM64, and publishes them with their checksums and licenses on the `php-builds` release.
-Download sources can be pointed at a mirror with `STACKYARD_NODE_MIRROR`,
-`STACKYARD_PHP_WINDOWS_MIRROR` and `STACKYARD_PHP_MANIFEST`.
+The site in your browser and the `php`/`node` commands in your terminal both follow it. Without one,
+Stackyard uses the site's version, then your default, then the newest installed.
+`stackyard which` shows what each command will run, and why.
 
-## Running in the background
+## Connect your AI coding tool
 
-One process at a time runs services, and every other part of Stackyard talks to it:
-
-- **The app.** Closing the window keeps Stackyard in the tray (menu bar on macOS) and frees the
-  window's memory; the tray menu opens it again, starts or stops every service, or quits. Quitting
-  stops all services. Opening the app a second time brings the first window forward.
-- **`stackyard start`** when the app is closed: it starts a small background process
-  (`stackyard daemon`) that keeps services running after the terminal closes. `stackyard stop`
-  stops everything and ends it; opening the app takes its services over.
-- **`stackyard up`**: the same in the foreground of one terminal, until Ctrl+C.
-
-`stackyard start`, `stop`, `status` and site changes from the CLI all reach whichever of these runs
-services, so a site added in a terminal is served right away by the app. They talk over
-`127.0.0.1` with a secret token kept in `run/control.json`, readable only by you.
-
-## Terminal
-
-`php`, `composer`, `node`, `npm`, `npx`, `mysql` and `mysqldump` run the version each project asks
-for. In order, Stackyard uses:
-
-1. the nearest `.stackyard` file in the folder or above it (`stackyard use php 8.3` writes one):
-   ```toml
-   php = "8.3"
-   node = "22"
-   ```
-2. the version of a site added for that folder,
-3. the default version (Runtimes screen, or `stackyard runtimes default php 8.4`),
-4. the newest installed version.
-
-Parked sites follow `.stackyard` files too, so the browser and the terminal agree.
-
-`stackyard shims on` (or **Add to PATH** on the Runtimes screen) creates the commands in `bin/`
-inside Stackyard's folder and puts that folder on your PATH: a marked block in `.zshrc`, `.bashrc`,
-`.bash_profile` or `.profile` and a fish `conf.d` file on macOS and Linux, your user `Path` on
-Windows. No password is needed, and `stackyard shims off` undoes it. `stackyard shell` opens one
-terminal with the commands instead, without touching your PATH. `stackyard which` shows which version
-each command runs in the current folder, and why.
-
-The commands lead back to a copy of the `stackyard` program in the same folder (which also puts
-`stackyard` itself on your PATH), and it runs the real one from the runtime's folder.
-Composer is downloaded from getcomposer.org the first time you run `composer`, checked against its
-published SHA-256. `mysql` connects to whichever of MySQL and MariaDB is running. `psql`, `pg_dump`
-and `redis-cli` come from Stackyard's PostgreSQL and Redis, and `psql` and `pg_dump` connect as user
-`postgres` without a password.
-
-## Services
-
-Services install into `services/<id>/<line>`, keep their data in `data/<id>` (kept when a service
-is removed, so reinstalling brings databases back) and their config in `config/<id>`. Everything
-listens on `127.0.0.1` only. MySQL and MariaDB start with user `root` and PostgreSQL with user
-`postgres`, all without a password.
-
-| Service | Ports | Source | Checked against |
-| --- | --- | --- | --- |
-| Caddy 2 (web server) | 80, 443 (8080, 8443 when taken) | Official GitHub releases | Caddy's SHA-512 list |
-| MySQL 8.4 | 3306 | Oracle's official downloads | SHA-256 from `.github/workflows/mysql-manifest.yml`, which first checks Oracle's GnuPG signature |
-| MariaDB 11.8 (Windows, Linux) | 3306 | MariaDB Foundation downloads | The Foundation's SHA-256 |
-| PostgreSQL 18 | 5432 | Built from the official source (macOS, Linux); the official EDB binaries without pgAdmin (Windows) | SHA-256 from `.github/workflows/postgres-builds.yml`, which first checks postgresql.org's SHA-256 |
-| Redis 8 (macOS, Linux) | 6379 | Built from the official source | SHA-256 from `.github/workflows/redis-builds.yml`, which first checks Redis's published SHA-256 |
-| Mailpit (mail catcher) | 1025, 8025 | Official GitHub releases | GitHub's SHA-256 digest |
-| Meilisearch 1 (search engine) | 7700 | Official GitHub releases | GitHub's SHA-256 digest |
-
-Each service is a module: MySQL and Caddy are on by default, MariaDB, PostgreSQL, Redis, Mailpit
-and Meilisearch can be switched on in Settings. `STACKYARD_MYSQL_MANIFEST`,
-`STACKYARD_POSTGRES_MANIFEST` and `STACKYARD_REDIS_MANIFEST` point those services at another
-manifest, and
-`STACKYARD_GITHUB_TOKEN` raises the GitHub API limit for Caddy, Mailpit and Meilisearch lookups.
-
-Meilisearch runs in development mode with no master key, so apps connect to
-`http://127.0.0.1:7700` without one and the address opens its search preview page. Its indexes
-live in `data/meilisearch` and are carried over when Stackyard updates it to a newer 1.x release.
-
-PostgreSQL keeps its databases in `data/postgres/db`, created the first time it starts with the C
-locale and UTF-8, so sorting is the same on every system. It only accepts connections over TCP
-(`127.0.0.1:5432`), never a socket file, so every client connects the same way everywhere. Redis
-saves to `data/redis/dump.rdb` every few minutes while keys change, so queued jobs survive a
-restart. Redis publishes no Windows version, so it is not offered there.
-
-## Logs
-
-The **Logs** screen shows every service's log (the web server, each PHP version, databases,
-Mailpit and the background service) in one place, follows it as it grows, and searches it with
-plain text or a regular expression. Errors and warnings stand out. Logs live in the `logs`
-folder of Stackyard's data folder; one that grows past 5 MB starts over and the previous one is
-kept as `.log.1`. Switch the screen off in Settings if you don't need it.
-
-## Databases
-
-The **Databases** screen works with whichever of MySQL and MariaDB is running: list and create
-databases, page through a table's rows, run SQL (up to 1,000 rows are shown, and NULL is told
-apart from an empty value), and back up or restore. Backups are gzipped SQL files in
-`backups/<database>` inside Stackyard's data folder, made with the server's own dump tool, so they
-load into any MySQL or MariaDB. A backup can replace the tables of its database or be restored as
-a copy under another name. Dropping a database asks you to type its name; `mysql`, `sys` and the
-other system databases can't be dropped from here. Switch the screen off in Settings if you use
-another database tool.
-
-## Updates
-
-Stackyard checks for a newer version when it starts and twice a day while it runs (switch the
-**Updates** module off in Settings to stop that). It never installs on its own: **Settings** shows
-the new version and its notes, and **Install and restart** downloads it, stops the running
-services, installs it and starts them again in the new version. Every update is signed with a
-key only the maintainer holds, and the app refuses one whose signature doesn't match the public
-key built into it.
-
-The public key is in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`; the private key
-lives only in the `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository
-secrets, and the Installers workflow checks that the two match. To publish an update, raise the
-version, then either push a `v*` tag or run the Installers workflow on master with "release" ticked,
-and publish the draft release it makes (with "Set as the latest release" ticked). The app downloads updates from
-`https://github.com/<repo>/releases/latest`, so that repository must be public; set the
-`STACKYARD_RELEASES_REPO` variable (and a `STACKYARD_RELEASES_TOKEN` secret that can write to it)
-to publish releases somewhere other than this repository.
-
-## Disk space
-
-**Settings → Disk space** shows how much Stackyard's own folder takes (runtimes, services, their
-data, logs, downloads) and what can go. Safe items are picked for you: downloads and folders left
-by interrupted installs, previous logs, versions Stackyard no longer offers. Others are yours to
-pick: emptying the current logs, runtime versions that are not the default and that no site uses
-or pins, and the kept data of a service you removed, which asks once more because it can't be
-undone. Nothing is read until you ask, and project folders are never counted or touched.
-
-## AI coding tools (MCP)
-
-`stackyard mcp` is an [MCP](https://modelcontextprotocol.io) server, so Claude Code, Cursor,
-Claude Desktop, Windsurf and other AI tools can see and manage your local stack. Switch on the
-**MCP server** module in Settings (or `stackyard modules on mcp`), then add it to your AI tool;
-the MCP server screen and `stackyard mcp setup` show the exact line, for example:
+Switch on the **MCP server** module in Settings, then add Stackyard to your tool, for example:
 
 ```sh
 claude mcp add --scope user stackyard -- stackyard mcp
 ```
 
-AI tools can always look: `list_sites`, `list_services`, `list_runtimes` and `read_logs`. Each
-action is off until you allow it on the MCP server screen or with `stackyard mcp allow <tool>`:
-`start_service`, `stop_service`, `create_site` and `set_site_runtime`. Deleting sites, databases
-or files is never offered. Every call is recorded with the AI tool's name; see it on the MCP
-server screen or with `stackyard mcp log`. An AI tool that is already connected sees allowed
-tools appear without reconnecting.
+AI tools can always list sites, services and runtimes and read logs. Starting and stopping
+services, creating sites and changing runtimes stay off until you allow them.
+See [docs/mcp.md](docs/mcp.md).
 
-## Scheduled tasks
+## Documentation
 
-The **Task scheduler** module (off by default; switch it on in Settings or with
-`stackyard modules on scheduler`) runs commands on a schedule, such as Laravel's
-`php artisan schedule:run` every minute or a nightly backup script. Each task runs with the
-system shell in its project folder, with Stackyard's terminal commands first on `PATH`, so `php`,
-`node` and `composer` are the versions that project uses.
+| Guide | What's in it |
+| --- | --- |
+| [Sites, local domains and HTTPS](docs/sites.md) | Framework detection, parked folders, domain endings, what setup changes on each OS |
+| [Runtimes and the terminal](docs/runtimes.md) | Where versions come from, PATH shims, Stackyard Shell, Composer |
+| [Services](docs/services.md) | Every service in detail, the Databases and Logs screens, disk cleanup, background mode |
+| [Scheduled tasks](docs/scheduler.md) | Schedules, how tasks run, where output goes |
+| [AI coding tools (MCP)](docs/mcp.md) | Available tools, permissions, the call log |
+| [Command line](docs/cli.md) | Every `stackyard` command, grouped by task |
+| [Updates and releases](docs/updates.md) | How updates are signed and how to publish one |
 
-Schedules use crontab's five fields, `minute hour day month weekday`: `*/5 * * * *` is every five
-minutes, `30 2 * * *` every day at 02:30, `0 9 * * mon-fri` weekdays at 09:00. `@hourly`,
-`@daily`, `@weekly`, `@monthly` and `@yearly` work too. Times are this computer's local time.
+## Build from source
 
-Tasks run while Stackyard runs: the app (also when only its tray icon is left) or
-`stackyard start` in the background. A task still running when it is due again is not started
-twice, and a minute missed while the computer slept is not caught up. Each task's output goes to
-`logs/task-<id>.log`; the Scheduler screen shows it, and how the last run went.
-
-## Develop
-
-Requirements: Rust (stable), Node.js 22, and on Linux the WebKitGTK libraries:
+You need Rust (stable) and Node.js 22. On Linux, also the WebKitGTK libraries
+(see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ```sh
-sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev
-```
-
-```sh
+git clone https://github.com/ljamov/Stackyard.git
+cd Stackyard
 npm install
-npm run tauri dev          # run the desktop app with hot reload
-npm run dev                # interface only, in a browser, with sample data
+npm run tauri dev          # the desktop app, with hot reload
+npm run dev                # just the interface, in a browser, with sample data
 cargo test --workspace     # Rust tests
-cargo test -p stackyard-core -- --ignored live_   # real downloads, and services started for real
-cargo run -p stackyard-cli -- sites list
 ```
 
-## CLI
+The code is a Rust workspace: `crates/stackyard-core` holds the logic shared by the app, the CLI
+and the MCP server, `crates/stackyard-cli` is the `stackyard` command, `src-tauri` is the Tauri 2
+shell and `src` is the React + TypeScript interface. Settings and sites live as TOML in your OS
+data folder; set `STACKYARD_HOME` to use another one.
 
-```sh
-stackyard sites add myapp --path ~/Code/myapp   # PHP, Node or static, detected
-stackyard sites add legacy --php 7.4 --path ~/Code/legacy
-stackyard sites add shop --node 22 --port 5173
-stackyard sites park ~/Code           # every project folder in ~/Code becomes a site
-stackyard sites list
-stackyard sites remove shop
-stackyard system setup                # local domains and HTTPS, asks for your password once
-stackyard start caddy                 # run the web server in the background (`stackyard start` = everything)
-stackyard status                      # what is running, and where
-stackyard logs                        # every log there is
-stackyard logs caddy -n 100 -f        # the end of a service's log, then new lines as they come
-stackyard stop                        # stop everything (`stackyard stop mysql` for one)
-stackyard up                          # run the web server (and e.g. `stackyard up mysql`) until Ctrl+C
-stackyard runtimes                    # versions, with installed and default marked
-stackyard runtimes install php 8.4
-stackyard runtimes default php 8.4
-stackyard runtimes uninstall node 20
-stackyard services                    # services, with installed and switched-off marked
-stackyard services install caddy
-stackyard services uninstall mailpit  # keeps its data
-stackyard tld            # show the domain ending
-stackyard tld .test      # change it
-stackyard shims on       # php, node, composer… with each project's versions, in every terminal
-stackyard shell          # or just in this terminal
-stackyard use php 8.3    # pin a version for this project
-stackyard which          # which version each command runs here, and why
-stackyard db                          # databases on the running MySQL or MariaDB
-stackyard db create shop
-stackyard db query shop "SELECT * FROM orders LIMIT 5"
-stackyard db backup shop              # backups/shop/shop-<date>-<time>.sql.gz
-stackyard db restore shop             # the newest backup (or name a file; --into another database)
-stackyard db drop shop --yes
-psql -c "create database shop"        # PostgreSQL, once it runs (`stackyard start postgres`)
-pg_dump shop > shop.sql
-redis-cli ping                        # Redis (`stackyard start redis`)
-stackyard cleanup                     # what takes space, and what can go
-stackyard cleanup --recommended       # remove what is safe to remove
-stackyard cleanup runtime-php-8.2     # or name items; service data also needs --yes
-stackyard mcp setup      # how to add Stackyard to Claude Code, Cursor and others
-stackyard mcp tools      # what AI tools may do
-stackyard mcp allow start_service   # or `allow all`; `deny` turns it off again
-stackyard mcp log        # what AI tools did
-stackyard tasks add "Laravel scheduler" --run "php artisan schedule:run" --every "* * * * *"
-stackyard tasks          # tasks, with their next and last runs
-stackyard tasks run "Laravel scheduler"   # run one now, here in the terminal
-stackyard tasks off "Laravel scheduler"   # `on` switches it back on; `remove` deletes it
-stackyard tasks check "0 9 * * mon-fri"   # when a schedule would run
-```
+## Roadmap
+
+- [x] PHP and Node.js, per project
+- [x] Caddy with local HTTPS, parked folders, framework detection
+- [x] MySQL, MariaDB, PostgreSQL, Redis, Meilisearch, Mailpit
+- [x] Databases screen, logs, task scheduler, disk cleanup
+- [x] MCP server for AI coding tools
+- [x] Signed auto-updates
+- [ ] Python, Go and Java runtimes
+- [ ] Code-signed installers for Windows and macOS
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for
+the layout, the checks CI runs and the few ground rules.
 
 ## License
 
-Stackyard is MIT licensed (see `LICENSE`). It bundles the Space Grotesk, IBM Plex Sans and
-JetBrains Mono fonts, which are under the SIL Open Font License 1.1. Runtimes and services that
-Stackyard downloads keep their own licenses.
+Stackyard is [MIT licensed](LICENSE). It bundles the Space Grotesk, IBM Plex Sans and JetBrains Mono
+fonts under the SIL Open Font License 1.1. Runtimes and services that Stackyard downloads keep their
+own licenses.
