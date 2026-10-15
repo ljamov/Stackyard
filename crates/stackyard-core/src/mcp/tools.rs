@@ -410,10 +410,8 @@ fn list_runtimes(ctx: &Ctx) -> Result<Value, String> {
                 .map(|i| json!({ "version": i.version, "release": i.release }))
                 .collect();
             let not_installed: Vec<&str> = family
-                .versions
-                .iter()
+                .versions_on(manager.platform().os)
                 .filter(|v| manager.get(family.kind, v).is_none())
-                .copied()
                 .collect();
             json!({
                 "kind": family.kind.id(),
