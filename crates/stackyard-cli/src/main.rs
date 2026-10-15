@@ -520,6 +520,16 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             None => println!("Nothing is running."),
             Some(client) if services.is_empty() => {
                 client.send(Request::StopAll)?;
+                // The background service quits too; wait until it is gone
+                // so whatever runs next starts afresh.
+                if client.owner != Owner::App {
+                    for _ in 0..150 {
+                        if control::find(&paths::home()).is_none() {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                }
                 println!("Stopped everything.");
             }
             Some(client) => print_status(&client, client.send(Request::Stop { ids: services })?),
@@ -1081,8 +1091,11 @@ fn daemon() -> stackyard_core::Result<()> {
     let _ = quit_rx.recv();
     // Let the answer to `stop` or `hand-over` reach the caller.
     std::thread::sleep(Duration::from_millis(300));
-    drop(server);
+    // Stop everything before letting go of the control channel, so a
+    // `stackyard start` right after starts afresh rather than reaching
+    // this process on its way out.
     engine.shutdown();
+    drop(server);
     Ok(())
 }
 
@@ -1096,10 +1109,18 @@ fn serve_control(
 ) -> stackyard_core::Result<ControlServer> {
     let engine = engine.clone();
     let quit = Mutex::new(quit);
+    let stopping = std::sync::atomic::AtomicBool::new(false);
     ControlServer::start(home, owner, move |request| {
+        use std::sync::atomic::Ordering;
+        if stopping.load(Ordering::SeqCst) {
+            return Response::Failed {
+                message: "Stackyard is stopping; try again in a moment".into(),
+            };
+        }
         let ends = matches!(request, Request::StopAll | Request::HandOver);
         let response = engine.handle(request);
         if ends {
+            stopping.store(true, Ordering::SeqCst);
             let _ = quit.lock().unwrap_or_else(|e| e.into_inner()).send(());
         }
         response
