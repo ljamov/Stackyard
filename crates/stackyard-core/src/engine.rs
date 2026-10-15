@@ -10,6 +10,7 @@ use crate::catalog::{self, SERVICES};
 use crate::control::{Request, Response, ServiceStatus};
 use crate::dns::{self, DnsServer};
 use crate::platform::Platform;
+use crate::scheduler::Scheduler;
 use crate::services::ServiceManager;
 use crate::settings::Settings;
 use crate::supervisor::{ProcessState, Supervisor};
@@ -20,13 +21,16 @@ pub struct Engine {
     supervisor: Supervisor,
     manager: ServiceManager,
     dns: Mutex<Option<DnsServer>>,
+    /// Runs scheduled tasks; absent in tests that build an engine by hand.
+    scheduler: Option<Scheduler>,
 }
 
 impl Engine {
-    /// Starts the local DNS server where local names are routed to it;
-    /// services start only when asked.
+    /// Starts the local DNS server where local names are routed to it,
+    /// and the task scheduler; services start only when asked.
     pub fn new(home: &Path) -> Self {
-        let engine = Self::without_dns(home);
+        let mut engine = Self::without_dns(home);
+        engine.scheduler = Some(Scheduler::start(home));
         *engine.dns.lock().unwrap_or_else(|e| e.into_inner()) = start_dns(&engine.manager);
         engine
     }
@@ -36,6 +40,7 @@ impl Engine {
             supervisor: Supervisor::new(home.join("logs")),
             manager: ServiceManager::new(home),
             dns: Mutex::new(None),
+            scheduler: None,
         }
     }
 
@@ -119,6 +124,21 @@ impl Engine {
 
     pub fn stop_all(&self) {
         self.supervisor.stop_all();
+    }
+
+    /// Before quitting: stops running tasks and every service.
+    pub fn shutdown(&self) {
+        if let Some(scheduler) = &self.scheduler {
+            scheduler.shutdown();
+        }
+        self.stop_all();
+    }
+
+    /// The task scheduler, for "Run now" and "Stop".
+    pub fn scheduler(&self) -> Result<&Scheduler> {
+        self.scheduler
+            .as_ref()
+            .ok_or_else(|| Error::Task("the scheduler is not running".into()))
     }
 
     /// The services that are running (or restarting), by id.

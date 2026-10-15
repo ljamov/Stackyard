@@ -53,10 +53,19 @@ pub fn name(id: &str) -> String {
     }
 }
 
-/// Every log there is, services first, then PHP versions, then the rest.
+/// Every log there is: services first, then PHP versions, then scheduled
+/// tasks, then the background service.
 pub fn list(home: &Path) -> Vec<LogFile> {
     let Ok(entries) = std::fs::read_dir(home.join("logs")) else {
         return Vec::new();
+    };
+    let tasks = crate::scheduler::list(home).unwrap_or_default();
+    let task_name = |id: &str| {
+        let task = id.strip_prefix("task-")?;
+        tasks
+            .iter()
+            .find(|t| t.id == task)
+            .map(|t| format!("Task: {}", t.name))
     };
     let mut logs: Vec<LogFile> = entries
         .flatten()
@@ -72,7 +81,7 @@ pub fn list(home: &Path) -> Vec<LogFile> {
                 .map_or(0, |d| d.as_millis() as u64);
             Some(LogFile {
                 id: id.to_string(),
-                name: name(id),
+                name: task_name(id).unwrap_or_else(|| name(id)),
                 size: meta.len(),
                 modified,
             })
@@ -90,10 +99,15 @@ pub fn list(home: &Path) -> Vec<LogFile> {
                     .map(|n| u32::MAX - n.parse::<u32>().unwrap_or(0))
                     .collect(),
             ),
-            None => (SERVICES.len() + 1, Vec::new()),
+            None if id.starts_with("task-") => (SERVICES.len() + 1, Vec::new()),
+            None => (SERVICES.len() + 2, Vec::new()),
         }
     };
-    logs.sort_by_key(|log| rank(&log.id));
+    logs.sort_by(|a, b| {
+        rank(&a.id)
+            .cmp(&rank(&b.id))
+            .then_with(|| a.name.cmp(&b.name))
+    });
     logs
 }
 
@@ -196,8 +210,27 @@ mod tests {
         std::fs::write(home.join("logs/caddy.log.1"), "old").unwrap();
         let ids: Vec<String> = list(&home).into_iter().map(|l| l.id).collect();
         assert_eq!(ids, ["caddy", "mailpit", "php-8.4", "php-8.2", "daemon"]);
+
+        let task = crate::scheduler::add(
+            &home,
+            crate::scheduler::TaskInput {
+                name: "Backup".into(),
+                command: "true".into(),
+                folder: home.clone(),
+                schedule: "@daily".into(),
+                enabled: true,
+            },
+        )
+        .unwrap();
+        append(&home, &format!("task-{}", task.id), "done\n");
+        append(&home, "task-zzzzzzzz", "a removed task\n");
+        let logs = list(&home);
+        assert_eq!(logs[4].id, format!("task-{}", task.id));
+        assert_eq!(logs[4].name, "Task: Backup");
+        assert_eq!(logs[5].name, "task-zzzzzzzz");
+        assert_eq!(logs[6].id, "daemon");
         assert_eq!(list(&home)[2].name, "PHP 8.4");
-        assert_eq!(list(&home)[4].name, "Background service");
+        assert_eq!(list(&home)[6].name, "Background service");
         assert_eq!(list(&home)[0].size, 2);
     }
 

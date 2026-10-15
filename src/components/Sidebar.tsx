@@ -8,6 +8,7 @@ export const SCREENS = [
   "Runtimes",
   "Logs",
   "Databases",
+  "Scheduler",
   "AI tools",
   "MCP server",
   "Settings",
@@ -19,6 +20,7 @@ export type Screen = (typeof SCREENS)[number];
 const SCREEN_MODULE: Partial<Record<Screen, string>> = {
   Logs: "logs",
   Databases: "databases",
+  Scheduler: "scheduler",
   "AI tools": "mcp",
   "MCP server": "mcp",
 };

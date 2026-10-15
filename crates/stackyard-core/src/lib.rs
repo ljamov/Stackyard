@@ -19,6 +19,7 @@ pub mod paths;
 pub mod platform;
 pub mod ports;
 pub mod runtimes;
+pub mod scheduler;
 pub mod services;
 pub mod settings;
 pub mod shell;
