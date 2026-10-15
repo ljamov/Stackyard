@@ -151,9 +151,9 @@ pub const MODULES: &[ModuleDef] = &[
         "databases",
         "Databases screen",
         Feature,
-        "Browse tables, run queries, back up and restore",
-        false,
-        false,
+        "Browse tables, run queries, back up and restore MySQL and MariaDB",
+        true,
+        true,
     ),
     module(
         "logs",
@@ -167,9 +167,9 @@ pub const MODULES: &[ModuleDef] = &[
         "scheduler",
         "Task scheduler",
         Feature,
-        "Cron-style jobs for scripts and commands",
+        "Run commands on a schedule in a project folder, like cron",
         false,
-        false,
+        true,
     ),
 ];
 

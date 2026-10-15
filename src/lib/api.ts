@@ -161,6 +161,44 @@ export type Module = {
   enabled: boolean;
 };
 
+export type DbServer = { id: string; name: string; version: string | null };
+export type DbServerStatus = { server: DbServer | null; problem: string | null };
+export type Database = { name: string; tables: number; size: number };
+export type DbTable = { name: string; rows: number; size: number; kind: string };
+export type ResultSet = { columns: string[]; rows: (string | null)[][]; truncated: boolean };
+export type DbBackup = { database: string; file: string; size: number; created: number };
+
+export type TaskInput = {
+  name: string;
+  command: string;
+  folder: string;
+  schedule: string;
+  enabled: boolean;
+};
+
+export type TaskRun = {
+  /** Milliseconds since 1970. */
+  started: number;
+  took_ms: number;
+  outcome: "succeeded" | "failed" | "stopped" | "could-not-start";
+  exit_code: number | null;
+  message: string | null;
+  by_hand: boolean;
+};
+
+export type Task = TaskInput & {
+  id: string;
+  /** e.g. "Every day at 02:30"; null for schedules shown as written. */
+  description: string | null;
+  next_run: number | null;
+  last: TaskRun | null;
+  running_since: number | null;
+  /** Something that stops it from running, e.g. a folder that is gone. */
+  problem: string | null;
+};
+
+export type SchedulePreview = { description: string | null; runs: number[] };
+
 export type TldInfo = { tld: string; warning: string | null };
 
 export type NewSite = { name: string; path: string; runtime: string; https: boolean };
@@ -201,8 +239,29 @@ export interface Api {
   listLogs(): Promise<LogFile[]>;
   /** The last `lines` lines when `from` is null, else what was written since `from`. */
   readLog(id: string, from: number | null, lines: number): Promise<LogChunk>;
+  dbServer(): Promise<DbServerStatus>;
+  dbList(): Promise<Database[]>;
+  dbCreate(name: string): Promise<Database[]>;
+  dbDrop(name: string): Promise<Database[]>;
+  dbTables(database: string): Promise<DbTable[]>;
+  dbBrowse(database: string, table: string, offset: number, limit: number): Promise<ResultSet>;
+  dbQuery(database: string | null, sql: string): Promise<ResultSet[]>;
+  dbBackup(database: string): Promise<DbBackup[]>;
+  dbBackups(): Promise<DbBackup[]>;
+  dbRestore(database: string, file: string, into: string | null): Promise<Database[]>;
+  dbRemoveBackup(database: string, file: string): Promise<DbBackup[]>;
   mcpStatus(): Promise<McpStatus>;
   setMcpTool(name: string, allowed: boolean): Promise<McpStatus>;
+  listTasks(): Promise<Task[]>;
+  addTask(task: TaskInput): Promise<Task[]>;
+  updateTask(id: string, task: TaskInput): Promise<Task[]>;
+  setTaskEnabled(id: string, enabled: boolean): Promise<Task[]>;
+  removeTask(id: string): Promise<Task[]>;
+  runTask(id: string): Promise<Task[]>;
+  stopTask(id: string): Promise<Task[]>;
+  /** Rejects with why when the schedule is not valid. */
+  previewSchedule(schedule: string): Promise<SchedulePreview>;
+  taskLog(id: string): Promise<string[]>;
   cleanupScan(): Promise<CleanupReport>;
   cleanupRun(ids: string[]): Promise<CleanupOutcome>;
 }
@@ -238,10 +297,30 @@ const tauriApi: Api = {
   onSitesChanged: (handler) => listen("sites-changed", () => handler()),
   listLogs: () => invoke("list_logs"),
   readLog: (id, from, lines) => invoke("read_log", { id, from, lines }),
+  dbServer: () => invoke("db_server"),
+  dbList: () => invoke("db_list"),
+  dbCreate: (name) => invoke("db_create", { name }),
+  dbDrop: (name) => invoke("db_drop", { name }),
+  dbTables: (database) => invoke("db_tables", { database }),
+  dbBrowse: (database, table, offset, limit) => invoke("db_browse", { database, table, offset, limit }),
+  dbQuery: (database, sql) => invoke("db_query", { database, sql }),
+  dbBackup: (database) => invoke("db_backup", { database }),
+  dbBackups: () => invoke("db_backups"),
+  dbRestore: (database, file, into) => invoke("db_restore", { database, file, into }),
+  dbRemoveBackup: (database, file) => invoke("db_remove_backup", { database, file }),
   cleanupScan: () => invoke("cleanup_scan"),
   cleanupRun: (ids) => invoke("cleanup_run", { ids }),
   mcpStatus: () => invoke("mcp_status"),
   setMcpTool: (name, allowed) => invoke("set_mcp_tool", { name, allowed }),
+  listTasks: () => invoke("list_tasks"),
+  addTask: (task) => invoke("add_task", { task }),
+  updateTask: (id, task) => invoke("update_task", { id, task }),
+  setTaskEnabled: (id, enabled) => invoke("set_task_enabled", { id, enabled }),
+  removeTask: (id) => invoke("remove_task", { id }),
+  runTask: (id) => invoke("run_task", { id }),
+  stopTask: (id) => invoke("stop_task", { id }),
+  previewSchedule: (schedule) => invoke("preview_schedule", { schedule }),
+  taskLog: (id) => invoke("task_log", { id }),
 };
 
 function browserApi(): Api {
@@ -318,6 +397,58 @@ function browserApi(): Api {
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
     mod("logs", "Log viewer", "feature", "Live logs from every service, with search", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
+    mod("databases", "Databases screen", "feature", "Browse tables, run queries, back up and restore MySQL and MariaDB", true, true),
+    mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),
+  ];
+  let dbs: Database[] = [
+    { name: "blog", tables: 3, size: 360448 },
+    { name: "shop", tables: 3, size: 1769472 },
+  ];
+  let backups: DbBackup[] = [
+    { database: "shop", file: "shop-20261014-020000.sql.gz", size: 412377, created: Date.now() - 22 * 3600_000 },
+  ];
+  // A rough stand-in for the core's schedule reading, enough for previews.
+  const samplePreview = (schedule: string): SchedulePreview => {
+    const s = schedule.trim().replace(/\s+/g, " ");
+    const known: Record<string, [string, number]> = {
+      "* * * * *": ["Every minute", 1],
+      "*/5 * * * *": ["Every 5 minutes", 5],
+      "*/15 * * * *": ["Every 15 minutes", 15],
+      "0 * * * *": ["Every hour, on the hour", 60],
+      "0 0 * * *": ["Every day at 00:00", 1440],
+      "@daily": ["Every day at 00:00", 1440],
+      "@hourly": ["Every hour, on the hour", 60],
+      "30 2 * * *": ["Every day at 02:30", 1440],
+    };
+    if (s.split(" ").length !== 5 && !s.startsWith("@"))
+      throw "a schedule has five parts: minute hour day month weekday, e.g. `*/5 * * * *`";
+    const [description, every] = known[s] ?? [null, 60];
+    const start = Math.ceil(Date.now() / 60_000) * 60_000;
+    const first = every === 1 ? 0 : every;
+    return { description, runs: [0, 1, 2].map((i) => start + (first + i * every) * 60_000) };
+  };
+  const task = (id: string, input: TaskInput, preview: SchedulePreview, last: TaskRun | null): Task => ({
+    ...input,
+    id,
+    description: preview.description,
+    next_run: input.enabled ? preview.runs[0] : null,
+    last,
+    running_since: null,
+    problem: null,
+  });
+  let tasks: Task[] = [
+    task(
+      "k3v9xq2m",
+      { name: "Laravel scheduler (blog)", command: "php artisan schedule:run", folder: "~/Code/blog", schedule: "* * * * *", enabled: true },
+      samplePreview("* * * * *"),
+      { started: Date.now() - 40_000, took_ms: 420, outcome: "succeeded", exit_code: 0, message: null, by_hand: false },
+    ),
+    task(
+      "p7c2wd8n",
+      { name: "Nightly backup", command: "./scripts/backup.sh", folder: "~/Code/shop", schedule: "30 2 * * *", enabled: true },
+      samplePreview("30 2 * * *"),
+      { started: Date.now() - 20 * 3600_000, took_ms: 8300, outcome: "failed", exit_code: 1, message: null, by_hand: false },
+    ),
   ];
   let tld = ".stack";
   const sample = (name: string, runtime: string, framework: string | null, parked: boolean, problem: string | null = null): Site => ({
@@ -531,6 +662,58 @@ function browserApi(): Api {
       const lines = logTicks[id] % 2 ? [`${at()} [info] GET https://shop.stack/api/cart 200 ${logTicks[id]}ms`] : [];
       return { lines, offset: from + lines.length, reset: false };
     },
+    dbServer: async () => ({ server: { id: "mysql", name: "MySQL 8.4", version: "8.4.6" }, problem: null }),
+    dbList: async () => dbs,
+    dbCreate: async (name) => {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) throw "use letters, digits, _ and - for database names (up to 64)";
+      if (dbs.some((d) => d.name === name)) throw `Can't create database '${name}'; database exists`;
+      dbs = [...dbs, { name, tables: 0, size: 0 }].sort((a, b) => a.name.localeCompare(b.name));
+      return dbs;
+    },
+    dbDrop: async (name) => {
+      dbs = dbs.filter((d) => d.name !== name);
+      return dbs;
+    },
+    dbTables: async (database) =>
+      database === "shop"
+        ? [
+            { name: "customers", rows: 1250, size: 196608, kind: "BASE TABLE" },
+            { name: "orders", rows: 8730, size: 1572864, kind: "BASE TABLE" },
+            { name: "order_totals", rows: 0, size: 0, kind: "VIEW" },
+          ]
+        : database === "blog"
+          ? [
+              { name: "comments", rows: 312, size: 81920, kind: "BASE TABLE" },
+              { name: "posts", rows: 48, size: 262144, kind: "BASE TABLE" },
+              { name: "users", rows: 6, size: 16384, kind: "BASE TABLE" },
+            ]
+          : [],
+    dbBrowse: async (_db, table, offset, limit) => ({
+      columns: ["id", "name", "email", "created_at", "note"],
+      rows: Array.from({ length: Math.min(limit, 42) }, (_, i) => [
+        String(offset + i + 1),
+        `${table === "orders" ? "Order" : "Customer"} ${offset + i + 1}`,
+        `person${offset + i + 1}@example.com`,
+        "2026-10-14 22:05:09",
+        i % 3 === 0 ? null : "Leaves the parcel with the neighbour when nobody is home",
+      ]),
+      truncated: false,
+    }),
+    dbQuery: async (_db, sql) => {
+      if (!/select/i.test(sql)) return [];
+      if (/selec\b/i.test(sql)) throw "You have an error in your SQL syntax";
+      return [{ columns: ["id", "total"], rows: [["1", "9.99"], ["2", null]], truncated: false }];
+    },
+    dbBackup: async (database) => {
+      backups = [{ database, file: `${database}-20261015-001500.sql.gz`, size: 48213, created: Date.now() }, ...backups];
+      return backups;
+    },
+    dbBackups: async () => backups,
+    dbRestore: async () => dbs,
+    dbRemoveBackup: async (database, file) => {
+      backups = backups.filter((b) => !(b.database === database && b.file === file));
+      return backups;
+    },
     cleanupScan: async () => {
       await new Promise((r) => setTimeout(r, 400));
       const items = cleanup;
@@ -555,6 +738,57 @@ function browserApi(): Api {
     setMcpTool: async (name, allowed) => {
       mcp = { ...mcp, tools: mcp.tools.map((t) => (t.name === name && t.action ? { ...t, allowed } : t)) };
       return mcp;
+    },
+    listTasks: async () => tasks,
+    addTask: async (input) => {
+      const preview = samplePreview(input.schedule);
+      if (!input.name.trim()) throw "give the task a name";
+      if (!input.command.trim()) throw "enter the command to run";
+      if (tasks.some((t) => t.name.toLowerCase() === input.name.trim().toLowerCase()))
+        throw `a task called ${input.name} already exists`;
+      const id = Math.random().toString(36).slice(2, 10).padEnd(8, "x");
+      tasks = [...tasks, task(id, { ...input, name: input.name.trim() }, preview, null)];
+      return tasks;
+    },
+    updateTask: async (id, input) => {
+      const preview = samplePreview(input.schedule);
+      tasks = tasks.map((t) => (t.id === id ? task(id, input, preview, t.last) : t));
+      return tasks;
+    },
+    setTaskEnabled: async (id, enabled) => {
+      tasks = tasks.map((t) => (t.id === id ? { ...t, enabled, next_run: enabled ? t.next_run ?? Date.now() + 60_000 : null } : t));
+      return tasks;
+    },
+    removeTask: async (id) => {
+      tasks = tasks.filter((t) => t.id !== id);
+      return tasks;
+    },
+    runTask: async (id) => {
+      const started = Date.now();
+      tasks = tasks.map((t) => (t.id === id ? { ...t, running_since: started } : t));
+      setTimeout(() => {
+        tasks = tasks.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                running_since: null,
+                last: { started, took_ms: 1200, outcome: "succeeded", exit_code: 0, message: null, by_hand: true },
+              }
+            : t,
+        );
+      }, 1500);
+      return tasks;
+    },
+    stopTask: async (id) => {
+      tasks = tasks.map((t) => (t.id === id ? { ...t, running_since: null } : t));
+      return tasks;
+    },
+    previewSchedule: async (schedule) => samplePreview(schedule),
+    taskLog: async (id) => {
+      const t = tasks.find((x) => x.id === id);
+      return t?.last
+        ? [`--- 2026-10-14 22:05 ${t.name} started on schedule: ${t.command} ---`, "INFO  Running scheduled tasks.", "--- finished with exit code 0 after 0.4 s ---"]
+        : [];
     },
   };
 }

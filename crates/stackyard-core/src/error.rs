@@ -79,6 +79,10 @@ pub enum Error {
     #[error("{0}")]
     Mcp(String),
     #[error("{0}")]
+    Database(String),
+    #[error("{0}")]
+    Task(String),
+    #[error("{0}")]
     Cleanup(String),
 }
 

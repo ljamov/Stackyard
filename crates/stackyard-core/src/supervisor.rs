@@ -187,13 +187,16 @@ impl Supervisor {
 }
 
 /// The log file of a process Stackyard runs: a service such as `caddy`,
-/// `php-8.4` or `daemon`. Other names are refused, which also keeps the
-/// path inside the logs folder.
+/// `php-8.4`, `daemon` or a scheduled task's `task-<id>`. Other names are
+/// refused, which also keeps the path inside the logs folder.
 pub fn log_file(home: &Path, id: &str) -> Result<PathBuf> {
     let php = |v: &str| crate::catalog::runtime(crate::catalog::RuntimeKind::Php).offers(v);
     let known = crate::catalog::service(id).is_some()
         || id == "daemon"
-        || id.strip_prefix("php-").is_some_and(php);
+        || id.strip_prefix("php-").is_some_and(php)
+        || id
+            .strip_prefix("task-")
+            .is_some_and(crate::scheduler::is_id);
     if !known {
         return Err(Error::UnknownProcess(id.into()));
     }
