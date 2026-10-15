@@ -21,7 +21,10 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--body); }
+html, body { height: 100%; }
+/* The window itself is transparent; the frame draws the rounded app. */
+body { margin: 0; background: transparent; color: var(--text); font: 14px/1.45 var(--body); overflow: hidden; }
+#root { height: 100%; }
 h1, h2 { margin: 0; font-family: var(--display); letter-spacing: -0.02em; }
 h1 { font-size: 30px; font-weight: 700; }
 h2 { font-size: 18px; font-weight: 600; }
@@ -29,7 +32,25 @@ p { margin: 0; }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.shell { display: flex; flex-wrap: wrap; min-height: 100vh; }
+.frame {
+  height: 100%; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--border-strong); border-radius: 20px;
+}
+.frame.maximized { border-radius: 0; border: 0; }
+.titlebar {
+  flex: none; height: 38px; display: flex; align-items: center; justify-content: space-between;
+  padding-left: 18px; background: var(--sidebar); border-bottom: 1px solid var(--border); user-select: none;
+}
+.titlebar-name { flex: 1; align-self: stretch; display: flex; align-items: center; color: var(--muted); font-size: 12px; letter-spacing: 0.04em; }
+.titlebar-buttons { display: flex; align-self: stretch; }
+.titlebar-btn {
+  width: 46px; border: 0; background: none; color: var(--text-2); cursor: pointer; display: grid; place-items: center;
+}
+.titlebar-btn svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; }
+.titlebar-btn:hover { background: var(--surface-2); color: #fff; }
+.titlebar-btn.close:hover { background: #c42b1c; color: #fff; }
+.shell { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.shell > .sidebar, .shell > .content { overflow-y: auto; }
 .sidebar {
   flex: 1 1 220px; max-width: 100%; background: var(--sidebar); border-right: 1px solid var(--border);
   padding: 20px 14px; display: flex; flex-direction: column; gap: 4px;
@@ -41,7 +62,7 @@ button, input, select { font: inherit; color: inherit; }
 }
 .nav-item:hover { background: var(--surface); }
 .nav-item[aria-current="page"] { background: var(--surface-2); color: #fff; font-weight: 600; }
-.content { flex: 999 1 560px; min-width: 0; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px; }
+.content { flex: 999 1 560px; min-width: 0; min-height: 0; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px; }
 
 .page-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
 .page-header .muted { margin-top: 4px; }
