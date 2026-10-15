@@ -3,6 +3,13 @@ name: Installers
 # Unsigned installers for Windows, macOS and Linux. They run for version
 # tags (and then go on a draft release), by hand, and for pull requests
 # that change how the installers are made.
+#
+# With the TAURI_SIGNING_PRIVATE_KEY secret (and its _PASSWORD) set, each
+# build also signs an update, and the release gets a latest.json that the
+# app checks. Publishing the draft release is what makes the update reach
+# people. Releases go to the STACKYARD_RELEASES_REPO variable's repository
+# (with the STACKYARD_RELEASES_TOKEN secret) when set, else to this one;
+# the app can only download updates from a public repository.
 on:
   push:
     tags: ["v*"]
@@ -19,6 +26,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASES_REPO: ${{ vars.STACKYARD_RELEASES_REPO || github.repository }}
   # Performance budget from the spec: installers stay under 15 MB.
   MAX_INSTALLER_MB: 15
 
@@ -70,14 +78,39 @@ jobs:
           mkdir -p src-tauri/binaries
           cp "target/${{ matrix.target }}/release/stackyard$ext" "src-tauri/binaries/stackyard-${{ matrix.target }}$ext"
       - name: Build the installers
-        run: npx tauri build --target ${{ matrix.target }} --config src-tauri/tauri.release.conf.json
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          configs=(--config src-tauri/tauri.release.conf.json)
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            if [ -z "$(jq -r '.plugins.updater.pubkey // ""' src-tauri/tauri.conf.json)" ]; then
+              echo "::warning::Updates are signed, but tauri.conf.json has no public key, so the app can't check them"
+            fi
+            printf '{"bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"endpoints":["https://github.com/%s/releases/latest/download/latest.json"]}}}' \
+              "$RELEASES_REPO" > "$RUNNER_TEMP/updates.conf.json"
+            configs+=(--config "$RUNNER_TEMP/updates.conf.json")
+          else
+            echo "No signing key: building installers without updates."
+          fi
+          npx tauri build --target ${{ matrix.target }} "${configs[@]}"
       - name: Check the installers
         shell: bash
         run: |
           set -euo pipefail
           bundle="target/${{ matrix.target }}/release/bundle"
           mkdir -p out
-          find "$bundle" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp {} out/ \;
+          find "$bundle" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.sig' \) -exec cp {} out/ \;
+          # The macOS update archive has the same name for both chips.
+          if [ -f "$bundle/macos/Stackyard.app.tar.gz" ]; then
+            version=$(jq -r .version src-tauri/tauri.conf.json)
+            arch=${{ matrix.target == 'aarch64-apple-darwin' && 'aarch64' || 'x64' }}
+            cp "$bundle/macos/Stackyard.app.tar.gz" "out/Stackyard_${version}_${arch}.app.tar.gz"
+            cp "$bundle/macos/Stackyard.app.tar.gz.sig" "out/Stackyard_${version}_${arch}.app.tar.gz.sig"
+            rm -f out/Stackyard.app.tar.gz.sig
+          fi
           ls -l out
           [ -n "$(ls out)" ] || { echo "no installers were made"; exit 1; }
 
@@ -109,6 +142,7 @@ jobs:
             echo "| --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
           for f in out/*; do
+            case "$f" in *.sig) continue ;; esac
             bytes=$(wc -c < "$f")
             mb=$(awk "BEGIN { printf \"%.1f\", $bytes / 1048576 }")
             echo "| $(basename "$f") | $mb MB |" >> "$GITHUB_STEP_SUMMARY"
@@ -135,11 +169,41 @@ jobs:
         with:
           path: out
           merge-multiple: true
+      - name: Describe the update for the app
+        run: |
+          set -euo pipefail
+          base="https://github.com/$RELEASES_REPO/releases/download/$GITHUB_REF_NAME"
+          platforms='{}'
+          add() {
+            [ -f "out/$2.sig" ] || return 0
+            platforms=$(jq --arg k "$1" --arg u "$base/$2" --rawfile s "out/$2.sig" \
+              '.[$k] = {url: $u, signature: ($s | sub("\\s+$"; ""))}' <<<"$platforms")
+          }
+          for f in out/*; do
+            name=$(basename "$f")
+            case "$name" in
+              *_aarch64.app.tar.gz) add darwin-aarch64-app "$name"; add darwin-aarch64 "$name" ;;
+              *_x64.app.tar.gz) add darwin-x86_64-app "$name"; add darwin-x86_64 "$name" ;;
+              *-setup.exe) add windows-x86_64-nsis "$name"; add windows-x86_64 "$name" ;;
+              *.msi) add windows-x86_64-msi "$name" ;;
+              *.deb) add linux-x86_64-deb "$name" ;;
+              *.rpm) add linux-x86_64-rpm "$name" ;;
+              *.AppImage) add linux-x86_64-appimage "$name"; add linux-x86_64 "$name" ;;
+            esac
+          done
+          rm -f out/*.sig
+          if [ "$platforms" = '{}' ]; then
+            echo "No signed updates in this build."
+            exit 0
+          fi
+          jq -n --arg v "${GITHUB_REF_NAME#v}" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson p "$platforms" \
+            '{version: $v, notes: "", pub_date: $d, platforms: $p}' > out/latest.json
+          cat out/latest.json
       - name: Put the installers on a draft release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.STACKYARD_RELEASES_TOKEN || github.token }}
         run: |
           ls -l out
-          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --draft \
+          gh release create "$GITHUB_REF_NAME" out/* --repo "$RELEASES_REPO" --draft \
             --title "Stackyard $GITHUB_REF_NAME" \
             --notes "Unsigned prototype installers. macOS: right-click the app and choose Open the first time. Windows: choose More info, then Run anyway."

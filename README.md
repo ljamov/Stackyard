@@ -175,6 +175,23 @@ a copy under another name. Dropping a database asks you to type its name; `mysql
 other system databases can't be dropped from here. Switch the screen off in Settings if you use
 another database tool.
 
+## Updates
+
+Stackyard checks for a newer version when it starts and twice a day while it runs (switch the
+**Updates** module off in Settings to stop that). It never installs on its own: **Settings** shows
+the new version and its notes, and **Install and restart** downloads it, stops the running
+services, installs it and starts them again in the new version. Every update is signed with a
+key only the maintainer holds, and the app refuses one whose signature doesn't match the public
+key built into it.
+
+To publish an update, set the `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+repository secrets (from `npx tauri signer generate`), put the public key in
+`src-tauri/tauri.conf.json` under `plugins.updater.pubkey`, raise the version, push a `v*` tag, and
+publish the draft release the Installers workflow makes. The app downloads updates from
+`https://github.com/<repo>/releases/latest`, so that repository must be public; set the
+`STACKYARD_RELEASES_REPO` variable (and a `STACKYARD_RELEASES_TOKEN` secret that can write to it)
+to publish releases somewhere other than this repository.
+
 ## Disk space
 
 **Settings → Disk space** shows how much Stackyard's own folder takes (runtimes, services, their
