@@ -18,6 +18,7 @@ use stackyard_core::logs;
 use stackyard_core::mcp;
 use stackyard_core::modules::{ModuleGroup, MODULES};
 use stackyard_core::runtimes::{RuntimeManager, Step};
+use stackyard_core::scheduler::{self, TaskInput, TaskView};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::shell::{path as user_path, shims};
@@ -744,6 +745,97 @@ fn set_mcp_tool(name: String, allowed: bool) -> CmdResult<McpView> {
     mcp_view()
 }
 
+fn task_views() -> CmdResult<Vec<TaskView>> {
+    Settings::load()
+        .map_err(err)?
+        .require_module("scheduler")
+        .map_err(err)?;
+    scheduler::views(&paths::home()).map_err(err)
+}
+
+#[tauri::command]
+fn list_tasks() -> CmdResult<Vec<TaskView>> {
+    task_views()
+}
+
+#[tauri::command]
+fn add_task(task: TaskInput) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    scheduler::add(&paths::home(), task).map_err(err)?;
+    task_views()
+}
+
+#[tauri::command]
+fn update_task(id: String, task: TaskInput) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    scheduler::update(&paths::home(), &id, task).map_err(err)?;
+    task_views()
+}
+
+#[tauri::command]
+fn set_task_enabled(id: String, enabled: bool) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    scheduler::set_enabled(&paths::home(), &id, enabled).map_err(err)?;
+    task_views()
+}
+
+/// Stops the task first if it is running.
+#[tauri::command]
+fn remove_task(id: String, engine: State<'_, Arc<Engine>>) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    if let Ok(scheduler) = engine.scheduler() {
+        if scheduler.running().contains(&id) {
+            let _ = scheduler.stop(&id);
+            for _ in 0..80 {
+                if !scheduler.running().contains(&id) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
+    scheduler::remove(&paths::home(), &id).map_err(err)?;
+    task_views()
+}
+
+#[tauri::command]
+fn run_task(id: String, engine: State<'_, Arc<Engine>>) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    engine.scheduler().map_err(err)?.run_now(&id).map_err(err)?;
+    task_views()
+}
+
+#[tauri::command]
+fn stop_task(id: String, engine: State<'_, Arc<Engine>>) -> CmdResult<Vec<TaskView>> {
+    engine.scheduler().map_err(err)?.stop(&id).map_err(err)?;
+    task_views()
+}
+
+#[derive(Serialize)]
+struct SchedulePreview {
+    description: Option<String>,
+    /// The next few runs, in milliseconds since 1970.
+    runs: Vec<u64>,
+}
+
+#[tauri::command]
+fn preview_schedule(schedule: String) -> CmdResult<SchedulePreview> {
+    Ok(SchedulePreview {
+        runs: scheduler::preview(&schedule, 3).map_err(err)?,
+        description: scheduler::cron::describe(&schedule),
+    })
+}
+
+/// The end of a task's output.
+#[tauri::command]
+fn task_log(id: String) -> CmdResult<Vec<String>> {
+    if !scheduler::is_id(&id) {
+        return Err("there is no such task".into());
+    }
+    stackyard_core::supervisor::tail_file(&scheduler::log_path(&paths::home(), &id), 200)
+        .map_err(err)
+}
+
 #[tauri::command]
 fn service_states(engine: State<'_, Arc<Engine>>) -> Vec<(String, ProcessState)> {
     engine.supervisor().states()
@@ -978,7 +1070,16 @@ pub fn run() {
             db_backup,
             db_backups,
             db_restore,
-            db_remove_backup
+            db_remove_backup,
+            list_tasks,
+            add_task,
+            update_task,
+            set_task_enabled,
+            remove_task,
+            run_task,
+            stop_task,
+            preview_schedule,
+            task_log
         ])
         .setup(move |app| {
             let tray = match build_tray(app.handle()) {
@@ -1016,7 +1117,7 @@ pub fn run() {
         // Never leave services running after Stackyard quits.
         RunEvent::Exit => {
             handle.state::<Control>().0.lock().unwrap().take();
-            handle.state::<Arc<Engine>>().stop_all();
+            handle.state::<Arc<Engine>>().shutdown();
         }
         _ => {}
     });
