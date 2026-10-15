@@ -115,10 +115,11 @@ jobs:
         run: |
           jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)
           # No TLS: Redis only listens on 127.0.0.1, and nothing outside the
-          # archive is needed beyond the system's C library. No bundled
-          # modules (search, JSON, time series, Bloom): plain Redis is what
-          # caches and queues use.
-          make -C "redis-$VERSION" -j"$jobs" BUILD_TLS=no BUILD_WITH_MODULES=no
+          # archive is needed beyond the system's C library. Only src/ is
+          # built: since Redis 8 the top-level make also builds the bundled
+          # modules (search, JSON, time series, Bloom), which caches and
+          # queues don't need.
+          make -C "redis-$VERSION/src" -j"$jobs" BUILD_TLS=no
 
       - name: Package
         run: |
