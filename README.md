@@ -146,10 +146,15 @@ listens on `127.0.0.1` only. Databases start with user `root` and no password.
 | MySQL 8.4 | 3306 | Oracle's official downloads | SHA-256 from `.github/workflows/mysql-manifest.yml`, which first checks Oracle's GnuPG signature |
 | MariaDB 11.8 (Windows, Linux) | 3306 | MariaDB Foundation downloads | The Foundation's SHA-256 |
 | Mailpit (mail catcher) | 1025, 8025 | Official GitHub releases | GitHub's SHA-256 digest |
+| Meilisearch 1 (search engine) | 7700 | Official GitHub releases | GitHub's SHA-256 digest |
 
-Each service is a module: MySQL and Caddy are on by default, MariaDB and Mailpit can be switched on
-in Settings. `STACKYARD_MYSQL_MANIFEST` points MySQL at another manifest, and
-`STACKYARD_GITHUB_TOKEN` raises the GitHub API limit for Caddy and Mailpit lookups.
+Each service is a module: MySQL and Caddy are on by default, MariaDB, Mailpit and Meilisearch can
+be switched on in Settings. `STACKYARD_MYSQL_MANIFEST` points MySQL at another manifest, and
+`STACKYARD_GITHUB_TOKEN` raises the GitHub API limit for Caddy, Mailpit and Meilisearch lookups.
+
+Meilisearch runs in development mode with no master key, so apps connect to
+`http://127.0.0.1:7700` without one and the address opens its search preview page. Its indexes
+live in `data/meilisearch` and are carried over when Stackyard updates it to a newer 1.x release.
 
 ## Logs
 
