@@ -169,3 +169,12 @@ table.result-grid td { padding: 6px 12px; max-width: 360px; white-space: pre; ov
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .null { font-style: italic; }
 @media (max-width: 640px) { .db-list { max-width: none; } }
+
+/* Disk space */
+.usage { display: flex; flex-direction: column; gap: 8px; }
+.usage-row { display: grid; grid-template-columns: minmax(90px, 120px) 1fr minmax(64px, auto); align-items: center; gap: 12px; }
+.usage-bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.usage-bar span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.clean-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.clean-item input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; }
+.clean-item .grow { flex: 1; min-width: 0; }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { DiskSpace } from "../components/DiskSpace";
 import { api, errorText, type Module } from "../lib/api";
 import { useModules } from "../lib/modules";
 import { useLoad } from "../lib/useLoad";
@@ -97,6 +98,8 @@ export function Settings() {
             ))}
         </section>
       ))}
+
+      <DiskSpace />
     </>
   );
 }
