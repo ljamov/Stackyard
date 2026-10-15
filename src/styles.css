@@ -143,3 +143,14 @@ td { padding: 12px 18px; border-top: 1px solid var(--border); }
 .log-view mark { background: var(--accent); color: var(--on-accent); border-radius: 2px; }
 @media (max-width: 640px) { .log-list { max-width: none; } }
 .row.between.centered { align-items: center; }
+
+/* Disk space */
+.btn.danger { border-color: var(--error); color: var(--error); background: none; }
+.usage { display: flex; flex-direction: column; gap: 8px; }
+.usage-row { display: grid; grid-template-columns: minmax(90px, 120px) 1fr minmax(64px, auto); align-items: center; gap: 12px; }
+.usage-bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.usage-bar span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.clean-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.clean-item input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; }
+.clean-item .grow { flex: 1; min-width: 0; }

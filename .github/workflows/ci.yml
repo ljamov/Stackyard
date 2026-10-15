@@ -345,3 +345,18 @@ jobs:
           if [ "$RUNNER_OS" != Windows ]; then
             ! grep -q stackyard ~/.bashrc ~/.zshrc ~/.bash_profile ~/.profile 2>/dev/null
           fi
+      - name: Clean up what nothing uses
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$STACKYARD_HOME/downloads"
+          echo partial > "$STACKYARD_HOME/downloads/old.tar.xz"
+          touch -t 202001010000 "$STACKYARD_HOME/downloads/old.tar.xz"
+          stackyard cleanup | tee "$RUNNER_TEMP/cleanup.txt"
+          # Node 20 is pinned in a folder that is not a site, so nothing Stackyard knows uses it.
+          grep -q "runtime-node-20" "$RUNNER_TEMP/cleanup.txt"
+          ! grep -q "runtime-node-22" "$RUNNER_TEMP/cleanup.txt"
+          stackyard cleanup --recommended runtime-node-20
+          [ ! -e "$STACKYARD_HOME/downloads/old.tar.xz" ]
+          [ ! -e "$STACKYARD_HOME/runtimes/node/20" ]
+          [ -e "$STACKYARD_HOME/runtimes/node/22" ]

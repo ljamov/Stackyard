@@ -96,6 +96,25 @@ export type LogFile = {
   modified: number;
 };
 
+export type CleanupItem = {
+  id: string;
+  title: string;
+  detail: string;
+  size: number;
+  /** Safe to remove; picked unless unpicked. */
+  recommended: boolean;
+  /** Deletes data no download brings back. */
+  permanent: boolean;
+};
+
+export type CleanupReport = {
+  usage: { name: string; size: number }[];
+  total: number;
+  items: CleanupItem[];
+};
+
+export type CleanupOutcome = { freed: number; cleaned: string[]; problems: string[] };
+
 export type LogChunk = {
   lines: string[];
   /** Pass back to read what was written since. */
@@ -184,6 +203,8 @@ export interface Api {
   readLog(id: string, from: number | null, lines: number): Promise<LogChunk>;
   mcpStatus(): Promise<McpStatus>;
   setMcpTool(name: string, allowed: boolean): Promise<McpStatus>;
+  cleanupScan(): Promise<CleanupReport>;
+  cleanupRun(ids: string[]): Promise<CleanupOutcome>;
 }
 
 const tauriApi: Api = {
@@ -217,6 +238,8 @@ const tauriApi: Api = {
   onSitesChanged: (handler) => listen("sites-changed", () => handler()),
   listLogs: () => invoke("list_logs"),
   readLog: (id, from, lines) => invoke("read_log", { id, from, lines }),
+  cleanupScan: () => invoke("cleanup_scan"),
+  cleanupRun: (ids) => invoke("cleanup_run", { ids }),
   mcpStatus: () => invoke("mcp_status"),
   setMcpTool: (name, allowed) => invoke("set_mcp_tool", { name, allowed }),
 };
@@ -508,6 +531,26 @@ function browserApi(): Api {
       const lines = logTicks[id] % 2 ? [`${at()} [info] GET https://shop.stack/api/cart 200 ${logTicks[id]}ms`] : [];
       return { lines, offset: from + lines.length, reset: false };
     },
+    cleanupScan: async () => {
+      await new Promise((r) => setTimeout(r, 400));
+      const items = cleanup;
+      return {
+        usage: [
+          { name: "Runtimes", size: 412_000_000 },
+          { name: "Services", size: 655_000_000 },
+          { name: "Service data", size: 188_000_000 },
+          { name: "Downloads", size: 31_500_000 },
+          { name: "Logs", size: 6_200_000 },
+        ].sort((a, b) => b.size - a.size),
+        total: 1_292_700_000,
+        items,
+      };
+    },
+    cleanupRun: async (ids) => {
+      const done = cleanup.filter((i) => ids.includes(i.id));
+      cleanup = cleanup.filter((i) => !ids.includes(i.id) || i.id === "logs");
+      return { freed: done.reduce((n, i) => n + i.size, 0), cleaned: done.map((i) => i.title), problems: [] };
+    },
     mcpStatus: async () => mcp,
     setMcpTool: async (name, allowed) => {
       mcp = { ...mcp, tools: mcp.tools.map((t) => (t.name === name && t.action ? { ...t, allowed } : t)) };
@@ -515,6 +558,49 @@ function browserApi(): Api {
     },
   };
 }
+
+let cleanup: CleanupItem[] = [
+  {
+    id: "downloads",
+    title: "Leftover downloads",
+    detail: "Archives from installs that stopped part-way. Installs download again when needed.",
+    size: 31_500_000,
+    recommended: true,
+    permanent: false,
+  },
+  {
+    id: "old-logs",
+    title: "Previous logs",
+    detail: "Older halves of logs that grew past their size limit.",
+    size: 4_900_000,
+    recommended: true,
+    permanent: false,
+  },
+  {
+    id: "logs",
+    title: "Current logs",
+    detail: "Empties every log, including the record of what AI tools did. Services keep running and write new lines as usual.",
+    size: 1_300_000,
+    recommended: false,
+    permanent: false,
+  },
+  {
+    id: "runtime-php-8.2",
+    title: "PHP 8.2",
+    detail: "Installed (8.2.29), but no site uses it and it isn't the default. A project pinned to it outside your sites would need it installed again.",
+    size: 96_000_000,
+    recommended: false,
+    permanent: false,
+  },
+  {
+    id: "data-mariadb",
+    title: "MariaDB data",
+    detail: "MariaDB is no longer installed, but its data was kept in case it comes back. Deleting it can't be undone.",
+    size: 188_000_000,
+    recommended: false,
+    permanent: true,
+  },
+];
 
 export const api: Api = isTauri() ? tauriApi : browserApi();
 

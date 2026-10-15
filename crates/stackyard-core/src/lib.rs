@@ -3,6 +3,7 @@
 
 pub mod archive;
 pub mod catalog;
+pub mod cleanup;
 pub mod control;
 pub mod detect;
 pub mod dns;

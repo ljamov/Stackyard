@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use stackyard_core::catalog::RUNTIMES;
 use stackyard_core::catalog::{self, RuntimeKind, SERVICES};
+use stackyard_core::cleanup;
 use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::dns;
@@ -418,6 +419,26 @@ fn read_log(id: String, from: Option<u64>, lines: usize) -> CmdResult<logs::Chun
         .require_module("logs")
         .map_err(err)?;
     logs::read(&paths::home(), &id, from, lines.min(5000)).map_err(err)
+}
+
+/// Sizing the data folder reads every file in it, so this runs on a worker
+/// thread.
+#[tauri::command]
+async fn cleanup_scan() -> CmdResult<cleanup::Report> {
+    tauri::async_runtime::spawn_blocking(|| cleanup::scan(&paths::home()))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cleanup_run(app: AppHandle, ids: Vec<String>) -> CmdResult<cleanup::Outcome> {
+    let busy = app.state::<Installs>().0.lock().unwrap().len();
+    if busy > 0 {
+        return Err("Wait for the install that is running to finish, then clean up.".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || cleanup::clean(&paths::home(), &ids))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -847,7 +868,9 @@ pub fn run() {
             mcp_status,
             set_mcp_tool,
             list_logs,
-            read_log
+            read_log,
+            cleanup_scan,
+            cleanup_run
         ])
         .setup(move |app| {
             let tray = match build_tray(app.handle()) {
