@@ -127,9 +127,9 @@ pub const MODULES: &[ModuleDef] = &[
         "meilisearch",
         "Meilisearch",
         Service,
-        "Search engine",
+        "Fast search engine for apps, with a search preview page",
         false,
-        false,
+        true,
     ),
     module(
         "shell",

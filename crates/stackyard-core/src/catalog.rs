@@ -122,6 +122,14 @@ pub const SERVICES: &[ServiceDef] = &[
         role: "Mail catcher",
         web: Some("http://127.0.0.1:8025"),
     },
+    ServiceDef {
+        id: "meilisearch",
+        name: "Meilisearch",
+        version: "1",
+        ports: &[7700],
+        role: "Search engine",
+        web: Some("http://127.0.0.1:7700"),
+    },
 ];
 
 pub fn service(id: &str) -> Option<&'static ServiceDef> {

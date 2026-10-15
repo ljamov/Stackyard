@@ -8,6 +8,15 @@ use std::path::{Path, PathBuf};
 
 use crate::{Error, Result};
 
+/// Whether a download is an archive this module can unpack, rather than a
+/// program shipped on its own.
+pub fn is_archive(file_name: &str) -> bool {
+    let name = file_name.to_ascii_lowercase();
+    [".tar.gz", ".tgz", ".tar.xz", ".zip"]
+        .iter()
+        .any(|ext| name.ends_with(ext))
+}
+
 /// Unpacks `archive` into `dest` (created if missing) and returns the folder
 /// that holds the contents: `dest` itself, or its only subfolder when the
 /// archive wraps everything in one top-level folder like `node-v22.1.0-linux-x64/`.
