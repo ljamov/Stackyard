@@ -4,6 +4,7 @@
 pub mod archive;
 pub mod catalog;
 pub mod control;
+pub mod databases;
 pub mod detect;
 pub mod dns;
 pub mod domain;

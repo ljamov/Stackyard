@@ -12,6 +12,7 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand};
 use stackyard_core::catalog::{self, RuntimeKind, RUNTIMES, SERVICES};
 use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
+use stackyard_core::databases::{self, Client as DbClient};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::domain;
 use stackyard_core::engine::Engine;
@@ -113,6 +114,11 @@ enum Command {
     },
     /// Pin a version for this project in its `.stackyard` file, e.g. `use php 8.3`
     Use(RuntimeArgs),
+    /// List MySQL or MariaDB databases, or create, back up and restore them
+    Db {
+        #[command(subcommand)]
+        action: Option<DbAction>,
+    },
     /// List scheduled tasks, or add, run and remove them
     Tasks {
         #[command(subcommand)]
@@ -122,6 +128,35 @@ enum Command {
     Mcp {
         #[command(subcommand)]
         action: Option<McpAction>,
+    },
+}
+
+#[derive(Subcommand)]
+enum DbAction {
+    /// Create an empty database
+    Create { name: String },
+    /// Drop a database and everything in it
+    Drop {
+        name: String,
+        /// Confirm: the data is gone afterwards (back it up first)
+        #[arg(long)]
+        yes: bool,
+    },
+    /// List a database's tables
+    Tables { name: String },
+    /// Run SQL and print what it returns, e.g. `db query shop "SELECT * FROM orders LIMIT 5"`
+    Query { name: String, sql: String },
+    /// Save a database to a gzipped SQL file in Stackyard's backups folder
+    Backup { name: String },
+    /// List backups, of every database or one
+    Backups { name: Option<String> },
+    /// Load a backup (the newest when no file is given) into its database, or another
+    Restore {
+        name: String,
+        file: Option<String>,
+        /// Restore into this database instead, creating it if needed
+        #[arg(long)]
+        into: Option<String>,
     },
 }
 
@@ -692,6 +727,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 );
             }
         }
+        Command::Db { action } => db(action)?,
         Command::Tasks { action } => tasks(action)?,
         Command::Mcp { action } => mcp(action)?,
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
@@ -705,6 +741,123 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 eprintln!("warning: {warning}");
             }
         }
+    }
+    Ok(())
+}
+
+fn db(action: Option<DbAction>) -> stackyard_core::Result<()> {
+    let home = paths::home();
+    Settings::load()?.require_module("databases")?;
+    let size = |bytes: u64| match bytes {
+        b if b < 1024 * 1024 => format!("{} KB", b.div_ceil(1024)),
+        b => format!("{:.1} MB", b as f64 / 1024.0 / 1024.0),
+    };
+    if let Some(DbAction::Backups { name }) = &action {
+        let all = databases::backups(&home);
+        let shown: Vec<_> = all
+            .iter()
+            .filter(|b| name.as_ref().is_none_or(|n| &b.database == n))
+            .collect();
+        if shown.is_empty() {
+            println!("No backups yet. Make one with `stackyard db backup <name>`.");
+        }
+        for b in shown {
+            println!("{:<20} {:<40} {:>9}", b.database, b.file, size(b.size));
+        }
+        println!("Folder: {}", databases::backups_dir(&home).display());
+        return Ok(());
+    }
+    let client = DbClient::open(&home)?;
+    match action {
+        None => {
+            let server = client.server();
+            match &server.version {
+                Some(v) => println!("{} ({v})", server.name),
+                None => {
+                    return Err(Error::Database(format!(
+                        "{} is not running. Start it with `stackyard start {}`.",
+                        server.name, server.id
+                    )))
+                }
+            }
+            let all = client.databases()?;
+            if all.is_empty() {
+                println!("No databases yet. Create one with `stackyard db create <name>`.");
+            }
+            for d in all {
+                println!(
+                    "  {:<30} {:>4} tables {:>10}",
+                    d.name,
+                    d.tables,
+                    size(d.size)
+                );
+            }
+        }
+        Some(DbAction::Create { name }) => {
+            client.create(&name)?;
+            println!("Created {name}.");
+        }
+        Some(DbAction::Drop { name, yes }) => {
+            if !yes {
+                return Err(Error::Database(format!(
+                    "this deletes {name} and all its data; run it again with --yes (or back it up first with `stackyard db backup {name}`)"
+                )));
+            }
+            client.drop(&name)?;
+            println!("Dropped {name}.");
+        }
+        Some(DbAction::Tables { name }) => {
+            for t in client.tables(&name)? {
+                let kind = if t.kind == "VIEW" { " (view)" } else { "" };
+                println!(
+                    "  {:<40} ~{:>9} rows {:>10}{kind}",
+                    t.name,
+                    t.rows,
+                    size(t.size)
+                );
+            }
+        }
+        Some(DbAction::Query { name, sql }) => {
+            let sets = client.query(Some(&name), &sql)?;
+            if sets.is_empty() {
+                println!("Done.");
+            }
+            for set in sets {
+                println!("{}", set.columns.join("\t"));
+                for row in &set.rows {
+                    let cells: Vec<&str> =
+                        row.iter().map(|c| c.as_deref().unwrap_or("NULL")).collect();
+                    println!("{}", cells.join("\t"));
+                }
+                if set.truncated {
+                    println!("(only the first {} rows are shown)", databases::MAX_ROWS);
+                }
+            }
+        }
+        Some(DbAction::Backup { name }) => {
+            let backup = client.backup(&name)?;
+            println!(
+                "Saved {} ({}) in {}",
+                backup.file,
+                size(backup.size),
+                databases::backups_dir(&home)
+                    .join(&backup.database)
+                    .display()
+            );
+        }
+        Some(DbAction::Restore { name, file, into }) => {
+            let file = match file {
+                Some(f) => f,
+                None => databases::backups(&home)
+                    .into_iter()
+                    .find(|b| b.database == name)
+                    .map(|b| b.file)
+                    .ok_or_else(|| Error::Database(format!("{name} has no backups yet")))?,
+            };
+            client.restore(&name, &file, into.as_deref())?;
+            println!("Restored {file} into {}.", into.as_deref().unwrap_or(&name));
+        }
+        Some(DbAction::Backups { .. }) => unreachable!("handled above"),
     }
     Ok(())
 }
