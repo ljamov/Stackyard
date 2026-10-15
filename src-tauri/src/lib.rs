@@ -30,6 +30,8 @@ use stackyard_core::web::{self, Backend, Ports, ServedSite};
 use stackyard_core::{domain, paths};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
+mod updates;
+
 type CmdResult<T> = Result<T, String>;
 
 #[derive(Serialize)]
@@ -563,6 +565,21 @@ async fn cleanup_run(app: AppHandle, ids: Vec<String>) -> CmdResult<cleanup::Out
 }
 
 #[tauri::command]
+fn update_status(app: AppHandle) -> updates::UpdateView {
+    updates::view(&app)
+}
+
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> updates::UpdateView {
+    updates::check(&app).await
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> CmdResult<()> {
+    updates::install(&app).await
+}
+
+#[tauri::command]
 fn get_tld() -> CmdResult<TldView> {
     let tld = Settings::load().map_err(err)?.tld;
     Ok(TldView {
@@ -1034,6 +1051,11 @@ pub fn run() {
             Owner::Daemon | Owner::Up => resume = take_over(&home, &client),
         }
     }
+    for id in updates::take_resume() {
+        if !resume.contains(&id) {
+            resume.push(id);
+        }
+    }
     refresh_terminal_commands();
     let engine = Arc::new(Engine::new(&home));
     if !resume.is_empty() {
@@ -1050,6 +1072,8 @@ pub fn run() {
         .manage(engine.clone())
         .manage(Installs::default())
         .manage(Control(Mutex::new(None)))
+        .manage(updates::Updates::default())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             list_runtimes,
             install_runtime,
@@ -1102,7 +1126,10 @@ pub fn run() {
             preview_schedule,
             task_log,
             cleanup_scan,
-            cleanup_run
+            cleanup_run,
+            update_status,
+            check_for_update,
+            install_update
         ])
         .setup(move |app| {
             let tray = match build_tray(app.handle()) {
@@ -1124,6 +1151,7 @@ pub fn run() {
                 Ok(server) => *app.state::<Control>().0.lock().unwrap() = Some(server),
                 Err(e) => eprintln!("the stackyard command cannot reach this app: {e}"),
             }
+            updates::watch(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

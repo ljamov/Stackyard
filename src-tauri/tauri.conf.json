@@ -36,5 +36,13 @@
     "category": "DeveloperTool",
     "shortDescription": "Local development stack manager",
     "copyright": "Copyright (c) 2026 Kristijan Ljamov"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://github.com/ljamov/Stackyard/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
