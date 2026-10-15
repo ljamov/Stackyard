@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DiskSpace } from "../components/DiskSpace";
+import { Updates } from "../components/Updates";
 import { api, errorText, type Module } from "../lib/api";
 import { useModules } from "../lib/modules";
 import { useLoad } from "../lib/useLoad";
@@ -52,6 +53,8 @@ export function Settings() {
           {error}
         </p>
       )}
+
+      <Updates />
 
       <section aria-labelledby="dom-h" className="card stack">
         <h2 id="dom-h">Local domains</h2>
