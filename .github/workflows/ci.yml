@@ -247,6 +247,26 @@ jobs:
           grep -E "^caddy +Caddy" "$RUNNER_TEMP/logs.txt"
           grep -E "^daemon +Background service" "$RUNNER_TEMP/logs.txt"
 
+          echo "== scheduled tasks run by hand, and on schedule in the background service"
+          stackyard modules on scheduler
+          tasks="$RUNNER_TEMP/task-dir"
+          mkdir -p "$tasks"
+          if [ "$RUNNER_OS" = Windows ]; then tasks=$(cygpath -m "$tasks"); fi
+          stackyard tasks add "Write marker" --run "echo ran-here> marker.txt" --every "* * * * *" --in "$tasks"
+          stackyard tasks run "write marker"
+          grep ran-here "$tasks/marker.txt"
+          rm "$tasks/marker.txt"
+          stackyard start caddy
+          for _ in $(seq 100); do [ -f "$tasks/marker.txt" ] && break; sleep 1; done
+          grep ran-here "$tasks/marker.txt"
+          stackyard tasks | tee "$RUNNER_TEMP/tasks.txt"
+          grep "last run" "$RUNNER_TEMP/tasks.txt" >/dev/null
+          id=$(head -n 1 "$RUNNER_TEMP/tasks.txt" | cut -d " " -f 1)
+          stackyard logs "task-$id" -n 5 | tee "$RUNNER_TEMP/task-log.txt"
+          grep "started on schedule" "$RUNNER_TEMP/task-log.txt" >/dev/null
+          stackyard logs | grep -E "^task-$id +Task: Write marker" >/dev/null
+          stackyard stop
+
   terminal:
     name: Terminal commands end to end (${{ matrix.os }})
     needs: check
@@ -345,3 +365,18 @@ jobs:
           if [ "$RUNNER_OS" != Windows ]; then
             ! grep -q stackyard ~/.bashrc ~/.zshrc ~/.bash_profile ~/.profile 2>/dev/null
           fi
+      - name: Clean up what nothing uses
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$STACKYARD_HOME/downloads"
+          echo partial > "$STACKYARD_HOME/downloads/old.tar.xz"
+          touch -t 202001010000 "$STACKYARD_HOME/downloads/old.tar.xz"
+          stackyard cleanup | tee "$RUNNER_TEMP/cleanup.txt"
+          # Node 20 is pinned in a folder that is not a site, so nothing Stackyard knows uses it.
+          grep -q "runtime-node-20" "$RUNNER_TEMP/cleanup.txt"
+          ! grep -q "runtime-node-22" "$RUNNER_TEMP/cleanup.txt"
+          stackyard cleanup --recommended runtime-node-20
+          [ ! -e "$STACKYARD_HOME/downloads/old.tar.xz" ]
+          [ ! -e "$STACKYARD_HOME/runtimes/node/20" ]
+          [ -e "$STACKYARD_HOME/runtimes/node/22" ]

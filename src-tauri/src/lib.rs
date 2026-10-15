@@ -7,7 +7,11 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use stackyard_core::catalog::RUNTIMES;
 use stackyard_core::catalog::{self, RuntimeKind, SERVICES};
+use stackyard_core::cleanup;
 use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
+use stackyard_core::databases::{
+    self, Backup, Client as DbClient, Database, ResultSet, Server, Table,
+};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::dns;
 use stackyard_core::engine::Engine;
@@ -15,6 +19,7 @@ use stackyard_core::logs;
 use stackyard_core::mcp;
 use stackyard_core::modules::{ModuleGroup, MODULES};
 use stackyard_core::runtimes::{RuntimeManager, Step};
+use stackyard_core::scheduler::{self, TaskInput, TaskView};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::shell::{path as user_path, shims};
@@ -362,6 +367,123 @@ async fn start_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceView>
     ))
 }
 
+/// Runs database work off the interface thread: queries can take a while.
+async fn with_db<T: Send + 'static>(
+    work: impl FnOnce(&DbClient) -> stackyard_core::Result<T> + Send + 'static,
+) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Settings::load()?.require_module("databases")?;
+        work(&DbClient::open(&paths::home())?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(err)
+}
+
+#[derive(Serialize)]
+struct DbServerView {
+    server: Option<Server>,
+    /// Why there is no server to use, e.g. none is installed.
+    problem: Option<String>,
+}
+
+#[tauri::command]
+async fn db_server() -> CmdResult<DbServerView> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let opened = Settings::load()
+            .and_then(|s| s.require_module("databases"))
+            .and_then(|_| DbClient::open(&paths::home()));
+        match opened {
+            Ok(client) => DbServerView {
+                server: Some(client.server()),
+                problem: None,
+            },
+            Err(e) => DbServerView {
+                server: None,
+                problem: Some(e.to_string()),
+            },
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_list() -> CmdResult<Vec<Database>> {
+    with_db(|c| c.databases()).await
+}
+
+#[tauri::command]
+async fn db_create(name: String) -> CmdResult<Vec<Database>> {
+    with_db(move |c| {
+        c.create(&name)?;
+        c.databases()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn db_drop(name: String) -> CmdResult<Vec<Database>> {
+    with_db(move |c| {
+        c.drop(&name)?;
+        c.databases()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn db_tables(database: String) -> CmdResult<Vec<Table>> {
+    with_db(move |c| c.tables(&database)).await
+}
+
+#[tauri::command]
+async fn db_browse(
+    database: String,
+    table: String,
+    offset: u64,
+    limit: usize,
+) -> CmdResult<ResultSet> {
+    with_db(move |c| c.browse(&database, &table, offset, limit)).await
+}
+
+#[tauri::command]
+async fn db_query(database: Option<String>, sql: String) -> CmdResult<Vec<ResultSet>> {
+    with_db(move |c| c.query(database.as_deref(), &sql)).await
+}
+
+#[tauri::command]
+async fn db_backup(database: String) -> CmdResult<Vec<Backup>> {
+    with_db(move |c| {
+        c.backup(&database)?;
+        Ok(databases::backups(&paths::home()))
+    })
+    .await
+}
+
+#[tauri::command]
+fn db_backups() -> Vec<Backup> {
+    databases::backups(&paths::home())
+}
+
+#[tauri::command]
+async fn db_restore(
+    database: String,
+    file: String,
+    into: Option<String>,
+) -> CmdResult<Vec<Database>> {
+    with_db(move |c| {
+        c.restore(&database, &file, into.as_deref())?;
+        c.databases()
+    })
+    .await
+}
+
+#[tauri::command]
+fn db_remove_backup(database: String, file: String) -> CmdResult<Vec<Backup>> {
+    databases::remove_backup(&paths::home(), &database, &file).map_err(err)?;
+    Ok(databases::backups(&paths::home()))
+}
+
 #[tauri::command]
 fn stop_service(
     id: String,
@@ -418,6 +540,26 @@ fn read_log(id: String, from: Option<u64>, lines: usize) -> CmdResult<logs::Chun
         .require_module("logs")
         .map_err(err)?;
     logs::read(&paths::home(), &id, from, lines.min(5000)).map_err(err)
+}
+
+/// Sizing the data folder reads every file in it, so this runs on a worker
+/// thread.
+#[tauri::command]
+async fn cleanup_scan() -> CmdResult<cleanup::Report> {
+    tauri::async_runtime::spawn_blocking(|| cleanup::scan(&paths::home()))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cleanup_run(app: AppHandle, ids: Vec<String>) -> CmdResult<cleanup::Outcome> {
+    let busy = app.state::<Installs>().0.lock().unwrap().len();
+    if busy > 0 {
+        return Err("Wait for the install that is running to finish, then clean up.".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || cleanup::clean(&paths::home(), &ids))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -622,6 +764,97 @@ fn set_mcp_tool(name: String, allowed: bool) -> CmdResult<McpView> {
     mcp::set_allowed(&mut settings, &name, allowed).map_err(err)?;
     settings.save().map_err(err)?;
     mcp_view()
+}
+
+fn task_views() -> CmdResult<Vec<TaskView>> {
+    Settings::load()
+        .map_err(err)?
+        .require_module("scheduler")
+        .map_err(err)?;
+    scheduler::views(&paths::home()).map_err(err)
+}
+
+#[tauri::command]
+fn list_tasks() -> CmdResult<Vec<TaskView>> {
+    task_views()
+}
+
+#[tauri::command]
+fn add_task(task: TaskInput) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    scheduler::add(&paths::home(), task).map_err(err)?;
+    task_views()
+}
+
+#[tauri::command]
+fn update_task(id: String, task: TaskInput) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    scheduler::update(&paths::home(), &id, task).map_err(err)?;
+    task_views()
+}
+
+#[tauri::command]
+fn set_task_enabled(id: String, enabled: bool) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    scheduler::set_enabled(&paths::home(), &id, enabled).map_err(err)?;
+    task_views()
+}
+
+/// Stops the task first if it is running.
+#[tauri::command]
+fn remove_task(id: String, engine: State<'_, Arc<Engine>>) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    if let Ok(scheduler) = engine.scheduler() {
+        if scheduler.running().contains(&id) {
+            let _ = scheduler.stop(&id);
+            for _ in 0..80 {
+                if !scheduler.running().contains(&id) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
+    scheduler::remove(&paths::home(), &id).map_err(err)?;
+    task_views()
+}
+
+#[tauri::command]
+fn run_task(id: String, engine: State<'_, Arc<Engine>>) -> CmdResult<Vec<TaskView>> {
+    task_views()?;
+    engine.scheduler().map_err(err)?.run_now(&id).map_err(err)?;
+    task_views()
+}
+
+#[tauri::command]
+fn stop_task(id: String, engine: State<'_, Arc<Engine>>) -> CmdResult<Vec<TaskView>> {
+    engine.scheduler().map_err(err)?.stop(&id).map_err(err)?;
+    task_views()
+}
+
+#[derive(Serialize)]
+struct SchedulePreview {
+    description: Option<String>,
+    /// The next few runs, in milliseconds since 1970.
+    runs: Vec<u64>,
+}
+
+#[tauri::command]
+fn preview_schedule(schedule: String) -> CmdResult<SchedulePreview> {
+    Ok(SchedulePreview {
+        runs: scheduler::preview(&schedule, 3).map_err(err)?,
+        description: scheduler::cron::describe(&schedule),
+    })
+}
+
+/// The end of a task's output.
+#[tauri::command]
+fn task_log(id: String) -> CmdResult<Vec<String>> {
+    if !scheduler::is_id(&id) {
+        return Err("there is no such task".into());
+    }
+    stackyard_core::supervisor::tail_file(&scheduler::log_path(&paths::home(), &id), 200)
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -847,7 +1080,29 @@ pub fn run() {
             mcp_status,
             set_mcp_tool,
             list_logs,
-            read_log
+            read_log,
+            db_server,
+            db_list,
+            db_create,
+            db_drop,
+            db_tables,
+            db_browse,
+            db_query,
+            db_backup,
+            db_backups,
+            db_restore,
+            db_remove_backup,
+            list_tasks,
+            add_task,
+            update_task,
+            set_task_enabled,
+            remove_task,
+            run_task,
+            stop_task,
+            preview_schedule,
+            task_log,
+            cleanup_scan,
+            cleanup_run
         ])
         .setup(move |app| {
             let tray = match build_tray(app.handle()) {
@@ -885,7 +1140,7 @@ pub fn run() {
         // Never leave services running after Stackyard quits.
         RunEvent::Exit => {
             handle.state::<Control>().0.lock().unwrap().take();
-            handle.state::<Arc<Engine>>().stop_all();
+            handle.state::<Arc<Engine>>().shutdown();
         }
         _ => {}
     });
