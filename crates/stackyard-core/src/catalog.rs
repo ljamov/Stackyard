@@ -115,6 +115,22 @@ pub const SERVICES: &[ServiceDef] = &[
         web: None,
     },
     ServiceDef {
+        id: "postgres",
+        name: "PostgreSQL",
+        version: "18",
+        ports: &[5432],
+        role: "Database",
+        web: None,
+    },
+    ServiceDef {
+        id: "redis",
+        name: "Redis",
+        version: "8",
+        ports: &[6379],
+        role: "Cache and queues",
+        web: None,
+    },
+    ServiceDef {
         id: "mailpit",
         name: "Mailpit",
         version: "1",

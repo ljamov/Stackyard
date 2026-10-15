@@ -242,7 +242,7 @@ mod tests {
             !settings.modules.contains_key("php"),
             "defaults are not stored"
         );
-        assert!(settings.set_module("redis", true).is_err());
+        assert!(settings.set_module("python", true).is_err());
         assert!(settings.set_module("nope", false).is_err());
     }
 

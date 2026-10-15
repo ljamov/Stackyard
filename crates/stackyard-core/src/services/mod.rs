@@ -12,6 +12,8 @@ mod mailpit;
 mod mariadb;
 mod meilisearch;
 mod mysql;
+pub mod postgres;
+mod redis;
 
 use std::path::{Path, PathBuf};
 
@@ -121,6 +123,8 @@ impl ServiceManager {
             "mysql" => mysql::resolve(&self.http, def, p),
             "mariadb" => mariadb::resolve(&self.http, def, p),
             "meilisearch" => meilisearch::resolve(&self.http, p),
+            "postgres" => postgres::resolve(&self.http, def, p),
+            "redis" => redis::resolve(&self.http, def, p),
             _ => Err(Error::UnknownModule(id.to_string())),
         }
     }
@@ -189,6 +193,8 @@ impl ServiceManager {
             "mysql" => mysql::spec(&ctx),
             "mariadb" => mariadb::spec(&ctx),
             "meilisearch" => meilisearch::spec(&ctx),
+            "postgres" => postgres::spec(&ctx),
+            "redis" => redis::spec(&ctx),
             _ => Err(Error::UnknownModule(id.to_string())),
         }
     }
@@ -286,6 +292,9 @@ pub fn program(id: &str, os: Os) -> &'static str {
         ("mariadb", true) => "bin/mariadbd.exe",
         ("meilisearch", false) => "meilisearch",
         ("meilisearch", true) => "meilisearch.exe",
+        ("postgres", false) => "bin/postgres",
+        ("postgres", true) => "bin/postgres.exe",
+        ("redis", _) => "bin/redis-server",
         _ => "",
     }
 }
