@@ -471,10 +471,9 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 }
                 let default = settings.default_runtime(family.kind);
                 let versions: Vec<String> = family
-                    .versions
-                    .iter()
+                    .versions_on(manager.platform().os)
                     .map(|v| match manager.get(family.kind, v) {
-                        Some(i) if default == Some(*v) => format!("{v} [{}, default]", i.release),
+                        Some(i) if default == Some(v) => format!("{v} [{}, default]", i.release),
                         Some(i) => format!("{v} [{}]", i.release),
                         None => v.to_string(),
                     })

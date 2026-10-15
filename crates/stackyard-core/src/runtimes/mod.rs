@@ -122,6 +122,13 @@ impl RuntimeManager {
     /// Looks up the newest release of `version` for this computer.
     pub fn resolve(&self, kind: RuntimeKind, version: &str) -> Result<Release> {
         check_offered(kind, version)?;
+        let family = catalog::runtime(kind);
+        if !family.offers_on(version, self.platform.os) {
+            return Err(Error::WindowsOnly {
+                name: family.name.into(),
+                version: version.into(),
+            });
+        }
         match kind {
             RuntimeKind::Node => node::resolve(
                 &self.http,
