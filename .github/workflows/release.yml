@@ -96,6 +96,21 @@ jobs:
             echo "No signing key: building installers without updates."
           fi
           npx tauri build --target ${{ matrix.target }} "${configs[@]}"
+      # An update signed with a key that doesn't match the app's public
+      # key would never install, so the pair is checked before release.
+      - name: Check updates are signed with the app's key
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          SIGNED: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNED" != true ]; then echo "No signing key: nothing to check."; exit 0; fi
+          python3 -m pip install --quiet cryptography
+          sig=$(find target/${{ matrix.target }}/release/bundle -name '*.sig' | head -1)
+          [ -n "$sig" ] || { echo "::error::the build made no update signature"; exit 1; }
+          python3 .github/scripts/verify-update-signature.py src-tauri/tauri.conf.json "${sig%.sig}" "$sig"
+
       - name: Check the installers
         shell: bash
         run: |
