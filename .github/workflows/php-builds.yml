@@ -101,11 +101,24 @@ jobs:
       # Every library is compiled from source too (no --prefer-pre-built):
       # slower, but nothing in the archive is a third-party binary, and the
       # pre-built SQLite fails static-php-cli's own sanity check.
+      # static-php-cli can only build opcache into PHP 8.0 and later.
+      - name: Pick extensions
+        if: matrix.version == '7.4'
+        run: echo "EXTENSIONS=$(tr ',' '\n' <<<"$EXTENSIONS" | grep -vx opcache | paste -sd, -)" >> "$GITHUB_ENV"
+
+      # The token lifts GitHub's limit on unauthenticated API calls, which
+      # runners sharing an address quickly reach.
       - name: Download PHP and library sources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./spc download --with-php="$VERSION" --for-extensions="$EXTENSIONS" --retry=3
 
       - name: Build
         run: ./spc build "$EXTENSIONS" --build-cli --build-fpm
+
+      - name: Show the end of the build log
+        if: failure()
+        run: tail -n 80 log/spc.shell.log log/spc.output.log 2>/dev/null || true
 
       - name: Check the binaries run
         run: |
