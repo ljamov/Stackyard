@@ -106,12 +106,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$SIGNED" != true ]; then echo "No signing key: nothing to check."; exit 0; fi
-          sudo apt-get install -y minisign
-          jq -r .plugins.updater.pubkey src-tauri/tauri.conf.json | base64 -d > "$RUNNER_TEMP/app.pub"
+          python3 -m pip install --quiet cryptography
           sig=$(find target/${{ matrix.target }}/release/bundle -name '*.sig' | head -1)
           [ -n "$sig" ] || { echo "::error::the build made no update signature"; exit 1; }
-          base64 -d < "$sig" > "$RUNNER_TEMP/update.minisig"
-          minisign -V -p "$RUNNER_TEMP/app.pub" -m "${sig%.sig}" -x "$RUNNER_TEMP/update.minisig"
+          python3 .github/scripts/verify-update-signature.py src-tauri/tauri.conf.json "${sig%.sig}" "$sig"
 
       - name: Check the installers
         shell: bash
