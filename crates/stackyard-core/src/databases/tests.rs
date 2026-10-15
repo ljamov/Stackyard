@@ -25,12 +25,17 @@ fn explains_client_errors() {
         e("ERROR 1064 (42000) at line 1: You have an error in your SQL syntax"),
         "You have an error in your SQL syntax"
     );
-    assert!(e("ERROR 2002 (HY000): Can't connect to local server through socket")
-        .starts_with("MySQL is not running"));
+    assert!(
+        e("ERROR 2002 (HY000): Can't connect to local server through socket")
+            .starts_with("MySQL is not running")
+    );
     assert!(client_error("ERROR 2003 (HY000): Can't connect", "mariadb")
         .to_string()
         .contains("stackyard start mariadb"));
-    assert_eq!(e("mysqldump: Got error: 1044: Access denied"), "mysqldump: Got error: 1044: Access denied");
+    assert_eq!(
+        e("mysqldump: Got error: 1044: Access denied"),
+        "mysqldump: Got error: 1044: Access denied"
+    );
 }
 
 #[test]
@@ -75,7 +80,10 @@ pub(crate) fn exercise(home: &Path) {
         .unwrap();
     assert_eq!(sets.len(), 2, "{sets:?}");
     assert_eq!(sets[0].columns, ["id", "name", "note"]);
-    assert_eq!(sets[0].rows[0], [Some("1".into()), Some("Ana & <Bo>".into()), None]);
+    assert_eq!(
+        sets[0].rows[0],
+        [Some("1".into()), Some("Ana & <Bo>".into()), None]
+    );
     assert_eq!(sets[0].rows[1][1].as_deref(), Some("line\nbreak"));
     assert_eq!(sets[0].rows[1][2].as_deref(), Some(""));
     assert_eq!(sets[1].rows[0][0].as_deref(), Some("2"));
@@ -111,8 +119,14 @@ pub(crate) fn exercise(home: &Path) {
     assert!(backup.size > 0);
     assert_eq!(backups(home)[0], backup);
     client.drop("stackyard_test").unwrap();
-    assert!(!client.databases().unwrap().iter().any(|d| d.name == "stackyard_test"));
-    client.restore("stackyard_test", &backup.file, None).unwrap();
+    assert!(!client
+        .databases()
+        .unwrap()
+        .iter()
+        .any(|d| d.name == "stackyard_test"));
+    client
+        .restore("stackyard_test", &backup.file, None)
+        .unwrap();
     client
         .restore("stackyard_test", &backup.file, Some("stackyard_copy"))
         .unwrap();
@@ -153,11 +167,19 @@ fn against_a_system_mariadb() {
     let db = data.join("db");
     std::fs::create_dir_all(&data).unwrap();
     let ok = std::process::Command::new("mariadb-install-db")
-        .args(["--no-defaults", "--auth-root-authentication-method=normal", "--skip-test-db"])
+        .args([
+            "--no-defaults",
+            "--auth-root-authentication-method=normal",
+            "--skip-test-db",
+        ])
         .arg(format!("--datadir={}", db.display()))
         .output()
         .unwrap();
-    assert!(ok.status.success(), "{}", String::from_utf8_lossy(&ok.stderr));
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
     let socket = data.join("mysql.sock");
     let mut server = std::process::Command::new("mariadbd")
         .arg("--no-defaults")

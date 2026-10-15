@@ -50,7 +50,9 @@ pub fn parse(bytes: &[u8]) -> Vec<ResultSet> {
                     // `<field name="x" xsi:nil="true" />` is NULL; `<field name="x"/>` is ''.
                     (attribute(tag, "xsi:nil").as_deref() != Some("true")).then(String::new)
                 } else {
-                    let Some(close) = after.find("</field>") else { break };
+                    let Some(close) = after.find("</field>") else {
+                        break;
+                    };
                     let value = unescape(&after[..close]);
                     rest = &after[close + "</field>".len()..];
                     if let Some((names, values)) = row.as_mut() {
@@ -161,7 +163,11 @@ lines &#233;</field>
             sets[0].rows,
             [
                 vec![Some("1".into()), Some("Ana & \"Bo\" <b>".into()), None],
-                vec![Some("2".into()), Some("two\nlines é".into()), Some(String::new())],
+                vec![
+                    Some("2".into()),
+                    Some("two\nlines é".into()),
+                    Some(String::new())
+                ],
             ]
         );
         assert_eq!(sets[1].rows, [vec![Some("1".to_string())]]);
@@ -185,6 +191,9 @@ lines &#233;</field>
 
     #[test]
     fn stray_ampersands_stay() {
-        assert_eq!(unescape("a & b &bogus; &#xZZ; &#65;"), "a & b &bogus; &#xZZ; A");
+        assert_eq!(
+            unescape("a & b &bogus; &#xZZ; &#65;"),
+            "a & b &bogus; &#xZZ; A"
+        );
     }
 }

@@ -163,6 +163,17 @@ plain text or a regular expression. Errors and warnings stand out. Logs live in 
 folder of Stackyard's data folder; one that grows past 5 MB starts over and the previous one is
 kept as `.log.1`. Switch the screen off in Settings if you don't need it.
 
+## Databases
+
+The **Databases** screen works with whichever of MySQL and MariaDB is running: list and create
+databases, page through a table's rows, run SQL (up to 1,000 rows are shown, and NULL is told
+apart from an empty value), and back up or restore. Backups are gzipped SQL files in
+`backups/<database>` inside Stackyard's data folder, made with the server's own dump tool, so they
+load into any MySQL or MariaDB. A backup can replace the tables of its database or be restored as
+a copy under another name. Dropping a database asks you to type its name; `mysql`, `sys` and the
+other system databases can't be dropped from here. Switch the screen off in Settings if you use
+another database tool.
+
 ## AI coding tools (MCP)
 
 `stackyard mcp` is an [MCP](https://modelcontextprotocol.io) server, so Claude Code, Cursor,
@@ -227,6 +238,12 @@ stackyard shims on       # php, node, composer… with each project's versions, 
 stackyard shell          # or just in this terminal
 stackyard use php 8.3    # pin a version for this project
 stackyard which          # which version each command runs here, and why
+stackyard db                          # databases on the running MySQL or MariaDB
+stackyard db create shop
+stackyard db query shop "SELECT * FROM orders LIMIT 5"
+stackyard db backup shop              # backups/shop/shop-<date>-<time>.sql.gz
+stackyard db restore shop             # the newest backup (or name a file; --into another database)
+stackyard db drop shop --yes
 stackyard mcp setup      # how to add Stackyard to Claude Code, Cursor and others
 stackyard mcp tools      # what AI tools may do
 stackyard mcp allow start_service   # or `allow all`; `deny` turns it off again

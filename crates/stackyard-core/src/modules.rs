@@ -151,9 +151,9 @@ pub const MODULES: &[ModuleDef] = &[
         "databases",
         "Databases screen",
         Feature,
-        "Browse tables, run queries, back up and restore",
-        false,
-        false,
+        "Browse tables, run queries, back up and restore MySQL and MariaDB",
+        true,
+        true,
     ),
     module(
         "logs",

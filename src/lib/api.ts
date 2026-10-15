@@ -142,6 +142,13 @@ export type Module = {
   enabled: boolean;
 };
 
+export type DbServer = { id: string; name: string; version: string | null };
+export type DbServerStatus = { server: DbServer | null; problem: string | null };
+export type Database = { name: string; tables: number; size: number };
+export type DbTable = { name: string; rows: number; size: number; kind: string };
+export type ResultSet = { columns: string[]; rows: (string | null)[][]; truncated: boolean };
+export type DbBackup = { database: string; file: string; size: number; created: number };
+
 export type TldInfo = { tld: string; warning: string | null };
 
 export type NewSite = { name: string; path: string; runtime: string; https: boolean };
@@ -182,6 +189,17 @@ export interface Api {
   listLogs(): Promise<LogFile[]>;
   /** The last `lines` lines when `from` is null, else what was written since `from`. */
   readLog(id: string, from: number | null, lines: number): Promise<LogChunk>;
+  dbServer(): Promise<DbServerStatus>;
+  dbList(): Promise<Database[]>;
+  dbCreate(name: string): Promise<Database[]>;
+  dbDrop(name: string): Promise<Database[]>;
+  dbTables(database: string): Promise<DbTable[]>;
+  dbBrowse(database: string, table: string, offset: number, limit: number): Promise<ResultSet>;
+  dbQuery(database: string | null, sql: string): Promise<ResultSet[]>;
+  dbBackup(database: string): Promise<DbBackup[]>;
+  dbBackups(): Promise<DbBackup[]>;
+  dbRestore(database: string, file: string, into: string | null): Promise<Database[]>;
+  dbRemoveBackup(database: string, file: string): Promise<DbBackup[]>;
   mcpStatus(): Promise<McpStatus>;
   setMcpTool(name: string, allowed: boolean): Promise<McpStatus>;
 }
@@ -217,6 +235,17 @@ const tauriApi: Api = {
   onSitesChanged: (handler) => listen("sites-changed", () => handler()),
   listLogs: () => invoke("list_logs"),
   readLog: (id, from, lines) => invoke("read_log", { id, from, lines }),
+  dbServer: () => invoke("db_server"),
+  dbList: () => invoke("db_list"),
+  dbCreate: (name) => invoke("db_create", { name }),
+  dbDrop: (name) => invoke("db_drop", { name }),
+  dbTables: (database) => invoke("db_tables", { database }),
+  dbBrowse: (database, table, offset, limit) => invoke("db_browse", { database, table, offset, limit }),
+  dbQuery: (database, sql) => invoke("db_query", { database, sql }),
+  dbBackup: (database) => invoke("db_backup", { database }),
+  dbBackups: () => invoke("db_backups"),
+  dbRestore: (database, file, into) => invoke("db_restore", { database, file, into }),
+  dbRemoveBackup: (database, file) => invoke("db_remove_backup", { database, file }),
   mcpStatus: () => invoke("mcp_status"),
   setMcpTool: (name, allowed) => invoke("set_mcp_tool", { name, allowed }),
 };
@@ -295,6 +324,14 @@ function browserApi(): Api {
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
     mod("logs", "Log viewer", "feature", "Live logs from every service, with search", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
+    mod("databases", "Databases screen", "feature", "Browse tables, run queries, back up and restore MySQL and MariaDB", true, true),
+  ];
+  let dbs: Database[] = [
+    { name: "blog", tables: 3, size: 360448 },
+    { name: "shop", tables: 3, size: 1769472 },
+  ];
+  let backups: DbBackup[] = [
+    { database: "shop", file: "shop-20261014-020000.sql.gz", size: 412377, created: Date.now() - 22 * 3600_000 },
   ];
   let tld = ".stack";
   const sample = (name: string, runtime: string, framework: string | null, parked: boolean, problem: string | null = null): Site => ({
@@ -507,6 +544,58 @@ function browserApi(): Api {
       logTicks[id] = (logTicks[id] ?? 0) + 1;
       const lines = logTicks[id] % 2 ? [`${at()} [info] GET https://shop.stack/api/cart 200 ${logTicks[id]}ms`] : [];
       return { lines, offset: from + lines.length, reset: false };
+    },
+    dbServer: async () => ({ server: { id: "mysql", name: "MySQL 8.4", version: "8.4.6" }, problem: null }),
+    dbList: async () => dbs,
+    dbCreate: async (name) => {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) throw "use letters, digits, _ and - for database names (up to 64)";
+      if (dbs.some((d) => d.name === name)) throw `Can't create database '${name}'; database exists`;
+      dbs = [...dbs, { name, tables: 0, size: 0 }].sort((a, b) => a.name.localeCompare(b.name));
+      return dbs;
+    },
+    dbDrop: async (name) => {
+      dbs = dbs.filter((d) => d.name !== name);
+      return dbs;
+    },
+    dbTables: async (database) =>
+      database === "shop"
+        ? [
+            { name: "customers", rows: 1250, size: 196608, kind: "BASE TABLE" },
+            { name: "orders", rows: 8730, size: 1572864, kind: "BASE TABLE" },
+            { name: "order_totals", rows: 0, size: 0, kind: "VIEW" },
+          ]
+        : database === "blog"
+          ? [
+              { name: "comments", rows: 312, size: 81920, kind: "BASE TABLE" },
+              { name: "posts", rows: 48, size: 262144, kind: "BASE TABLE" },
+              { name: "users", rows: 6, size: 16384, kind: "BASE TABLE" },
+            ]
+          : [],
+    dbBrowse: async (_db, table, offset, limit) => ({
+      columns: ["id", "name", "email", "created_at", "note"],
+      rows: Array.from({ length: Math.min(limit, 42) }, (_, i) => [
+        String(offset + i + 1),
+        `${table === "orders" ? "Order" : "Customer"} ${offset + i + 1}`,
+        `person${offset + i + 1}@example.com`,
+        "2026-10-14 22:05:09",
+        i % 3 === 0 ? null : "Leaves the parcel with the neighbour when nobody is home",
+      ]),
+      truncated: false,
+    }),
+    dbQuery: async (_db, sql) => {
+      if (!/select/i.test(sql)) return [];
+      if (/selec\b/i.test(sql)) throw "You have an error in your SQL syntax";
+      return [{ columns: ["id", "total"], rows: [["1", "9.99"], ["2", null]], truncated: false }];
+    },
+    dbBackup: async (database) => {
+      backups = [{ database, file: `${database}-20261015-001500.sql.gz`, size: 48213, created: Date.now() }, ...backups];
+      return backups;
+    },
+    dbBackups: async () => backups,
+    dbRestore: async () => dbs,
+    dbRemoveBackup: async (database, file) => {
+      backups = backups.filter((b) => !(b.database === database && b.file === file));
+      return backups;
     },
     mcpStatus: async () => mcp,
     setMcpTool: async (name, allowed) => {
