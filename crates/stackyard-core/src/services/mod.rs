@@ -10,6 +10,7 @@ mod caddy;
 mod github;
 mod mailpit;
 mod mariadb;
+mod meilisearch;
 mod mysql;
 
 use std::path::{Path, PathBuf};
@@ -119,6 +120,7 @@ impl ServiceManager {
             "mailpit" => mailpit::resolve(&self.http, p),
             "mysql" => mysql::resolve(&self.http, def, p),
             "mariadb" => mariadb::resolve(&self.http, def, p),
+            "meilisearch" => meilisearch::resolve(&self.http, p),
             _ => Err(Error::UnknownModule(id.to_string())),
         }
     }
@@ -186,6 +188,7 @@ impl ServiceManager {
             "mailpit" => mailpit::spec(&ctx),
             "mysql" => mysql::spec(&ctx),
             "mariadb" => mariadb::spec(&ctx),
+            "meilisearch" => meilisearch::spec(&ctx),
             _ => Err(Error::UnknownModule(id.to_string())),
         }
     }
@@ -281,6 +284,8 @@ pub fn program(id: &str, os: Os) -> &'static str {
         ("mysql", true) => "bin/mysqld.exe",
         ("mariadb", false) => "bin/mariadbd",
         ("mariadb", true) => "bin/mariadbd.exe",
+        ("meilisearch", false) => "meilisearch",
+        ("meilisearch", true) => "meilisearch.exe",
         _ => "",
     }
 }
@@ -383,6 +388,47 @@ mod tests {
         manager.uninstall("mailpit").unwrap();
         assert!(manager.get("mailpit").is_none());
         assert!(home.join("data/mailpit/mailpit.db").is_file());
+    }
+
+    /// Meilisearch is published as the bare program, not an archive.
+    #[test]
+    fn installs_a_bare_program() {
+        let home = crate::testutil::tempdir();
+        let manager = ServiceManager::new(&home);
+        let body = b"#!/bin/sh\necho meilisearch up\nexec sleep 30\n".to_vec();
+        let file = home.join("meili");
+        std::fs::write(&file, &body).unwrap();
+        let release = Release {
+            version: "1.25.0".into(),
+            url: format!("{}/meilisearch-linux-amd64", testserver::serve(body)),
+            file_name: "meilisearch-linux-amd64".into(),
+            checksum: sha256_file(&file).unwrap(),
+        };
+        let installed = manager
+            .install_release("meilisearch", &release, &mut |_| {})
+            .unwrap();
+        assert_eq!(installed.release, "1.25.0");
+        let program = installed
+            .path
+            .join(program("meilisearch", Platform::current().os));
+        assert!(program.is_file());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&program).unwrap().permissions().mode();
+            assert_eq!(mode & 0o111, 0o111);
+        }
+
+        let spec = manager.spec("meilisearch").unwrap();
+        assert_eq!(spec.ports, vec![7700]);
+        assert!(spec.args.contains(&"127.0.0.1:7700".to_string()));
+        assert!(spec
+            .args
+            .contains(&slash(&home.join("data/meilisearch/data.ms"))));
+        assert!(spec
+            .env
+            .iter()
+            .any(|(k, v)| k == "MEILI_EXPERIMENTAL_DUMPLESS_UPGRADE" && v == "true"));
     }
 
     #[test]
@@ -503,6 +549,20 @@ mod tests {
             .unwrap();
         assert!(info.contains("Version"), "{info}");
         live_stop("mailpit", supervisor, home);
+    }
+
+    #[test]
+    #[ignore]
+    fn live_runs_meilisearch() {
+        let Some((supervisor, home)) = live_start("meilisearch") else {
+            return;
+        };
+        let health = Http::new()
+            .get_text("http://127.0.0.1:7700/health")
+            .unwrap();
+        assert!(health.contains("available"), "{health}");
+        assert!(home.join("data/meilisearch/data.ms").is_dir());
+        live_stop("meilisearch", supervisor, home);
     }
 
     #[test]
