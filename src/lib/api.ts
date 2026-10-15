@@ -259,6 +259,8 @@ export interface Api {
   listLogs(): Promise<LogFile[]>;
   /** The last `lines` lines when `from` is null, else what was written since `from`. */
   readLog(id: string, from: number | null, lines: number): Promise<LogChunk>;
+  /** Empties every log; returns how many were cleared. */
+  clearLogs(): Promise<number>;
   dbServer(): Promise<DbServerStatus>;
   dbList(): Promise<Database[]>;
   dbCreate(name: string): Promise<Database[]>;
@@ -322,6 +324,7 @@ const tauriApi: Api = {
   onUpdateProgress: (handler) => listen<UpdateProgress>("update-progress", (e) => handler(e.payload)),
   listLogs: () => invoke("list_logs"),
   readLog: (id, from, lines) => invoke("read_log", { id, from, lines }),
+  clearLogs: () => invoke("clear_logs"),
   dbServer: () => invoke("db_server"),
   dbList: () => invoke("db_list"),
   dbCreate: (name) => invoke("db_create", { name }),
@@ -706,6 +709,7 @@ function browserApi(): Api {
       const lines = logTicks[id] % 2 ? [`${at()} [info] GET https://shop.stack/api/cart 200 ${logTicks[id]}ms`] : [];
       return { lines, offset: from + lines.length, reset: false };
     },
+    clearLogs: async () => 3,
     dbServer: async () => ({ server: { id: "mysql", name: "MySQL 8.4", version: "8.4.6" }, problem: null }),
     dbList: async () => dbs,
     dbCreate: async (name) => {

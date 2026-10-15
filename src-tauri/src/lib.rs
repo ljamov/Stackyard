@@ -543,6 +543,16 @@ fn read_log(id: String, from: Option<u64>, lines: usize) -> CmdResult<logs::Chun
     logs::read(&paths::home(), &id, from, lines.min(5000)).map_err(err)
 }
 
+/// Empties every log so each starts again from nothing.
+#[tauri::command]
+fn clear_logs() -> CmdResult<usize> {
+    Settings::load()
+        .map_err(err)?
+        .require_module("logs")
+        .map_err(err)?;
+    logs::clear(&paths::home()).map_err(err)
+}
+
 /// Sizing the data folder reads every file in it, so this runs on a worker
 /// thread.
 #[tauri::command]
@@ -1104,6 +1114,7 @@ pub fn run() {
             set_mcp_tool,
             list_logs,
             read_log,
+            clear_logs,
             db_server,
             db_list,
             db_create,
