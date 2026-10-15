@@ -166,7 +166,13 @@ impl Client {
     }
 
     /// A page of a table's rows.
-    pub fn browse(&self, database: &str, table: &str, offset: u64, limit: usize) -> Result<ResultSet> {
+    pub fn browse(
+        &self,
+        database: &str,
+        table: &str,
+        offset: u64,
+        limit: usize,
+    ) -> Result<ResultSet> {
         let limit = limit.clamp(1, MAX_ROWS);
         let mut set = self.single(
             Some(database),
@@ -212,7 +218,11 @@ impl Client {
     }
 
     fn single(&self, database: Option<&str>, sql: &str) -> Result<ResultSet> {
-        Ok(self.query(database, sql)?.into_iter().next().unwrap_or_default())
+        Ok(self
+            .query(database, sql)?
+            .into_iter()
+            .next()
+            .unwrap_or_default())
     }
 
     /// Dumps a database to a new gzipped file in its backups folder.
@@ -267,7 +277,8 @@ impl Client {
             return Err(client_error(&errors, &self.server));
         }
         std::fs::rename(&partial, &path).map_err(io(&path))?;
-        backup_info(database, &path).ok_or_else(|| Error::Database("the backup file vanished".into()))
+        backup_info(database, &path)
+            .ok_or_else(|| Error::Database("the backup file vanished".into()))
     }
 
     /// Loads a backup into `into` (its own database when `None`), creating
@@ -388,7 +399,9 @@ fn client_command(launch: &Launch) -> Command {
         if cfg!(windows) {
             let mut arg = OsString::from("--port=");
             arg.push(port);
-            command.args(["--protocol=TCP", "--host=127.0.0.1"]).arg(arg);
+            command
+                .args(["--protocol=TCP", "--host=127.0.0.1"])
+                .arg(arg);
         }
     }
     command.envs(launch.env.iter().map(|(k, v)| (k, v)));
@@ -403,7 +416,11 @@ fn client_command(launch: &Launch) -> Command {
 
 /// What the client said went wrong, in plain words where we know them.
 fn client_error(stderr: &str, server: &str) -> Error {
-    let name = if server == "mariadb" { "MariaDB" } else { "MySQL" };
+    let name = if server == "mariadb" {
+        "MariaDB"
+    } else {
+        "MySQL"
+    };
     let line = stderr
         .lines()
         .map(str::trim)
@@ -465,17 +482,18 @@ pub fn backups_dir(home: &Path) -> PathBuf {
 /// A backup's path, refusing anything that would leave its folder.
 fn backup_path(home: &Path, database: &str, file: &str) -> Result<PathBuf> {
     let plain = |s: &str| {
-        !s.is_empty()
-            && !s.starts_with('.')
-            && !s.contains(['/', '\\', ':'])
-            && s != ".."
+        !s.is_empty() && !s.starts_with('.') && !s.contains(['/', '\\', ':']) && s != ".."
     };
     if !plain(database) || !plain(file) || !file.ends_with(".sql.gz") {
-        return Err(Error::Database(format!("there is no backup {database}/{file}")));
+        return Err(Error::Database(format!(
+            "there is no backup {database}/{file}"
+        )));
     }
     let path = backups_dir(home).join(database).join(file);
     if !path.is_file() {
-        return Err(Error::Database(format!("there is no backup {database}/{file}")));
+        return Err(Error::Database(format!(
+            "there is no backup {database}/{file}"
+        )));
     }
     Ok(path)
 }

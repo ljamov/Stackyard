@@ -8,6 +8,9 @@ use serde::Serialize;
 use stackyard_core::catalog::RUNTIMES;
 use stackyard_core::catalog::{self, RuntimeKind, SERVICES};
 use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
+use stackyard_core::databases::{
+    self, Backup, Client as DbClient, Database, ResultSet, Server, Table,
+};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::dns;
 use stackyard_core::engine::Engine;
@@ -360,6 +363,123 @@ async fn start_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceView>
         app.state::<Arc<Engine>>().supervisor(),
         &app.state::<Installs>(),
     ))
+}
+
+/// Runs database work off the interface thread: queries can take a while.
+async fn with_db<T: Send + 'static>(
+    work: impl FnOnce(&DbClient) -> stackyard_core::Result<T> + Send + 'static,
+) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Settings::load()?.require_module("databases")?;
+        work(&DbClient::open(&paths::home())?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(err)
+}
+
+#[derive(Serialize)]
+struct DbServerView {
+    server: Option<Server>,
+    /// Why there is no server to use, e.g. none is installed.
+    problem: Option<String>,
+}
+
+#[tauri::command]
+async fn db_server() -> CmdResult<DbServerView> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let opened = Settings::load()
+            .and_then(|s| s.require_module("databases"))
+            .and_then(|_| DbClient::open(&paths::home()));
+        match opened {
+            Ok(client) => DbServerView {
+                server: Some(client.server()),
+                problem: None,
+            },
+            Err(e) => DbServerView {
+                server: None,
+                problem: Some(e.to_string()),
+            },
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_list() -> CmdResult<Vec<Database>> {
+    with_db(|c| c.databases()).await
+}
+
+#[tauri::command]
+async fn db_create(name: String) -> CmdResult<Vec<Database>> {
+    with_db(move |c| {
+        c.create(&name)?;
+        c.databases()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn db_drop(name: String) -> CmdResult<Vec<Database>> {
+    with_db(move |c| {
+        c.drop(&name)?;
+        c.databases()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn db_tables(database: String) -> CmdResult<Vec<Table>> {
+    with_db(move |c| c.tables(&database)).await
+}
+
+#[tauri::command]
+async fn db_browse(
+    database: String,
+    table: String,
+    offset: u64,
+    limit: usize,
+) -> CmdResult<ResultSet> {
+    with_db(move |c| c.browse(&database, &table, offset, limit)).await
+}
+
+#[tauri::command]
+async fn db_query(database: Option<String>, sql: String) -> CmdResult<Vec<ResultSet>> {
+    with_db(move |c| c.query(database.as_deref(), &sql)).await
+}
+
+#[tauri::command]
+async fn db_backup(database: String) -> CmdResult<Vec<Backup>> {
+    with_db(move |c| {
+        c.backup(&database)?;
+        Ok(databases::backups(&paths::home()))
+    })
+    .await
+}
+
+#[tauri::command]
+fn db_backups() -> Vec<Backup> {
+    databases::backups(&paths::home())
+}
+
+#[tauri::command]
+async fn db_restore(
+    database: String,
+    file: String,
+    into: Option<String>,
+) -> CmdResult<Vec<Database>> {
+    with_db(move |c| {
+        c.restore(&database, &file, into.as_deref())?;
+        c.databases()
+    })
+    .await
+}
+
+#[tauri::command]
+fn db_remove_backup(database: String, file: String) -> CmdResult<Vec<Backup>> {
+    databases::remove_backup(&paths::home(), &database, &file).map_err(err)?;
+    Ok(databases::backups(&paths::home()))
 }
 
 #[tauri::command]
@@ -847,7 +967,18 @@ pub fn run() {
             mcp_status,
             set_mcp_tool,
             list_logs,
-            read_log
+            read_log,
+            db_server,
+            db_list,
+            db_create,
+            db_drop,
+            db_tables,
+            db_browse,
+            db_query,
+            db_backup,
+            db_backups,
+            db_restore,
+            db_remove_backup
         ])
         .setup(move |app| {
             let tray = match build_tray(app.handle()) {
