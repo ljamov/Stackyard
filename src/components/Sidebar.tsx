@@ -1,5 +1,6 @@
 import { Logo } from "./Logo";
 import { useModules } from "../lib/modules";
+import { useUpdate } from "../lib/updates";
 
 export const SCREENS = [
   "Dashboard",
@@ -27,6 +28,7 @@ const SCREEN_MODULE: Partial<Record<Screen, string>> = {
 
 export function Sidebar({ current, onSelect }: { current: Screen; onSelect: (s: Screen) => void }) {
   const { isOn } = useModules();
+  const [update] = useUpdate();
   const visible = SCREENS.filter((s) => !SCREEN_MODULE[s] || isOn(SCREEN_MODULE[s]!));
   return (
     <nav className="sidebar" aria-label="Main">
@@ -43,6 +45,11 @@ export function Sidebar({ current, onSelect }: { current: Screen; onSelect: (s: 
           onClick={() => onSelect(screen)}
         >
           {screen}
+          {screen === "Settings" && update?.available && (
+            <span className="badge" title={`Stackyard ${update.available.version} is available`}>
+              Update
+            </span>
+          )}
         </button>
       ))}
     </nav>

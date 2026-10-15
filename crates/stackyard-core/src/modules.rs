@@ -156,6 +156,14 @@ pub const MODULES: &[ModuleDef] = &[
         true,
     ),
     module(
+        "updates",
+        "Updates",
+        Feature,
+        "Checks for new Stackyard versions twice a day; you choose when to install",
+        true,
+        true,
+    ),
+    module(
         "logs",
         "Log viewer",
         Feature,
