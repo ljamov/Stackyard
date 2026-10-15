@@ -78,6 +78,8 @@ pub enum Error {
     Shell(String),
     #[error("{0}")]
     Mcp(String),
+    #[error("{0}")]
+    Task(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
