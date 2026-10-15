@@ -18,7 +18,7 @@ use crate::supervisor::ProcessSpec;
 use crate::{manifest, Result};
 
 const MANIFEST: &str =
-    "https://github.com/ljamov/stackyard-php/releases/download/postgres-builds/manifest.json";
+    "https://github.com/ljamov/Stackyard/releases/download/postgres-builds/manifest.json";
 
 /// The user the database is created with.
 pub const USER: &str = "postgres";

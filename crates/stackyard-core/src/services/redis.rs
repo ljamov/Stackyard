@@ -13,7 +13,7 @@ use crate::supervisor::ProcessSpec;
 use crate::{manifest, Result};
 
 const MANIFEST: &str =
-    "https://github.com/ljamov/stackyard-php/releases/download/redis-builds/manifest.json";
+    "https://github.com/ljamov/Stackyard/releases/download/redis-builds/manifest.json";
 
 pub(super) fn resolve(http: &Http, def: &ServiceDef, platform: Platform) -> Result<Release> {
     let url = std::env::var("STACKYARD_REDIS_MANIFEST").unwrap_or_else(|_| MANIFEST.into());

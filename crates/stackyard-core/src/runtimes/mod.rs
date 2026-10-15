@@ -23,7 +23,7 @@ pub use crate::platform::{Arch, Os, Platform};
 const NODE_DIST: &str = "https://nodejs.org/dist";
 const PHP_WINDOWS: &str = "https://www.php.net/~windows/releases";
 const PHP_MANIFEST: &str =
-    "https://github.com/ljamov/stackyard-php/releases/download/php-builds/manifest.json";
+    "https://github.com/ljamov/Stackyard/releases/download/php-builds/manifest.json";
 
 /// Where downloads come from. Each can be pointed at a mirror with an
 /// environment variable, which also lets tests use a local server.
