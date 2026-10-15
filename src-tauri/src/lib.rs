@@ -143,9 +143,8 @@ fn runtime_views(installs: &Installs) -> CmdResult<Vec<RuntimeView>> {
             name: family.name,
             available: family.available,
             versions: family
-                .versions
-                .iter()
-                .map(|&version| VersionView {
+                .versions_on(manager.platform().os)
+                .map(|version| VersionView {
                     version,
                     installed: manager.get(family.kind, version).map(|i| i.release),
                     default: settings.default_runtime(family.kind) == Some(version),

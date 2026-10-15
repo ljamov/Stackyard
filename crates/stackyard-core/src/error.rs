@@ -54,6 +54,8 @@ pub enum Error {
     Archive { path: PathBuf, message: String },
     #[error("{name} {version} is not offered by Stackyard")]
     UnknownVersion { name: String, version: String },
+    #[error("{name} {version} is only offered on Windows")]
+    WindowsOnly { name: String, version: String },
     #[error("{name} {version} has no download for {platform} yet")]
     NoBuild {
         name: String,
