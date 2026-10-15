@@ -18,8 +18,7 @@ use crate::platform::{Os, Platform};
 use crate::supervisor::ProcessSpec;
 use crate::{manifest, Error, Result};
 
-const MANIFEST: &str =
-    "https://github.com/ljamov/stackyard-php/releases/download/mysql/manifest.json";
+const MANIFEST: &str = "https://github.com/ljamov/Stackyard/releases/download/mysql/manifest.json";
 
 pub(super) fn resolve(http: &Http, def: &ServiceDef, platform: Platform) -> Result<Release> {
     let url = std::env::var("STACKYARD_MYSQL_MANIFEST").unwrap_or_else(|_| MANIFEST.into());
