@@ -163,8 +163,10 @@ fn a_running_task_is_not_started_twice_and_can_be_stopped() {
 
     // Wait for it to really be going, then stop it.
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !log(&home, &task.id).contains("started\n")
-        && !log(&home, &task.id).contains("started\r\n")
+    // cmd's `echo started &` prints "started " with the space before `&`.
+    while !log(&home, &task.id)
+        .lines()
+        .any(|line| line.trim() == "started")
     {
         assert!(Instant::now() < deadline, "{}", log(&home, &task.id));
         std::thread::sleep(Duration::from_millis(50));
