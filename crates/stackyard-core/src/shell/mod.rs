@@ -39,10 +39,13 @@ pub enum Tool {
     Npx,
     Mysql,
     Mysqldump,
+    Psql,
+    PgDump,
+    RedisCli,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 7] = [
+    pub const ALL: [Tool; 10] = [
         Tool::Php,
         Tool::Composer,
         Tool::Node,
@@ -50,6 +53,9 @@ impl Tool {
         Tool::Npx,
         Tool::Mysql,
         Tool::Mysqldump,
+        Tool::Psql,
+        Tool::PgDump,
+        Tool::RedisCli,
     ];
 
     pub fn name(self) -> &'static str {
@@ -61,6 +67,9 @@ impl Tool {
             Tool::Npx => "npx",
             Tool::Mysql => "mysql",
             Tool::Mysqldump => "mysqldump",
+            Tool::Psql => "psql",
+            Tool::PgDump => "pg_dump",
+            Tool::RedisCli => "redis-cli",
         }
     }
 
@@ -76,7 +85,7 @@ impl Tool {
         match self {
             Tool::Php | Tool::Composer => Some(RuntimeKind::Php),
             Tool::Node | Tool::Npm | Tool::Npx => Some(RuntimeKind::Node),
-            Tool::Mysql | Tool::Mysqldump => None,
+            Tool::Mysql | Tool::Mysqldump | Tool::Psql | Tool::PgDump | Tool::RedisCli => None,
         }
     }
 }
@@ -258,6 +267,18 @@ impl Context {
     }
 
     fn database_launch(&self, tool: Tool, args: Vec<OsString>) -> Result<Launch> {
+        match tool {
+            Tool::Psql | Tool::PgDump => {
+                let env = [
+                    ("PGHOST", "127.0.0.1".to_string()),
+                    ("PGPORT", "5432".to_string()),
+                    ("PGUSER", crate::services::postgres::USER.to_string()),
+                ];
+                return self.service_tool("postgres", tool, args, &env);
+            }
+            Tool::RedisCli => return self.service_tool("redis", tool, args, &[]),
+            _ => {}
+        }
         let services = ServiceManager::new(&self.home);
         let usable = |id: &&str| self.settings.module_enabled(id) && services.get(id).is_some();
         let candidates: Vec<&str> = ["mysql", "mariadb"].into_iter().filter(usable).collect();
@@ -300,6 +321,47 @@ impl Context {
             args,
             path_first: bin,
             env,
+            summary: format!("{} {}", def.name, def.version),
+        })
+    }
+}
+
+impl Context {
+    /// A client program in an installed service's `bin` folder, e.g. `psql`.
+    fn service_tool(
+        &self,
+        id: &str,
+        tool: Tool,
+        args: Vec<OsString>,
+        env: &[(&str, String)],
+    ) -> Result<Launch> {
+        let services = ServiceManager::new(&self.home);
+        let def = catalog::service(id).expect("a catalog service");
+        if !self.settings.module_enabled(id) || services.get(id).is_none() {
+            return Err(Error::Shell(format!(
+                "{} comes with {}; install it with `stackyard services install {id}`",
+                tool.name(),
+                def.name
+            )));
+        }
+        let bin = services.dir(def).join("bin");
+        let exe = if self.os == Os::Windows { ".exe" } else { "" };
+        let program = bin.join(format!("{}{exe}", tool.name()));
+        if !program.exists() {
+            return Err(Error::Shell(format!(
+                "{} has no {} program",
+                def.name,
+                tool.name()
+            )));
+        }
+        Ok(Launch {
+            program,
+            args,
+            path_first: bin,
+            env: env
+                .iter()
+                .map(|(k, v)| (k.to_string(), OsString::from(v)))
+                .collect(),
             summary: format!("{} {}", def.name, def.version),
         })
     }

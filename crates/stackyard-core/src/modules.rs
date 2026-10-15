@@ -118,11 +118,19 @@ pub const MODULES: &[ModuleDef] = &[
         "postgres",
         "PostgreSQL",
         Service,
-        "PostgreSQL database",
+        "PostgreSQL database server",
         false,
-        false,
+        true,
     ),
-    module("redis", "Redis", Service, "Cache and queues", false, false),
+    module(
+        "redis",
+        "Redis",
+        Service,
+        "Cache and queues (macOS and Linux)",
+        false,
+        true,
+    )
+    .not_on(&[Os::Windows]),
     module(
         "meilisearch",
         "Meilisearch",

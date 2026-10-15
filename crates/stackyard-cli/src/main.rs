@@ -488,6 +488,8 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         Command::Services { action: None } => {
             let manager = ServiceManager::open();
             let settings = Settings::load()?;
+            let name_width = SERVICES.iter().map(|s| s.name.len()).max().unwrap_or(0);
+            let role_width = SERVICES.iter().map(|s| s.role.len()).max().unwrap_or(0);
             for service in SERVICES {
                 let ports: Vec<String> = service.ports.iter().map(u16::to_string).collect();
                 let state = match manager.get(service.id) {
@@ -496,7 +498,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                     None => "not installed".to_string(),
                 };
                 println!(
-                    "{:<8} {:<5} {:<13} port {:<11} {state}",
+                    "{:<name_width$} {:<5} {:<role_width$} port {:<11} {state}",
                     service.name,
                     service.version,
                     service.role,
@@ -1380,6 +1382,7 @@ fn print_status(client: &control::Client, response: Response) {
         owner_name(client.owner),
         client.pid
     );
+    let width = services.iter().map(|s| s.name.len()).max().unwrap_or(0);
     for service in &services {
         let state = match service.state {
             ProcessState::Stopped => "stopped".to_string(),
@@ -1395,7 +1398,7 @@ fn print_status(client: &control::Client, response: Response) {
                 format!("crashed; see `stackyard logs {}`", service.id)
             }
         };
-        println!("  {:<9} {state}", service.name);
+        println!("  {:<width$} {state}", service.name);
     }
     let web = services
         .iter()
