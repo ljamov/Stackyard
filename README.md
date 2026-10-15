@@ -163,6 +163,15 @@ plain text or a regular expression. Errors and warnings stand out. Logs live in 
 folder of Stackyard's data folder; one that grows past 5 MB starts over and the previous one is
 kept as `.log.1`. Switch the screen off in Settings if you don't need it.
 
+## Disk space
+
+**Settings → Disk space** shows how much Stackyard's own folder takes (runtimes, services, their
+data, logs, downloads) and what can go. Safe items are picked for you: downloads and folders left
+by interrupted installs, previous logs, versions Stackyard no longer offers. Others are yours to
+pick: emptying the current logs, runtime versions that are not the default and that no site uses
+or pins, and the kept data of a service you removed, which asks once more because it can't be
+undone. Nothing is read until you ask, and project folders are never counted or touched.
+
 ## AI coding tools (MCP)
 
 `stackyard mcp` is an [MCP](https://modelcontextprotocol.io) server, so Claude Code, Cursor,
@@ -227,6 +236,9 @@ stackyard shims on       # php, node, composer… with each project's versions, 
 stackyard shell          # or just in this terminal
 stackyard use php 8.3    # pin a version for this project
 stackyard which          # which version each command runs here, and why
+stackyard cleanup                     # what takes space, and what can go
+stackyard cleanup --recommended       # remove what is safe to remove
+stackyard cleanup runtime-php-8.2     # or name items; service data also needs --yes
 stackyard mcp setup      # how to add Stackyard to Claude Code, Cursor and others
 stackyard mcp tools      # what AI tools may do
 stackyard mcp allow start_service   # or `allow all`; `deny` turns it off again

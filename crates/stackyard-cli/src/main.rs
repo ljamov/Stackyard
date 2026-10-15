@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 use stackyard_core::catalog::{self, RuntimeKind, RUNTIMES, SERVICES};
+use stackyard_core::cleanup;
 use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::domain;
@@ -112,6 +113,17 @@ enum Command {
     },
     /// Pin a version for this project in its `.stackyard` file, e.g. `use php 8.3`
     Use(RuntimeArgs),
+    /// Show what takes disk space and what can go; `cleanup --recommended` frees the safe part
+    Cleanup {
+        /// What to clean, by the ids `stackyard cleanup` lists
+        ids: Vec<String>,
+        /// Clean everything marked as safe to remove
+        #[arg(long)]
+        recommended: bool,
+        /// Confirm deleting service data, which can't be undone
+        #[arg(long)]
+        yes: bool,
+    },
     /// Serve AI coding tools over MCP on stdin and stdout; `mcp setup` shows how to add it
     Mcp {
         #[command(subcommand)]
@@ -528,6 +540,63 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 }
                 std::thread::sleep(Duration::from_millis(500));
                 chunk = logs::read(&home, &id, Some(chunk.offset), lines)?;
+            }
+        }
+        Command::Cleanup {
+            ids,
+            recommended,
+            yes,
+        } => {
+            let home = paths::home();
+            let report = cleanup::scan(&home);
+            if ids.is_empty() && !recommended {
+                println!("Stackyard uses {} in {}", size(report.total), home.display());
+                for part in &report.usage {
+                    println!("  {:<14} {:>10}", part.name, size(part.size));
+                }
+                if report.items.is_empty() {
+                    println!("\nNothing to clean up.");
+                    return Ok(());
+                }
+                println!("\nCan be cleaned up (* = safe, cleaned by --recommended):");
+                for item in &report.items {
+                    let mark = if item.recommended { "*" } else { " " };
+                    println!("{mark} {:<24} {:>10}  {}", item.id, size(item.size), item.title);
+                    println!("  {:<24} {:>10}  {}", "", "", item.detail);
+                }
+                println!("\nClean with `stackyard cleanup --recommended` or `stackyard cleanup <id>...`.");
+                return Ok(());
+            }
+            let mut chosen = ids;
+            if recommended {
+                for item in report.items.iter().filter(|i| i.recommended) {
+                    if !chosen.contains(&item.id) {
+                        chosen.push(item.id.clone());
+                    }
+                }
+            }
+            let permanent: Vec<&str> = report
+                .items
+                .iter()
+                .filter(|i| i.permanent && chosen.contains(&i.id))
+                .map(|i| i.title.as_str())
+                .collect();
+            if !permanent.is_empty() && !yes {
+                return Err(Error::Cleanup(format!(
+                    "{} can't be brought back once deleted. Add --yes to delete it.",
+                    permanent.join(", ")
+                )));
+            }
+            let outcome = cleanup::clean(&home, &chosen);
+            for title in &outcome.cleaned {
+                println!("Cleaned {title}");
+            }
+            for problem in &outcome.problems {
+                eprintln!("Not cleaned: {problem}");
+            }
+            println!("Freed {}.", size(outcome.freed));
+            if !outcome.problems.is_empty() {
+                std::process::exit(1);
             }
         }
         Command::Daemon => daemon()?,
@@ -1096,6 +1165,25 @@ fn current_dir() -> stackyard_core::Result<PathBuf> {
 fn parse_kind(id: &str) -> stackyard_core::Result<RuntimeKind> {
     RuntimeKind::from_id(&id.to_ascii_lowercase())
         .ok_or_else(|| stackyard_core::Error::UnknownModule(id.to_string()))
+}
+
+/// `1536` → `1.5 KB`, in steps of 1024 like file managers on Windows and Linux.
+fn size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64 / 1024.0;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if value < 10.0 {
+        format!("{value:.1} {}", UNITS[unit])
+    } else {
+        format!("{value:.0} {}", UNITS[unit])
+    }
 }
 
 #[cfg(test)]
