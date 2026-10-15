@@ -91,7 +91,11 @@ fn unpack_into_place(
     dest: &Path,
     program: &str,
 ) -> Result<()> {
-    let content = archive::extract(archive_path, staging)?;
+    let content = if archive::is_archive(&release.file_name) {
+        archive::extract(archive_path, staging)?
+    } else {
+        place_program(archive_path, staging, program)?
+    };
     if !content.join(program).is_file() {
         return Err(Error::Archive {
             path: archive_path.to_owned(),
@@ -129,6 +133,26 @@ fn unpack_into_place(
         let _ = std::fs::remove_dir_all(&old);
     }
     Ok(())
+}
+
+/// A download that is the program itself, with no archive around it: it is
+/// copied into the folder under its program name and made runnable.
+fn place_program(file: &Path, staging: &Path, program: &str) -> Result<PathBuf> {
+    let target = staging.join(program);
+    let io = |source| Error::Io {
+        path: target.clone(),
+        source,
+    };
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(io)?;
+    }
+    std::fs::copy(file, &target).map_err(io)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).map_err(io)?;
+    }
+    Ok(staging.to_owned())
 }
 
 /// Removes an installed folder. It is moved aside first so it disappears in
