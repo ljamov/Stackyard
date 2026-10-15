@@ -71,3 +71,17 @@ pub fn running_as_root() -> bool {
 pub fn running_as_root() -> bool {
     false
 }
+
+/// Keeps a console program from opening a console window on Windows. The
+/// desktop app has no console of its own, so without this every helper it
+/// runs (PowerShell, mysqld --initialize) flashes a window on screen.
+pub fn hide_console(command: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
