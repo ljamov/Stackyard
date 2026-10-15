@@ -11,7 +11,9 @@ use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 use stackyard_core::catalog::{self, RuntimeKind, RUNTIMES, SERVICES};
+use stackyard_core::cleanup;
 use stackyard_core::control::{self, ControlServer, Owner, Request, Response};
+use stackyard_core::databases::{self, Client as DbClient};
 use stackyard_core::detect::{self, Needs};
 use stackyard_core::domain;
 use stackyard_core::engine::Engine;
@@ -19,6 +21,7 @@ use stackyard_core::logs;
 use stackyard_core::mcp;
 use stackyard_core::modules::MODULES;
 use stackyard_core::runtimes::{RuntimeManager, Step};
+use stackyard_core::scheduler::{self, clock, Outcome, TaskInput};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::shell::{self, path as user_path, pins, shims, Tool};
@@ -112,11 +115,88 @@ enum Command {
     },
     /// Pin a version for this project in its `.stackyard` file, e.g. `use php 8.3`
     Use(RuntimeArgs),
+    /// Show what takes disk space and what can go; `cleanup --recommended` frees the safe part
+    Cleanup {
+        /// What to clean, by the ids `stackyard cleanup` lists
+        ids: Vec<String>,
+        /// Clean everything marked as safe to remove
+        #[arg(long)]
+        recommended: bool,
+        /// Confirm deleting service data, which can't be undone
+        #[arg(long)]
+        yes: bool,
+    },
+    /// List MySQL or MariaDB databases, or create, back up and restore them
+    Db {
+        #[command(subcommand)]
+        action: Option<DbAction>,
+    },
+    /// List scheduled tasks, or add, run and remove them
+    Tasks {
+        #[command(subcommand)]
+        action: Option<TasksAction>,
+    },
     /// Serve AI coding tools over MCP on stdin and stdout; `mcp setup` shows how to add it
     Mcp {
         #[command(subcommand)]
         action: Option<McpAction>,
     },
+}
+
+#[derive(Subcommand)]
+enum DbAction {
+    /// Create an empty database
+    Create { name: String },
+    /// Drop a database and everything in it
+    Drop {
+        name: String,
+        /// Confirm: the data is gone afterwards (back it up first)
+        #[arg(long)]
+        yes: bool,
+    },
+    /// List a database's tables
+    Tables { name: String },
+    /// Run SQL and print what it returns, e.g. `db query shop "SELECT * FROM orders LIMIT 5"`
+    Query { name: String, sql: String },
+    /// Save a database to a gzipped SQL file in Stackyard's backups folder
+    Backup { name: String },
+    /// List backups, of every database or one
+    Backups { name: Option<String> },
+    /// Load a backup (the newest when no file is given) into its database, or another
+    Restore {
+        name: String,
+        file: Option<String>,
+        /// Restore into this database instead, creating it if needed
+        #[arg(long)]
+        into: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum TasksAction {
+    /// Add a task, e.g. `tasks add "Laravel scheduler" --run "php artisan schedule:run" --every "* * * * *"`
+    Add {
+        name: String,
+        /// The command, run by the system shell
+        #[arg(long)]
+        run: String,
+        /// When: crontab's five fields (minute hour day month weekday) or @hourly, @daily, @weekly
+        #[arg(long)]
+        every: String,
+        /// The folder to run it in; this one when left out
+        #[arg(long = "in")]
+        folder: Option<PathBuf>,
+    },
+    /// Run a task now, here in the terminal
+    Run { task: String },
+    /// Switch a task on
+    On { task: String },
+    /// Switch a task off; it stays in the list
+    Off { task: String },
+    /// Remove a task with its log
+    Remove { task: String },
+    /// Show when a schedule runs, e.g. `tasks check "0 9 * * mon-fri"`
+    Check { schedule: String },
 }
 
 #[derive(Subcommand)]
@@ -487,6 +567,16 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             None => println!("Nothing is running."),
             Some(client) if services.is_empty() => {
                 client.send(Request::StopAll)?;
+                // The background service quits too; wait until it is gone
+                // so whatever runs next starts afresh.
+                if client.owner != Owner::App {
+                    for _ in 0..150 {
+                        if control::find(&paths::home()).is_none() {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                }
                 println!("Stopped everything.");
             }
             Some(client) => print_status(&client, client.send(Request::Stop { ids: services })?),
@@ -528,6 +618,63 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 }
                 std::thread::sleep(Duration::from_millis(500));
                 chunk = logs::read(&home, &id, Some(chunk.offset), lines)?;
+            }
+        }
+        Command::Cleanup {
+            ids,
+            recommended,
+            yes,
+        } => {
+            let home = paths::home();
+            let report = cleanup::scan(&home);
+            if ids.is_empty() && !recommended {
+                println!("Stackyard uses {} in {}", size(report.total), home.display());
+                for part in &report.usage {
+                    println!("  {:<14} {:>10}", part.name, size(part.size));
+                }
+                if report.items.is_empty() {
+                    println!("\nNothing to clean up.");
+                    return Ok(());
+                }
+                println!("\nCan be cleaned up (* = safe, cleaned by --recommended):");
+                for item in &report.items {
+                    let mark = if item.recommended { "*" } else { " " };
+                    println!("{mark} {:<24} {:>10}  {}", item.id, size(item.size), item.title);
+                    println!("  {:<24} {:>10}  {}", "", "", item.detail);
+                }
+                println!("\nClean with `stackyard cleanup --recommended` or `stackyard cleanup <id>...`.");
+                return Ok(());
+            }
+            let mut chosen = ids;
+            if recommended {
+                for item in report.items.iter().filter(|i| i.recommended) {
+                    if !chosen.contains(&item.id) {
+                        chosen.push(item.id.clone());
+                    }
+                }
+            }
+            let permanent: Vec<&str> = report
+                .items
+                .iter()
+                .filter(|i| i.permanent && chosen.contains(&i.id))
+                .map(|i| i.title.as_str())
+                .collect();
+            if !permanent.is_empty() && !yes {
+                return Err(Error::Cleanup(format!(
+                    "{} can't be brought back once deleted. Add --yes to delete it.",
+                    permanent.join(", ")
+                )));
+            }
+            let outcome = cleanup::clean(&home, &chosen);
+            for title in &outcome.cleaned {
+                println!("Cleaned {title}");
+            }
+            for problem in &outcome.problems {
+                eprintln!("Not cleaned: {problem}");
+            }
+            println!("Freed {}.", size(outcome.freed));
+            if !outcome.problems.is_empty() {
+                std::process::exit(1);
             }
         }
         Command::Daemon => daemon()?,
@@ -649,6 +796,8 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 );
             }
         }
+        Command::Db { action } => db(action)?,
+        Command::Tasks { action } => tasks(action)?,
         Command::Mcp { action } => mcp(action)?,
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
         Command::Tld { value: Some(value) } => {
@@ -661,6 +810,123 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 eprintln!("warning: {warning}");
             }
         }
+    }
+    Ok(())
+}
+
+fn db(action: Option<DbAction>) -> stackyard_core::Result<()> {
+    let home = paths::home();
+    Settings::load()?.require_module("databases")?;
+    let size = |bytes: u64| match bytes {
+        b if b < 1024 * 1024 => format!("{} KB", b.div_ceil(1024)),
+        b => format!("{:.1} MB", b as f64 / 1024.0 / 1024.0),
+    };
+    if let Some(DbAction::Backups { name }) = &action {
+        let all = databases::backups(&home);
+        let shown: Vec<_> = all
+            .iter()
+            .filter(|b| name.as_ref().is_none_or(|n| &b.database == n))
+            .collect();
+        if shown.is_empty() {
+            println!("No backups yet. Make one with `stackyard db backup <name>`.");
+        }
+        for b in shown {
+            println!("{:<20} {:<40} {:>9}", b.database, b.file, size(b.size));
+        }
+        println!("Folder: {}", databases::backups_dir(&home).display());
+        return Ok(());
+    }
+    let client = DbClient::open(&home)?;
+    match action {
+        None => {
+            let server = client.server();
+            match &server.version {
+                Some(v) => println!("{} ({v})", server.name),
+                None => {
+                    return Err(Error::Database(format!(
+                        "{} is not running. Start it with `stackyard start {}`.",
+                        server.name, server.id
+                    )))
+                }
+            }
+            let all = client.databases()?;
+            if all.is_empty() {
+                println!("No databases yet. Create one with `stackyard db create <name>`.");
+            }
+            for d in all {
+                println!(
+                    "  {:<30} {:>4} tables {:>10}",
+                    d.name,
+                    d.tables,
+                    size(d.size)
+                );
+            }
+        }
+        Some(DbAction::Create { name }) => {
+            client.create(&name)?;
+            println!("Created {name}.");
+        }
+        Some(DbAction::Drop { name, yes }) => {
+            if !yes {
+                return Err(Error::Database(format!(
+                    "this deletes {name} and all its data; run it again with --yes (or back it up first with `stackyard db backup {name}`)"
+                )));
+            }
+            client.drop(&name)?;
+            println!("Dropped {name}.");
+        }
+        Some(DbAction::Tables { name }) => {
+            for t in client.tables(&name)? {
+                let kind = if t.kind == "VIEW" { " (view)" } else { "" };
+                println!(
+                    "  {:<40} ~{:>9} rows {:>10}{kind}",
+                    t.name,
+                    t.rows,
+                    size(t.size)
+                );
+            }
+        }
+        Some(DbAction::Query { name, sql }) => {
+            let sets = client.query(Some(&name), &sql)?;
+            if sets.is_empty() {
+                println!("Done.");
+            }
+            for set in sets {
+                println!("{}", set.columns.join("\t"));
+                for row in &set.rows {
+                    let cells: Vec<&str> =
+                        row.iter().map(|c| c.as_deref().unwrap_or("NULL")).collect();
+                    println!("{}", cells.join("\t"));
+                }
+                if set.truncated {
+                    println!("(only the first {} rows are shown)", databases::MAX_ROWS);
+                }
+            }
+        }
+        Some(DbAction::Backup { name }) => {
+            let backup = client.backup(&name)?;
+            println!(
+                "Saved {} ({}) in {}",
+                backup.file,
+                size(backup.size),
+                databases::backups_dir(&home)
+                    .join(&backup.database)
+                    .display()
+            );
+        }
+        Some(DbAction::Restore { name, file, into }) => {
+            let file = match file {
+                Some(f) => f,
+                None => databases::backups(&home)
+                    .into_iter()
+                    .find(|b| b.database == name)
+                    .map(|b| b.file)
+                    .ok_or_else(|| Error::Database(format!("{name} has no backups yet")))?,
+            };
+            client.restore(&name, &file, into.as_deref())?;
+            println!("Restored {file} into {}.", into.as_deref().unwrap_or(&name));
+        }
+        Some(DbAction::Backups { .. }) => unreachable!("handled above"),
     }
     Ok(())
 }
@@ -742,6 +1008,153 @@ fn allow_mcp_tool(tool: &str, allowed: bool) -> stackyard_core::Result<()> {
 }
 
 /// `2026-10-14 22:05:09 UTC` from milliseconds since 1970.
+fn tasks(action: Option<TasksAction>) -> stackyard_core::Result<()> {
+    let home = paths::home();
+    let settings = Settings::load()?;
+    if !matches!(action, Some(TasksAction::Check { .. })) {
+        settings.require_module("scheduler")?;
+    }
+    match action {
+        None => {
+            let views = scheduler::views(&home)?;
+            if views.is_empty() {
+                println!("No tasks yet. Add one with `stackyard tasks add <name> --run <command> --every <schedule>`.");
+                return Ok(());
+            }
+            for view in views {
+                let task = &view.task;
+                let when = view.description.unwrap_or_else(|| task.schedule.clone());
+                let state = match (
+                    &view.problem,
+                    task.enabled,
+                    view.running_since,
+                    view.next_run,
+                ) {
+                    (Some(problem), _, _, _) => problem.clone(),
+                    (_, _, Some(_), _) => "running now".into(),
+                    (_, false, _, _) => "switched off".into(),
+                    (_, _, _, Some(next)) => format!("next {}", local_time(next)),
+                    _ => "never due".into(),
+                };
+                println!("{}  {}  ({when}; {state})", task.id, task.name);
+                println!("          {}  in {}", task.command, task.folder.display());
+                if let Some(last) = view.last {
+                    let how = match (last.outcome, last.exit_code) {
+                        (Outcome::Succeeded, _) => "succeeded".to_string(),
+                        (Outcome::Failed, Some(code)) => format!("failed with exit code {code}"),
+                        (Outcome::Failed, None) => "failed".to_string(),
+                        (Outcome::Stopped, _) => "was stopped".to_string(),
+                        (Outcome::CouldNotStart, _) => {
+                            format!("could not start: {}", last.message.unwrap_or_default())
+                        }
+                    };
+                    println!("          last run {} {how}", local_time(last.started));
+                }
+            }
+            println!("\nTasks run while Stackyard runs: the app, or `stackyard start` in the background.");
+            println!("Each task's output: stackyard logs task-<id>");
+        }
+        Some(TasksAction::Add {
+            name,
+            run,
+            every,
+            folder,
+        }) => {
+            let folder = match folder {
+                Some(f) if f.is_absolute() => f,
+                Some(f) => std::env::current_dir()
+                    .map(|d| d.join(f))
+                    .unwrap_or_default(),
+                None => std::env::current_dir().unwrap_or_default(),
+            };
+            let task = scheduler::add(
+                &home,
+                TaskInput {
+                    name,
+                    command: run,
+                    folder,
+                    schedule: every,
+                    enabled: true,
+                },
+            )?;
+            let when = scheduler::cron::describe(&task.schedule).unwrap_or(task.schedule.clone());
+            println!("Added {} ({}): {when}.", task.name, task.id);
+            if let Some(next) = scheduler::preview(&task.schedule, 1)?.first() {
+                println!("First run {}.", local_time(*next));
+            }
+            if control::find(&home).is_none() {
+                println!("Tasks run while Stackyard runs: open the app, or `stackyard start`.");
+            }
+        }
+        Some(TasksAction::Run { task }) => {
+            let task = scheduler::find(&home, &task)?;
+            eprintln!("Running {} in {}", task.name, task.folder.display());
+            let status = scheduler::command(&home, &task)
+                .status()
+                .map_err(|source| Error::Io {
+                    path: task.folder.clone(),
+                    source,
+                })?;
+            if !status.success() {
+                return Err(Error::Task(match status.code() {
+                    Some(code) => format!("{} failed with exit code {code}", task.name),
+                    None => format!("{} was stopped", task.name),
+                }));
+            }
+        }
+        Some(TasksAction::On { task }) => {
+            let task = scheduler::find(&home, &task)?;
+            scheduler::set_enabled(&home, &task.id, true)?;
+            println!("{} is on.", task.name);
+        }
+        Some(TasksAction::Off { task }) => {
+            let task = scheduler::find(&home, &task)?;
+            scheduler::set_enabled(&home, &task.id, false)?;
+            println!("{} is off.", task.name);
+        }
+        Some(TasksAction::Remove { task }) => {
+            let task = scheduler::find(&home, &task)?;
+            scheduler::remove(&home, &task.id)?;
+            println!("Removed {}.", task.name);
+        }
+        Some(TasksAction::Check { schedule }) => {
+            let runs = scheduler::preview(&schedule, 5)?;
+            if let Some(text) = scheduler::cron::describe(&schedule) {
+                println!("{text}.");
+            }
+            if runs.is_empty() {
+                println!("It never runs: no such date comes up in the next four years.");
+            }
+            for run in runs {
+                println!("  {}", local_time(run));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// e.g. `Wed 14 Oct 22:05`, in this computer's time zone.
+fn local_time(ms: u64) -> String {
+    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let m = clock::local((ms / 1000) as i64);
+    let year = if m.year == clock::local(clock::now()).year {
+        String::new()
+    } else {
+        format!(" {}", m.year)
+    };
+    format!(
+        "{} {} {}{year} {:02}:{:02}",
+        DAYS[m.weekday as usize % 7],
+        m.day,
+        MONTHS[(m.month as usize + 11) % 12],
+        m.hour,
+        m.minute
+    )
+}
+
 fn utc_time(ms: u64) -> String {
     let secs = ms / 1000;
     let (days, rest) = ((secs / 86_400) as i64, secs % 86_400);
@@ -878,7 +1291,7 @@ fn up(services: &[String]) -> stackyard_core::Result<()> {
     println!("Press Ctrl+C to stop.");
     let _ = quit_rx.recv();
     eprintln!("Stopping...");
-    engine.stop_all();
+    engine.shutdown();
     Ok(())
 }
 
@@ -900,8 +1313,11 @@ fn daemon() -> stackyard_core::Result<()> {
     let _ = quit_rx.recv();
     // Let the answer to `stop` or `hand-over` reach the caller.
     std::thread::sleep(Duration::from_millis(300));
+    // Stop everything before letting go of the control channel, so a
+    // `stackyard start` right after starts afresh rather than reaching
+    // this process on its way out.
+    engine.shutdown();
     drop(server);
-    engine.stop_all();
     Ok(())
 }
 
@@ -915,10 +1331,18 @@ fn serve_control(
 ) -> stackyard_core::Result<ControlServer> {
     let engine = engine.clone();
     let quit = Mutex::new(quit);
+    let stopping = std::sync::atomic::AtomicBool::new(false);
     ControlServer::start(home, owner, move |request| {
+        use std::sync::atomic::Ordering;
+        if stopping.load(Ordering::SeqCst) {
+            return Response::Failed {
+                message: "Stackyard is stopping; try again in a moment".into(),
+            };
+        }
         let ends = matches!(request, Request::StopAll | Request::HandOver);
         let response = engine.handle(request);
         if ends {
+            stopping.store(true, Ordering::SeqCst);
             let _ = quit.lock().unwrap_or_else(|e| e.into_inner()).send(());
         }
         response
@@ -1096,6 +1520,25 @@ fn current_dir() -> stackyard_core::Result<PathBuf> {
 fn parse_kind(id: &str) -> stackyard_core::Result<RuntimeKind> {
     RuntimeKind::from_id(&id.to_ascii_lowercase())
         .ok_or_else(|| stackyard_core::Error::UnknownModule(id.to_string()))
+}
+
+/// `1536` → `1.5 KB`, in steps of 1024 like file managers on Windows and Linux.
+fn size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64 / 1024.0;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if value < 10.0 {
+        format!("{value:.1} {}", UNITS[unit])
+    } else {
+        format!("{value:.0} {}", UNITS[unit])
+    }
 }
 
 #[cfg(test)]

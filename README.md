@@ -5,7 +5,8 @@ databases, web servers and local HTTPS sites such as `https://myapp.stack` from 
 with no containers.
 
 > Status: early prototype. Runtimes, services, local sites with HTTPS, terminal commands, the
-> background service, the tray icon, installers and the MCP server for AI coding tools work.
+> background service, the tray icon, installers, the MCP server for AI coding tools and the task
+> scheduler work.
 
 ## Install
 
@@ -163,6 +164,26 @@ plain text or a regular expression. Errors and warnings stand out. Logs live in 
 folder of Stackyard's data folder; one that grows past 5 MB starts over and the previous one is
 kept as `.log.1`. Switch the screen off in Settings if you don't need it.
 
+## Databases
+
+The **Databases** screen works with whichever of MySQL and MariaDB is running: list and create
+databases, page through a table's rows, run SQL (up to 1,000 rows are shown, and NULL is told
+apart from an empty value), and back up or restore. Backups are gzipped SQL files in
+`backups/<database>` inside Stackyard's data folder, made with the server's own dump tool, so they
+load into any MySQL or MariaDB. A backup can replace the tables of its database or be restored as
+a copy under another name. Dropping a database asks you to type its name; `mysql`, `sys` and the
+other system databases can't be dropped from here. Switch the screen off in Settings if you use
+another database tool.
+
+## Disk space
+
+**Settings → Disk space** shows how much Stackyard's own folder takes (runtimes, services, their
+data, logs, downloads) and what can go. Safe items are picked for you: downloads and folders left
+by interrupted installs, previous logs, versions Stackyard no longer offers. Others are yours to
+pick: emptying the current logs, runtime versions that are not the default and that no site uses
+or pins, and the kept data of a service you removed, which asks once more because it can't be
+undone. Nothing is read until you ask, and project folders are never counted or touched.
+
 ## AI coding tools (MCP)
 
 `stackyard mcp` is an [MCP](https://modelcontextprotocol.io) server, so Claude Code, Cursor,
@@ -180,6 +201,23 @@ action is off until you allow it on the MCP server screen or with `stackyard mcp
 or files is never offered. Every call is recorded with the AI tool's name; see it on the MCP
 server screen or with `stackyard mcp log`. An AI tool that is already connected sees allowed
 tools appear without reconnecting.
+
+## Scheduled tasks
+
+The **Task scheduler** module (off by default; switch it on in Settings or with
+`stackyard modules on scheduler`) runs commands on a schedule, such as Laravel's
+`php artisan schedule:run` every minute or a nightly backup script. Each task runs with the
+system shell in its project folder, with Stackyard's terminal commands first on `PATH`, so `php`,
+`node` and `composer` are the versions that project uses.
+
+Schedules use crontab's five fields, `minute hour day month weekday`: `*/5 * * * *` is every five
+minutes, `30 2 * * *` every day at 02:30, `0 9 * * mon-fri` weekdays at 09:00. `@hourly`,
+`@daily`, `@weekly`, `@monthly` and `@yearly` work too. Times are this computer's local time.
+
+Tasks run while Stackyard runs: the app (also when only its tray icon is left) or
+`stackyard start` in the background. A task still running when it is due again is not started
+twice, and a minute missed while the computer slept is not caught up. Each task's output goes to
+`logs/task-<id>.log`; the Scheduler screen shows it, and how the last run went.
 
 ## Develop
 
@@ -227,10 +265,24 @@ stackyard shims on       # php, node, composer… with each project's versions, 
 stackyard shell          # or just in this terminal
 stackyard use php 8.3    # pin a version for this project
 stackyard which          # which version each command runs here, and why
+stackyard db                          # databases on the running MySQL or MariaDB
+stackyard db create shop
+stackyard db query shop "SELECT * FROM orders LIMIT 5"
+stackyard db backup shop              # backups/shop/shop-<date>-<time>.sql.gz
+stackyard db restore shop             # the newest backup (or name a file; --into another database)
+stackyard db drop shop --yes
+stackyard cleanup                     # what takes space, and what can go
+stackyard cleanup --recommended       # remove what is safe to remove
+stackyard cleanup runtime-php-8.2     # or name items; service data also needs --yes
 stackyard mcp setup      # how to add Stackyard to Claude Code, Cursor and others
 stackyard mcp tools      # what AI tools may do
 stackyard mcp allow start_service   # or `allow all`; `deny` turns it off again
 stackyard mcp log        # what AI tools did
+stackyard tasks add "Laravel scheduler" --run "php artisan schedule:run" --every "* * * * *"
+stackyard tasks          # tasks, with their next and last runs
+stackyard tasks run "Laravel scheduler"   # run one now, here in the terminal
+stackyard tasks off "Laravel scheduler"   # `on` switches it back on; `remove` deletes it
+stackyard tasks check "0 9 * * mon-fri"   # when a schedule would run
 ```
 
 ## License

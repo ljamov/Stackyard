@@ -3,7 +3,9 @@
 
 pub mod archive;
 pub mod catalog;
+pub mod cleanup;
 pub mod control;
+pub mod databases;
 pub mod detect;
 pub mod dns;
 pub mod domain;
@@ -19,6 +21,7 @@ pub mod paths;
 pub mod platform;
 pub mod ports;
 pub mod runtimes;
+pub mod scheduler;
 pub mod services;
 pub mod settings;
 pub mod shell;
