@@ -392,6 +392,8 @@ function browserApi(): Api {
     service("caddy", "Caddy", "2", [80, 443], "Web server", "http://localhost", "2.10.2"),
     service("mysql", "MySQL", "8.4", [3306], "Database", null, "8.4.6"),
     service("mariadb", "MariaDB", "11.8", [3306], "Database", null, null),
+    service("postgres", "PostgreSQL", "18", [5432], "Database", null, null),
+    service("redis", "Redis", "8", [6379], "Cache and queues", null, null),
     service("mailpit", "Mailpit", "1", [1025, 8025], "Mail catcher", "http://127.0.0.1:8025", null),
     service("meilisearch", "Meilisearch", "1", [7700], "Search engine", "http://127.0.0.1:7700", null),
   ];
@@ -418,7 +420,8 @@ function browserApi(): Api {
     mod("mariadb", "MariaDB", "service", "MySQL-compatible database (Windows and Linux)", false, true),
     mod("mailpit", "Mailpit", "service", "Catches outgoing mail for testing", false, true),
     mod("meilisearch", "Meilisearch", "service", "Fast search engine for apps, with a search preview page", false, true),
-    mod("redis", "Redis", "service", "Cache and queues", false, false),
+    mod("postgres", "PostgreSQL", "service", "PostgreSQL database server", false, true),
+    mod("redis", "Redis", "service", "Cache and queues (macOS and Linux)", false, true),
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
     mod("updates", "Updates", "feature", "Checks for new Stackyard versions twice a day; you choose when to install", true, true),
     mod("logs", "Log viewer", "feature", "Live logs from every service, with search", true, true),

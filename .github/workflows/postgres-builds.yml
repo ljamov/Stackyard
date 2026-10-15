@@ -1,0 +1,336 @@
+# Builds PostgreSQL for macOS and Linux from the official source, checked
+# against the SHA-256 postgresql.org publishes, and repackages the official
+# Windows binaries (from EDB, which the PostgreSQL project links to) without
+# pgAdmin and StackBuilder. Publishes the archives with SHA-256 checksums on
+# the rolling "postgres-builds" release, plus a manifest.json that the
+# Stackyard app reads to find them.
+#
+# The macOS and Linux builds are relocatable: programs find their libraries
+# next to them (../lib), so the folder works wherever Stackyard unpacks it.
+# They use the system's zlib and nothing else outside the archive: no
+# OpenSSL (the server only listens on 127.0.0.1) and no ICU (databases use
+# the C locale). Each archive ships PostgreSQL's license.
+
+name: PostgreSQL builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: PostgreSQL major versions to build, separated by spaces
+        default: "18 17 16"
+      publish:
+        description: Publish to the postgres-builds release
+        type: boolean
+        default: true
+  schedule:
+    # Mondays, to pick up PostgreSQL's minor releases.
+    - cron: "29 3 * * 1"
+  pull_request:
+    paths: [".github/workflows/postgres-builds.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-builds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      unix: ${{ steps.plan.outputs.unix }}
+      windows: ${{ steps.plan.outputs.windows }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          VERSIONS: ${{ inputs.versions }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          # Linux builds on the older Ubuntu, so they run on older systems too.
+          platforms='[
+            {"platform": "linux-x86_64",  "runner": "ubuntu-22.04"},
+            {"platform": "linux-aarch64", "runner": "ubuntu-22.04-arm"},
+            {"platform": "macos-x86_64",  "runner": "macos-15-intel"},
+            {"platform": "macos-aarch64", "runner": "macos-15"}
+          ]'
+          case "$EVENT" in
+            pull_request)
+              # Smoke test of this file: one version, one platform, nothing published.
+              majors="18"; publish=false
+              platforms=$(jq -c '[.[0]]' <<<"$platforms") ;;
+            schedule)
+              majors="18 17 16"; publish=true ;;
+            *)
+              majors="$VERSIONS"; publish="$PUBLISH" ;;
+          esac
+
+          index=$(curl -fsSL --retry 3 https://ftp.postgresql.org/pub/source/)
+          versions='[]'
+          for major in $majors; do
+            [[ "$major" =~ ^[0-9]+$ ]] || { echo "::error::not a PostgreSQL major version: $major"; exit 1; }
+            version=$(grep -oE "v$major\.[0-9]+/" <<<"$index" | tr -d v/ | sort -V | tail -1)
+            [ -n "$version" ] || { echo "::error::no PostgreSQL $major release found"; exit 1; }
+            echo "PostgreSQL $major: $version"
+            versions=$(jq -c --arg major "$major" --arg version "$version" '. + [{major: $major, version: $version}]' <<<"$versions")
+          done
+
+          unix=$(jq -cn --argjson versions "$versions" --argjson platforms "$platforms" \
+            '[$versions[] as $v | $platforms[] | . + $v]')
+          windows=$versions
+          [ "$EVENT" = pull_request ] && windows='[]'
+          echo "unix=$unix" >> "$GITHUB_OUTPUT"
+          echo "windows=$windows" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: PostgreSQL ${{ matrix.version }} (${{ matrix.platform }})
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.unix) }}
+    env:
+      MAJOR: ${{ matrix.major }}
+      VERSION: ${{ matrix.version }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Download and check the source
+        run: |
+          base="https://ftp.postgresql.org/pub/source/v$VERSION"
+          file="postgresql-$VERSION.tar.bz2"
+          curl -fsSL --retry 3 -o "$file" "$base/$file"
+          expected=$(curl -fsSL --retry 3 "$base/$file.sha256" | cut -d' ' -f1)
+          actual=$(shasum -a 256 "$file" | cut -d' ' -f1)
+          [ -n "$expected" ] && [ "$expected" = "$actual" ] \
+            || { echo "::error::SHA-256 mismatch for $file ($actual, expected $expected)"; exit 1; }
+          echo "Checksum OK: $file"
+          tar -xjf "$file"
+
+      - name: Install build tools
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -q
+            sudo apt-get install -yq bison flex patchelf zlib1g-dev
+          else
+            brew install bison flex
+            echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+            echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Build
+        run: |
+          name="postgresql-$VERSION-$PLATFORM"
+          echo "NAME=$name" >> "$GITHUB_ENV"
+          # The prefix contains "postgresql", so libraries and data files go
+          # straight into lib/ and share/.
+          prefix="$PWD/dist/$name"
+          echo "PREFIX=$prefix" >> "$GITHUB_ENV"
+          editline=--without-readline
+          # macOS ships libedit, so psql gets line editing there.
+          [ "$RUNNER_OS" = macOS ] && editline=--with-libedit-preferred
+          # Room in each file for the longer library paths set below.
+          [ "$RUNNER_OS" = macOS ] && export LDFLAGS=-Wl,-headerpad_max_install_names
+          cd "postgresql-$VERSION"
+          ./configure --prefix="$prefix" --disable-rpath --without-icu --without-openssl \
+            --without-llvm --with-zlib "$editline"
+          jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)
+          make -j"$jobs" world-bin
+          make install-world-bin
+          rm -rf "$prefix/include" "$prefix/lib/pkgconfig" "$prefix"/lib/*.a
+          cp COPYRIGHT "$prefix/LICENSE.txt"
+
+      - name: Make it relocatable
+        run: |
+          cd "$PREFIX"
+          if [ "$RUNNER_OS" = Linux ]; then
+            for f in bin/* lib/*.so*; do
+              [ -f "$f" ] && [ ! -L "$f" ] && file -b "$f" | grep -q ELF || continue
+              case "$f" in
+                bin/*) patchelf --set-rpath '$ORIGIN/../lib' "$f" ;;
+                *) patchelf --set-rpath '$ORIGIN' "$f" ;;
+              esac
+            done
+          else
+            for f in bin/* lib/*.dylib lib/*.so; do
+              [ -f "$f" ] && [ ! -L "$f" ] && file -b "$f" | grep -q Mach-O || continue
+              # Libraries get a relative name; loadable modules have none.
+              if file -b "$f" | grep -q "shared library"; then
+                install_name_tool -id "@rpath/$(basename "$f")" "$f"
+              fi
+              # Every link to a library in the prefix goes through the rpath.
+              otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -F "$PREFIX/lib/" | while read -r dep; do
+                install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$f"
+              done
+              case "$f" in
+                bin/*) install_name_tool -add_rpath '@loader_path/../lib' "$f" ;;
+                *) install_name_tool -add_rpath '@loader_path' "$f" ;;
+              esac
+              # Changing a file breaks its signature; Apple silicon won't run it unsigned.
+              codesign --force --sign - "$f"
+            done
+          fi
+
+      - name: Package
+        run: |
+          tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+          sha=$(shasum -a 256 "dist/$NAME.tar.gz" | cut -d' ' -f1)
+          jq -n --arg major "$MAJOR" --arg version "$VERSION" --arg platform "$PLATFORM" \
+            --arg file "$NAME.tar.gz" --arg sha256 "$sha" \
+            '{major: $major, version: $version, platform: $platform, file: $file, sha256: $sha256}' \
+            > "dist/$NAME.json"
+          cat "dist/$NAME.json"
+          du -sh "dist/$NAME.tar.gz"
+
+      # Unpacked somewhere else, the way Stackyard runs it.
+      - name: Check it runs from another folder
+        run: |
+          mkdir -p elsewhere
+          tar -C elsewhere -xzf "dist/$NAME.tar.gz"
+          rm -rf "$PREFIX"
+          pg="$PWD/elsewhere/$NAME"
+          "$pg/bin/postgres" --version
+          "$pg/bin/initdb" --pgdata=data --username=postgres --auth=trust --encoding=UTF8 --locale=C --no-instructions
+          "$pg/bin/pg_ctl" -D data -l server.log -o "-p 5439 -c listen_addresses=127.0.0.1 -c unix_socket_directories=" -w start
+          "$pg/bin/psql" -h 127.0.0.1 -p 5439 -U postgres -c 'create database check_db' -c 'select version()'
+          "$pg/bin/psql" -h 127.0.0.1 -p 5439 -U postgres -d check_db -c 'create extension pg_trgm' -c 'create extension hstore'
+          "$pg/bin/pg_dump" -h 127.0.0.1 -p 5439 -U postgres check_db | head -5
+          "$pg/bin/pg_ctl" -D data -w stop
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: postgres-${{ matrix.version }}-${{ matrix.platform }}
+          path: |
+            dist/*.tar.gz
+            dist/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: PostgreSQL ${{ matrix.version }} (windows-x86_64)
+    needs: plan
+    if: ${{ needs.plan.outputs.windows != '[]' }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.windows) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      MAJOR: ${{ matrix.major }}
+      VERSION: ${{ matrix.version }}
+    steps:
+      # EDB numbers its own builds (-1, -2, ...); the newest one wins.
+      - name: Download the official binaries
+        run: |
+          for build in 3 2 1; do
+            url="https://get.enterprisedb.com/postgresql/postgresql-$VERSION-$build-windows-x64-binaries.zip"
+            if curl -fsSL --retry 3 -o edb.zip "$url"; then
+              echo "Downloaded $url"; echo "SOURCE=$url" >> "$GITHUB_ENV"; exit 0
+            fi
+          done
+          echo "::error::no Windows binaries found for PostgreSQL $VERSION"; exit 1
+
+      - name: Repackage without pgAdmin and StackBuilder
+        run: |
+          name="postgresql-$VERSION-windows-x86_64"
+          echo "NAME=$name" >> "$GITHUB_ENV"
+          7z x -y -oedb edb.zip > /dev/null
+          [ -f edb/pgsql/bin/postgres.exe ] || { echo "::error::unexpected archive layout"; ls edb; exit 1; }
+          rm -rf "edb/pgsql/pgAdmin 4" edb/pgsql/StackBuilder edb/pgsql/symbols edb/pgsql/doc edb/pgsql/include
+          mkdir -p dist
+          mv edb/pgsql "dist/$name"
+          echo "Repackaged from $SOURCE" > "dist/$name/SOURCE.txt"
+          (cd dist && 7z a -tzip -mx=9 "$name.zip" "$name" > /dev/null)
+          sha=$(sha256sum "dist/$name.zip" | cut -d' ' -f1)
+          jq -n --arg major "$MAJOR" --arg version "$VERSION" --arg platform windows-x86_64 \
+            --arg file "$name.zip" --arg sha256 "$sha" \
+            '{major: $major, version: $version, platform: $platform, file: $file, sha256: $sha256}' \
+            > "dist/$name.json"
+          cat "dist/$name.json"
+          du -sh "dist/$name.zip"
+
+      - name: Check it runs
+        run: |
+          pg="dist/$NAME/bin"
+          "$pg/postgres.exe" --version
+          "$pg/initdb.exe" --pgdata=data --username=postgres --auth=trust --encoding=UTF8 --locale=C --no-instructions
+          "$pg/pg_ctl.exe" -D data -l server.log -o "-p 5439 -c listen_addresses=127.0.0.1" -w start
+          "$pg/psql.exe" -h 127.0.0.1 -p 5439 -U postgres -c 'select version()'
+          "$pg/pg_ctl.exe" -D data -w stop
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: postgres-${{ matrix.version }}-windows-x86_64
+          path: |
+            dist/*.zip
+            dist/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [plan, build, windows]
+    # Publish whatever built, even if some versions failed.
+    if: ${{ !cancelled() && needs.plan.outputs.publish == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: postgres-builds
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish archives and manifest
+        run: |
+          shopt -s nullglob
+          builds=(dist/*.json)
+          if [ ${#builds[@]} -eq 0 ]; then echo "::error::nothing was built"; exit 1; fi
+
+          if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" -R "$REPO" --latest=false --title "PostgreSQL builds" \
+              --notes "PostgreSQL for Stackyard: built from the official source for macOS and Linux, and the official Windows binaries from EDB without pgAdmin and StackBuilder. Each archive includes PostgreSQL's license. manifest.json lists every build with its SHA-256 checksum."
+          fi
+
+          mkdir -p old
+          gh release download "$TAG" -R "$REPO" -p manifest.json -D old 2>/dev/null \
+            || echo '{"schema": 1, "builds": []}' > old/manifest.json
+
+          base="https://github.com/$REPO/releases/download/$TAG"
+          jq -s --arg base "$base" 'map(. + {url: ($base + "/" + .file)})' "${builds[@]}" > new.json
+          # New builds replace older ones for the same major version and platform.
+          jq --slurpfile new new.json '{
+              schema: 1,
+              generated: (now | todate),
+              builds: ([.builds[] | . as $b
+                        | select($new[0] | any(.major == $b.major and .platform == $b.platform) | not)]
+                       + $new[0] | sort_by(.platform, (.major | tonumber)))
+            }' old/manifest.json > manifest.json
+          cat manifest.json
+
+          # Archives first, so the manifest never points at a missing file.
+          gh release upload "$TAG" -R "$REPO" --clobber dist/*.tar.gz dist/*.zip
+          gh release upload "$TAG" -R "$REPO" --clobber manifest.json
+
+          # Remove archives the manifest no longer lists.
+          keep=$(jq -r '.builds[].file' manifest.json)
+          gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name' | while read -r asset; do
+            case "$asset" in
+              manifest.json) ;;
+              *) grep -qxF "$asset" <<<"$keep" || gh release delete-asset "$TAG" "$asset" -R "$REPO" -y ;;
+            esac
+          done
