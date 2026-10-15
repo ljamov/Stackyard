@@ -2,7 +2,9 @@ name: Installers
 
 # Unsigned installers for Windows, macOS and Linux. They run for version
 # tags (and then go on a draft release), by hand, and for pull requests
-# that change how the installers are made.
+# that change how the installers are made. Run by hand on master with
+# "release" ticked, they also go on a draft release, tagged with the
+# version in tauri.conf.json; the tag is made when the draft is published.
 #
 # With the TAURI_SIGNING_PRIVATE_KEY secret (and its _PASSWORD) set, each
 # build also signs an update, and the release gets a latest.json that the
@@ -14,6 +16,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release:
+        description: Put the installers on a draft release (master only)
+        type: boolean
+        default: false
   pull_request:
     paths:
       - .github/workflows/release.yml
@@ -174,20 +181,45 @@ jobs:
 
   release:
     name: Draft release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (inputs.release && github.ref == 'refs/heads/master')
     needs: bundle
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ secrets.STACKYARD_RELEASES_TOKEN || github.token }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: src-tauri/tauri.conf.json
+          sparse-checkout-cone-mode: false
+      - name: Pick the release tag
+        id: tag
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(jq -r .version src-tauri/tauri.conf.json)"
+          fi
+          # Publishing a draft made by hand creates its tag, which runs this
+          # workflow again; that release already has its installers.
+          if gh release view "$tag" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            echo "::notice::$tag already has a release, so there is nothing to add."
+            tag=""
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
+        if: steps.tag.outputs.tag != ''
         with:
           path: out
           merge-multiple: true
       - name: Describe the update for the app
+        if: steps.tag.outputs.tag != ''
         run: |
           set -euo pipefail
-          base="https://github.com/$RELEASES_REPO/releases/download/$GITHUB_REF_NAME"
+          base="https://github.com/$RELEASES_REPO/releases/download/$TAG"
           platforms='{}'
           add() {
             [ -f "out/$2.sig" ] || return 0
@@ -211,14 +243,15 @@ jobs:
             echo "No signed updates in this build."
             exit 0
           fi
-          jq -n --arg v "${GITHUB_REF_NAME#v}" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson p "$platforms" \
+          jq -n --arg v "${TAG#v}" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson p "$platforms" \
             '{version: $v, notes: "", pub_date: $d, platforms: $p}' > out/latest.json
           cat out/latest.json
       - name: Put the installers on a draft release
-        env:
-          GH_TOKEN: ${{ secrets.STACKYARD_RELEASES_TOKEN || github.token }}
+        if: steps.tag.outputs.tag != ''
         run: |
           ls -l out
-          gh release create "$GITHUB_REF_NAME" out/* --repo "$RELEASES_REPO" --draft \
-            --title "Stackyard $GITHUB_REF_NAME" \
+          # The commit only exists here, not in a separate releases repository.
+          target=(); [ "$RELEASES_REPO" = "$GITHUB_REPOSITORY" ] && target=(--target "$GITHUB_SHA")
+          gh release create "$TAG" out/* --repo "$RELEASES_REPO" --draft "${target[@]}" \
+            --title "Stackyard $TAG" \
             --notes "Unsigned prototype installers. macOS: right-click the app and choose Open the first time. Windows: choose More info, then Run anyway."
