@@ -167,9 +167,9 @@ pub const MODULES: &[ModuleDef] = &[
         "scheduler",
         "Task scheduler",
         Feature,
-        "Cron-style jobs for scripts and commands",
+        "Run commands on a schedule in a project folder, like cron",
         false,
-        false,
+        true,
     ),
 ];
 
