@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/stackyard-core", "crates/stackyard-cli", "src-tauri"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/ljamov/Stackyard"
@@ -14,3 +14,25 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 thiserror = "2"
+
+# Image encoders are far too slow unoptimized, even in tests.
+[profile.dev.package.rav1e]
+opt-level = 3
+[profile.dev.package.ravif]
+opt-level = 3
+[profile.dev.package.libwebp-sys]
+opt-level = 3
+[profile.dev.package.oxipng]
+opt-level = 3
+[profile.dev.package.libdeflater]
+opt-level = 3
+[profile.dev.package.libdeflate-sys]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3

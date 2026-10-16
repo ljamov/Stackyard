@@ -4,6 +4,7 @@
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 export type PhpMyAdminStatus = {
@@ -337,6 +338,25 @@ export type GitStatus = {
   more_changes: number;
   identity: boolean;
 };
+/** A project a new site can start as, instead of an empty folder. */
+export type Starter = { id: string; name: string; description: string };
+export type NewStarterSite = { name: string; starter: string; path: string; https: boolean };
+export type StarterProgress = { name: string; message: string };
+
+export type ImageFormat = "webp" | "avif" | "same";
+export type ImageOptions = {
+  formats: ImageFormat[];
+  quality: number;
+  max_width: number | null;
+  /** Null puts new files next to the originals. */
+  out_dir: string | null;
+  /** Overwrite originals with smaller JPG/PNG copies. */
+  replace: boolean;
+};
+export type ImageMade = { format: ImageFormat; path: string; size: number; skipped: string | null };
+export type ImageResult = { source: string; size: number; made: ImageMade[]; error: string | null };
+export type ImagesFound = { count: number; size: number };
+export type ImagesProgress = { done: number; total: number; result: ImageResult };
 
 export interface Api {
   listRuntimes(): Promise<RuntimeFamily[]>;
@@ -359,6 +379,17 @@ export interface Api {
   setModule(id: string, enabled: boolean): Promise<Module[]>;
   listSites(): Promise<Site[]>;
   addSite(site: NewSite): Promise<Site[]>;
+  listStarters(): Promise<Starter[]>;
+  /** Opens the system's file picker for images; empty when cancelled. */
+  pickImages(start?: string): Promise<string[]>;
+  findImages(paths: string[]): Promise<ImagesFound>;
+  optimizeImages(paths: string[], options: ImageOptions): Promise<ImageResult[]>;
+  onImagesProgress(handler: (p: ImagesProgress) => void): Promise<() => void>;
+  /** Files and folders dropped on the window. */
+  onDrop(handler: (paths: string[]) => void): Promise<() => void>;
+  /** Downloads and sets up the project, then adds the site. */
+  addStarterSite(site: NewStarterSite): Promise<Site[]>;
+  onStarterProgress(handler: (p: StarterProgress) => void): Promise<() => void>;
   removeSite(name: string): Promise<Site[]>;
   listParked(): Promise<string[]>;
   /** Where new sites get their folder. */
@@ -466,6 +497,25 @@ const tauriApi: Api = {
   setModule: (id, enabled) => invoke("set_module", { id, enabled }),
   listSites: () => invoke("list_sites"),
   addSite: (site) => invoke("add_site", site),
+  listStarters: () => invoke("list_starters"),
+  pickImages: async (start) => {
+    const picked = await openDialog({
+      multiple: true,
+      title: "Select images",
+      defaultPath: start || undefined,
+      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+    });
+    return Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
+  },
+  findImages: (paths) => invoke("find_images", { paths }),
+  optimizeImages: (paths, options) => invoke("optimize_images", { paths, options }),
+  onImagesProgress: (handler) => listen<ImagesProgress>("images-progress", (e) => handler(e.payload)),
+  onDrop: (handler) =>
+    getCurrentWebview().onDragDropEvent((e) => {
+      if (e.payload.type === "drop") handler(e.payload.paths);
+    }),
+  addStarterSite: (site) => invoke("add_starter_site", site),
+  onStarterProgress: (handler) => listen<StarterProgress>("starter-progress", (e) => handler(e.payload)),
   removeSite: (name) => invoke("remove_site", { name }),
   listParked: () => invoke("list_parked"),
   sitesFolder: () => invoke("sites_folder"),
@@ -594,6 +644,8 @@ function browserApi(): Api {
     service("meilisearch", "Meilisearch", "1", [7700], "Search engine", "http://127.0.0.1:7700", null),
   ];
   const serviceHandlers = new Set<(p: ServiceProgress) => void>();
+  const starterHandlers = new Set<(p: StarterProgress) => void>();
+  const imageHandlers = new Set<(p: ImagesProgress) => void>();
   const logs: Record<string, string[]> = {};
   const updateService = (id: string, change: (s: Service) => Service) => {
     services = services.map((s) => (s.id === id ? change(s) : s));
@@ -627,6 +679,7 @@ function browserApi(): Api {
     mod("remote", "Remote servers", "feature", "Upload and download site files over SFTP, FTPS or FTP (Cloudways, cPanel, any VPS)", true, true),
     mod("git", "Git", "feature", "Link sites to GitHub or any Git host, then pull, commit and push (uses Git on your computer)", true, true),
     mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),
+    mod("images", "Image optimizer", "feature", "Make WebP and AVIF copies of JPG and PNG images, and smaller JPGs and PNGs", true, true),
   ];
   let dbs: Database[] = [
     { name: "blog", tables: 3, size: 360448 },
@@ -752,7 +805,7 @@ function browserApi(): Api {
   const logTicks: Record<string, number> = {};
   const warn = (t: string) =>
     t === ".local" ? ".local is used by Bonjour/mDNS for devices on your network" : null;
-  return {
+  const mock: Api = {
     listRuntimes: async () => runtimes,
     installRuntime: async (kind, version) => {
       updateVersion(kind, version, (v) => ({ ...v, installing: true }));
@@ -837,6 +890,61 @@ function browserApi(): Api {
       };
       sites = [site, ...sites];
       return sites;
+    },
+    listStarters: async () => [
+      { id: "wordpress", name: "WordPress", description: "The latest WordPress, with its database made in MySQL or MariaDB" },
+      { id: "laravel", name: "Laravel", description: "A new Laravel app, made with Composer" },
+      { id: "astro", name: "Astro", description: "A new Astro site; Stackyard runs its dev server" },
+    ],
+    addStarterSite: async ({ name, starter, path, https }) => {
+      for (const message of ["Downloading… 40%", "Downloading… 100%", "Setting it up…"]) {
+        starterHandlers.forEach((h) => h({ name, message }));
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      const runtime = starter === "astro" ? "Node 22" : "PHP 8.4";
+      const all = await mock.addSite({ name, path: path || `C:\\stackyard\\www\\${name}`, runtime, https });
+      const label = { wordpress: "WordPress", laravel: "Laravel", astro: "Astro" }[starter] ?? null;
+      sites = all.map((s) => (s.name === name ? { ...s, framework: label } : s));
+      return sites;
+    },
+    pickImages: async () => {
+      const typed = window.prompt("Image paths, separated by commas", "C:\\stackyard\\www\\blog\\hero.jpg");
+      return typed ? typed.split(",").map((p) => p.trim()).filter(Boolean) : [];
+    },
+    findImages: async (paths) => ({ count: paths.length * 6, size: paths.length * 9_400_000 }),
+    optimizeImages: async (paths, options) => {
+      const files = paths.flatMap((p) =>
+        /\.(jpe?g|png)$/i.test(p) ? [p] : ["hero.jpg", "team.png", "logo.png"].map((f) => `${p}\\img\\${f}`),
+      );
+      const results: ImageResult[] = [];
+      for (const [i, source] of files.entries()) {
+        await new Promise((r) => setTimeout(r, 350));
+        const size = 1_200_000 + i * 300_000;
+        const ratio: Record<ImageFormat, number> = { webp: 0.18, avif: 0.11, same: 0.62 };
+        const result: ImageResult = {
+          source,
+          size,
+          error: null,
+          made: options.formats.map((format) => ({
+            format,
+            path: source.replace(/\.[a-z]+$/i, format === "same" ? ".min$&" : `.${format}`),
+            size: Math.round(size * ratio[format] * (options.quality / 80)),
+            skipped: null,
+          })),
+        };
+        results.push(result);
+        imageHandlers.forEach((h) => h({ done: i + 1, total: files.length, result }));
+      }
+      return results;
+    },
+    onImagesProgress: async (handler) => {
+      imageHandlers.add(handler);
+      return () => imageHandlers.delete(handler);
+    },
+    onDrop: async () => () => {},
+    onStarterProgress: async (handler) => {
+      starterHandlers.add(handler);
+      return () => starterHandlers.delete(handler);
     },
     removeSite: async (name) => {
       sites = sites.filter((s) => s.domain !== name && s.name !== name);
@@ -1182,6 +1290,7 @@ function browserApi(): Api {
       return git[site];
     },
   };
+  return mock;
 }
 
 const remoteHandlers = new Set<(p: RemoteProgress) => void>();

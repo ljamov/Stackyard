@@ -101,7 +101,7 @@ td { padding: 12px 18px; border-top: 1px solid var(--border); }
 .tab[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); font-weight: 500; }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field label { color: var(--text-2); font-size: 13px; }
+.field label, .field .label { color: var(--text-2); font-size: 13px; }
 .field input, .field select, .input-affix {
   height: 44px; background: var(--sidebar); border: 1px solid var(--border-strong); border-radius: 10px; padding: 0 12px;
 }
@@ -236,3 +236,12 @@ table.result-grid td { padding: 6px 12px; max-width: 360px; white-space: pre; ov
 .remote-files { max-height: 280px; }
 .remote-browser .grid-wrap { max-height: 360px; }
 .check.small { min-height: 32px; font-size: 13px; }
+
+/* Images */
+.images-top { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
+.images-top > .card { flex: 1 1 360px; min-width: 0; }
+.drop-zone { border: 1px dashed var(--border); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.drop-zone p { margin: 0; }
+.images-top .grow { flex: 1 1 auto; min-width: 0; }
+.images-top .progress { width: 100%; }
+.results-summary { padding: 12px 14px 0; margin: 0; }

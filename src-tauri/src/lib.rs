@@ -28,7 +28,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
-use stackyard_core::{domain, paths, phpmyadmin};
+use stackyard_core::{domain, images, paths, phpmyadmin, starters};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 mod remote;
@@ -91,7 +91,7 @@ impl SiteView {
 fn site_views() -> CmdResult<Vec<SiteView>> {
     let manager = ServiceManager::open();
     let ports = Ports::current(manager.home());
-    let sites = manager.sites().map_err(err)?;
+    let sites = manager.user_sites().map_err(err)?;
     Ok(sites.iter().map(|s| SiteView::new(s, ports)).collect())
 }
 
@@ -553,9 +553,13 @@ fn phpmyadmin_view(installs: &Installs) -> PhpMyAdminView {
     let home = paths::home();
     let enabled = Settings::load().is_ok_and(|s| s.module_enabled(phpmyadmin::MODULE));
     let dir = phpmyadmin::dir(&home).display().to_string();
-    let site = site_views()
+    let manager = ServiceManager::new(&home);
+    let ports = Ports::current(&home);
+    let site = manager
+        .sites()
         .unwrap_or_default()
-        .into_iter()
+        .iter()
+        .map(|s| SiteView::new(s, ports))
         .find(|s| s.name == phpmyadmin::SITE && s.path == dir);
     PhpMyAdminView {
         installed: phpmyadmin::installed(&home),
@@ -1097,9 +1101,202 @@ fn add_site(
             path,
             runtime,
             https,
+            dev_server: false,
         })
         .map_err(err)?;
     store.save().map_err(err)?;
+    sites_changed(&app);
+    site_views()
+}
+
+#[derive(Serialize)]
+struct ImagesFound {
+    count: usize,
+    size: u64,
+}
+
+/// How many JPG and PNG images the chosen files and folders hold.
+#[tauri::command]
+async fn find_images(paths: Vec<String>) -> CmdResult<ImagesFound> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
+        let found = images::find(&paths);
+        ImagesFound {
+            count: found.len(),
+            size: found
+                .iter()
+                .map(|s| std::fs::metadata(&s.path).map_or(0, |m| m.len()))
+                .sum(),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Clone, Serialize)]
+struct ImagesProgress {
+    done: usize,
+    total: usize,
+    result: images::FileResult,
+}
+
+/// Makes the copies the options ask for, reporting each image as it is done.
+#[tauri::command]
+async fn optimize_images(
+    app: AppHandle,
+    paths: Vec<String>,
+    options: images::Options,
+) -> CmdResult<Vec<images::FileResult>> {
+    Settings::load()
+        .map_err(err)?
+        .require_module(images::MODULE)
+        .map_err(err)?;
+    images::check(&options).map_err(err)?;
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(images::MODULE.into())
+    {
+        return Err("Images are already being optimized".into());
+    }
+    let worker = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
+        let sources = images::find(&paths);
+        let total = sources.len();
+        images::optimize_all(&sources, &options, &mut |done, result| {
+            let _ = worker.emit(
+                "images-progress",
+                ImagesProgress {
+                    done,
+                    total,
+                    result: result.clone(),
+                },
+            );
+        })
+    })
+    .await;
+    app.state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .remove(images::MODULE);
+    result.map_err(|e| e.to_string())
+}
+
+#[derive(Clone, Serialize)]
+struct StarterProgress {
+    name: String,
+    message: String,
+}
+
+#[tauri::command]
+fn list_starters() -> Vec<starters::StarterInfo> {
+    starters::list()
+}
+
+/// Makes a new site from a starter (WordPress, Laravel, Astro), starting
+/// what it needs: MySQL or MariaDB for WordPress, and the web server so the
+/// site opens right away.
+#[tauri::command]
+async fn add_starter_site(
+    app: AppHandle,
+    name: String,
+    starter: String,
+    path: String,
+    https: bool,
+) -> CmdResult<Vec<SiteView>> {
+    let starter = starters::Starter::from_id(&starter)
+        .ok_or_else(|| format!("unknown starter {starter:?}"))?;
+    domain::validate_site_name(&name).map_err(err)?;
+    let settings = Settings::load().map_err(err)?;
+    let tld = domain::normalize_tld(&settings.tld).map_err(err)?;
+    let domain_name = domain::site_domain(&name, &tld);
+    if ServiceManager::open()
+        .sites()
+        .map_err(err)?
+        .iter()
+        .any(|s| s.domain() == domain_name)
+    {
+        return Err(stackyard_core::Error::SiteExists(domain_name).to_string());
+    }
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(format!("starter-{name}"))
+    {
+        return Err(format!("{domain_name} is already being made"));
+    }
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    let worker = app.clone();
+    let site_name = name.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> CmdResult<()> {
+        let home = paths::home();
+        let folder = match path.trim() {
+            "" => settings.sites_folder(&home).join(&site_name),
+            typed => paths::expand_home(std::path::Path::new(typed)),
+        };
+        let running = |id: &str| matches!(engine.state(id), ProcessState::Running { .. });
+        if starter.needs_database() && !running("mysql") && !running("mariadb") {
+            let id = ["mysql", "mariadb"]
+                .into_iter()
+                .find(|id| engine.manager().get(id).is_some())
+                .ok_or_else(|| {
+                    format!(
+                        "{} needs MySQL or MariaDB. Install one under Services first.",
+                        starter.name()
+                    )
+                })?;
+            engine.start(id).map_err(err)?;
+        }
+        let existed = folder.exists();
+        let made = starters::create(&home, starter, &site_name, &folder, &mut |message| {
+            let _ = worker.emit(
+                "starter-progress",
+                StarterProgress {
+                    name: site_name.clone(),
+                    message,
+                },
+            );
+        });
+        let made = match made {
+            Ok(made) => made,
+            Err(e) => {
+                // Leave nothing half-made, so trying again works.
+                if !existed {
+                    let _ = std::fs::remove_dir_all(&folder);
+                }
+                return Err(err(e));
+            }
+        };
+        let mut store = SiteStore::load().map_err(err)?;
+        store
+            .add(Site {
+                name: site_name.clone(),
+                tld,
+                path: folder,
+                runtime: made.runtime,
+                https,
+                dev_server: made.dev_server,
+            })
+            .map_err(err)?;
+        store.save().map_err(err)?;
+        if !running("caddy") {
+            engine.start("caddy").map_err(err)?;
+        }
+        Ok(())
+    })
+    .await;
+    app.state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .remove(&format!("starter-{name}"));
+    result.map_err(|e| e.to_string())??;
     sites_changed(&app);
     site_views()
 }
@@ -1289,6 +1486,10 @@ pub fn run() {
             stop_service,
             service_log,
             open_local_page,
+            list_starters,
+            find_images,
+            optimize_images,
+            add_starter_site,
             list_modules,
             set_module,
             service_states,

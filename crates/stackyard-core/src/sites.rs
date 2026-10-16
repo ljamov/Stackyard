@@ -38,6 +38,10 @@ pub struct Site {
     pub path: PathBuf,
     pub runtime: SiteRuntime,
     pub https: bool,
+    /// Node sites only: Stackyard runs the project's `npm run dev` while the
+    /// web server runs, so the site works without a terminal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dev_server: bool,
 }
 
 impl Site {
@@ -122,6 +126,7 @@ mod tests {
                 version: "8.3".into(),
             },
             https: true,
+            dev_server: false,
         }
     }
 

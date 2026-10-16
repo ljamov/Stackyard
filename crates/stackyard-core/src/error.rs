@@ -66,6 +66,8 @@ pub enum Error {
     },
     #[error("could not set up {name}: {message}")]
     ServiceSetup { name: String, message: String },
+    #[error("could not make the {name} site: {message}")]
+    Starter { name: String, message: String },
     #[error("{name} {version} is not installed")]
     NotInstalled { name: String, version: String },
     #[error("{0} is not a folder")]
@@ -98,6 +100,8 @@ pub enum Error {
     ServerKeyChanged { expected: String, found: String },
     #[error("{0}")]
     Git(String),
+    #[error("{0}")]
+    Images(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

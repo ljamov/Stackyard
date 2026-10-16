@@ -29,7 +29,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::ProcessState;
 use stackyard_core::system::{self, Elevate};
 use stackyard_core::web::{self, Backend, Ports};
-use stackyard_core::{paths, platform, Error};
+use stackyard_core::{images, paths, platform, starters, Error};
 
 #[derive(Parser)]
 #[command(name = "stackyard", version, about = "Local development stack manager")]
@@ -131,6 +131,8 @@ enum Command {
         #[command(subcommand)]
         action: Option<DbAction>,
     },
+    /// Make WebP and AVIF copies of JPG and PNG images, or smaller JPGs and PNGs
+    Images(ImagesArgs),
     /// List scheduled tasks, or add, run and remove them
     Tasks {
         #[command(subcommand)]
@@ -279,6 +281,19 @@ enum SitesCommand {
     List,
     /// Add a site
     Add(AddSite),
+    /// Make a new site from a starter: wordpress, laravel or astro
+    New {
+        /// Site name, e.g. `blog` for blog.stack
+        name: String,
+        /// wordpress, laravel or astro
+        starter: String,
+        /// Project folder, new or empty (default: the sites folder)
+        #[arg(long)]
+        path: Option<PathBuf>,
+        /// Serve over plain HTTP only
+        #[arg(long)]
+        no_https: bool,
+    },
     /// Remove a site by name or domain
     Remove { name: String },
     /// Make every project folder inside a folder a site (default: this folder)
@@ -287,6 +302,33 @@ enum SitesCommand {
     Unpark { folder: Option<PathBuf> },
     /// List parked folders
     Parked,
+}
+
+#[derive(Args)]
+struct ImagesArgs {
+    /// Images, or folders to search (default: this folder)
+    paths: Vec<PathBuf>,
+    /// Make WebP copies (the default, with --avif, when none is picked)
+    #[arg(long)]
+    webp: bool,
+    /// Make AVIF copies
+    #[arg(long)]
+    avif: bool,
+    /// Make smaller copies in the same format, named like photo.min.jpg
+    #[arg(long)]
+    min: bool,
+    /// 1 to 100, like a JPG quality setting
+    #[arg(long, default_value_t = 80)]
+    quality: u8,
+    /// Scale wider images down to this width
+    #[arg(long)]
+    max_width: Option<u32>,
+    /// Put new files in this folder instead of next to the originals
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// With --min: overwrite originals when the copy is smaller
+    #[arg(long, requires = "min")]
+    replace: bool,
 }
 
 #[derive(Args)]
@@ -342,7 +384,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         } => {
             let manager = ServiceManager::open();
             let ports = Ports::current(manager.home());
-            let sites = manager.sites()?;
+            let sites = manager.user_sites()?;
             if sites.is_empty() {
                 println!(
                     "No sites yet. Add one with `stackyard sites add <name>`, or park a folder of projects with `stackyard sites park`."
@@ -401,10 +443,107 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                     path,
                     runtime,
                     https: !args.no_https,
+                    dev_server: false,
                 })?
                 .url();
             store.save()?;
             notify(Request::SitesChanged);
+            println!("Added {url}");
+        }
+        Command::Sites {
+            action:
+                Some(SitesCommand::New {
+                    name,
+                    starter,
+                    path,
+                    no_https,
+                }),
+        } => {
+            let starter = starters::Starter::from_id(&starter).ok_or_else(|| {
+                Error::Shell(format!(
+                    "unknown starter {starter:?}; pick wordpress, laravel or astro"
+                ))
+            })?;
+            domain::validate_site_name(&name)?;
+            let settings = Settings::load()?;
+            let home = paths::home();
+            let folder = match path {
+                Some(path) => current_dir()?.join(paths::expand_home(&path)),
+                None => settings.sites_folder(&home).join(&name),
+            };
+            let domain = domain::site_domain(&name, &settings.tld);
+            if SiteStore::load()?.list().iter().any(|s| s.domain() == domain) {
+                return Err(Error::SiteExists(domain));
+            }
+            if starter.needs_database() {
+                // Started by the running Stackyard, so it keeps running.
+                let client = running_stackyard()?;
+                let services = match client.send(Request::Status)? {
+                    Response::Services { services } => services,
+                    _ => Vec::new(),
+                };
+                let running = |id: &str| {
+                    services
+                        .iter()
+                        .any(|s| s.id == id && matches!(s.state, ProcessState::Running { .. }))
+                };
+                if !running("mysql") && !running("mariadb") {
+                    let services = ServiceManager::open();
+                    let id = ["mysql", "mariadb"]
+                        .into_iter()
+                        .find(|id| services.get(id).is_some())
+                        .ok_or_else(|| {
+                            Error::Shell(format!(
+                                "{} needs MySQL or MariaDB; install one with `stackyard services install mysql`",
+                                starter.name()
+                            ))
+                        })?;
+                    client.send(Request::Start {
+                        ids: vec![id.to_string()],
+                    })?;
+                }
+            }
+            let existed = folder.exists();
+            let mut last = String::new();
+            let made = starters::create(&home, starter, &name, &folder, &mut |message| {
+                // Download percentages only every tenth.
+                let shown = match message.rsplit_once(' ') {
+                    Some((text, pct)) if pct.ends_with('%') => {
+                        let n: u32 = pct.trim_end_matches('%').parse().unwrap_or(0);
+                        format!("{text} {}%", n / 10 * 10)
+                    }
+                    _ => message,
+                };
+                if shown != last {
+                    eprintln!("{shown}");
+                    last = shown;
+                }
+            });
+            let made = match made {
+                Ok(made) => made,
+                Err(e) => {
+                    if !existed {
+                        let _ = std::fs::remove_dir_all(&folder);
+                    }
+                    return Err(e);
+                }
+            };
+            let mut store = SiteStore::load()?;
+            let url = store
+                .add(Site {
+                    name,
+                    tld: settings.tld,
+                    path: folder,
+                    runtime: made.runtime,
+                    https: !no_https,
+                    dev_server: made.dev_server,
+                })?
+                .url();
+            store.save()?;
+            notify(Request::SitesChanged);
+            if let Some(database) = made.database {
+                println!("Made the database {database}");
+            }
             println!("Added {url}");
         }
         Command::Sites {
@@ -801,6 +940,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             }
         }
         Command::Db { action } => db(action)?,
+        Command::Images(args) => optimize_images(args)?,
         Command::Tasks { action } => tasks(action)?,
         Command::Mcp { action } => mcp(action)?,
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
@@ -1529,6 +1669,92 @@ fn parse_kind(id: &str) -> stackyard_core::Result<RuntimeKind> {
 }
 
 /// `1536` → `1.5 KB`, in steps of 1024 like file managers on Windows and Linux.
+fn optimize_images(args: ImagesArgs) -> stackyard_core::Result<()> {
+    Settings::load()?.require_module(images::MODULE)?;
+    let mut formats = Vec::new();
+    if args.webp {
+        formats.push(images::Format::Webp);
+    }
+    if args.avif {
+        formats.push(images::Format::Avif);
+    }
+    if args.min {
+        formats.push(images::Format::Same);
+    }
+    if formats.is_empty() {
+        formats = vec![images::Format::Webp, images::Format::Avif];
+    }
+    let here = current_dir()?;
+    let options = images::Options {
+        formats,
+        quality: args.quality,
+        max_width: args.max_width,
+        out_dir: args.out.map(|o| here.join(o)),
+        replace: args.replace,
+    };
+    images::check(&options)?;
+    let paths: Vec<PathBuf> = if args.paths.is_empty() {
+        vec![here.clone()]
+    } else {
+        args.paths.iter().map(|p| here.join(p)).collect()
+    };
+    let sources = images::find(&paths);
+    if sources.is_empty() {
+        println!("No JPG or PNG images there.");
+        return Ok(());
+    }
+    let total = sources.len();
+    let (mut before, mut after, mut failed) = (0u64, 0u64, 0usize);
+    images::optimize_all(&sources, &options, &mut |done, result| {
+        let shown = result
+            .source
+            .strip_prefix(&here)
+            .unwrap_or(&result.source)
+            .display()
+            .to_string();
+        let mut parts = Vec::new();
+        for made in &result.made {
+            let label = match made.format {
+                images::Format::Webp => "WebP",
+                images::Format::Avif => "AVIF",
+                images::Format::Same => "smaller",
+            };
+            match &made.skipped {
+                Some(why) => parts.push(format!("{label}: {why}")),
+                None => {
+                    before += result.size;
+                    after += made.size;
+                    parts.push(format!("{label} {}", size(made.size)));
+                }
+            }
+        }
+        if let Some(error) = &result.error {
+            failed += 1;
+            parts.push(error.clone());
+        }
+        println!(
+            "[{done}/{total}] {shown} ({}): {}",
+            size(result.size),
+            parts.join(", ")
+        );
+    });
+    if let Some(ratio) = (after * 100).checked_div(before) {
+        let saved = 100 - ratio as i64;
+        if saved >= 0 {
+            println!("Done: the new files are {saved}% smaller than their originals.");
+        } else {
+            println!(
+                "Done: the new files are {}% larger than their originals.",
+                -saved
+            );
+        }
+    }
+    if failed > 0 {
+        return Err(Error::Images(format!("{failed} of {total} images failed")));
+    }
+    Ok(())
+}
+
 fn size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
     if bytes < 1024 {

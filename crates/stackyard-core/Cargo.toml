@@ -12,6 +12,7 @@ thiserror.workspace = true
 dirs = "6"
 flate2 = "1"
 serde_json.workspace = true
+sha1 = "0.10"
 sha2 = "0.10"
 base64 = "0.22"
 getrandom = "0.3"
@@ -25,12 +26,18 @@ russh-sftp = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "io-util"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-platform-verifier = "0.7"
+# Image optimizer: decode JPG/PNG/WebP, encode WebP (libwebp), AVIF (rav1e,
+# without its assembly so no extra build tools are needed) and smaller PNGs.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+ravif = { version = "0.13", default-features = false, features = ["threading"] }
+webp = { version = "0.3", default-features = false }
+oxipng = { version = "10", default-features = false, features = ["parallel"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_Time"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Time"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3"

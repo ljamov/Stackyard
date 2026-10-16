@@ -39,6 +39,7 @@ fn add_site(home: &Path, name: &str, runtime: SiteRuntime) -> PathBuf {
             path: path.clone(),
             runtime,
             https: true,
+            dev_server: false,
         })
         .unwrap();
     store.save().unwrap();
