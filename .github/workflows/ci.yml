@@ -73,6 +73,8 @@ jobs:
   sites:
     name: Local sites end to end (${{ matrix.os }})
     needs: check
+    # A hung step fails the job instead of holding a runner for six hours.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
