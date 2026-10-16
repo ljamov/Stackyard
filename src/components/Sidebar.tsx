@@ -30,7 +30,7 @@ const SCREEN_MODULE: Partial<Record<Screen, string>> = {
 
 export function Sidebar({ current, onSelect }: { current: Screen; onSelect: (s: Screen) => void }) {
   const { isOn } = useModules();
-  const [update] = useUpdate();
+  const { status: update } = useUpdate();
   const visible = SCREENS.filter((s) => !SCREEN_MODULE[s] || isOn(SCREEN_MODULE[s]!));
   return (
     <nav className="sidebar" aria-label="Main">

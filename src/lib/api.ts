@@ -161,6 +161,10 @@ export type UpdateStatus = {
   /** Milliseconds since 1970. */
   checked_at: number | null;
   problem: string | null;
+  /** What this version brought, from the changelog. */
+  whats_new: string | null;
+  /** Stackyard has just restarted into this version after an update. */
+  just_updated: boolean;
 };
 
 export type UpdateProgress = { done: number; total: number | null };
@@ -336,6 +340,8 @@ export interface Api {
   checkForUpdate(): Promise<UpdateStatus>;
   /** Stops every service, installs the update and restarts Stackyard. */
   installUpdate(): Promise<void>;
+  /** The person has seen what this version brought. */
+  seenWhatsNew(): Promise<UpdateStatus>;
   onUpdateAvailable(handler: (s: UpdateStatus) => void): Promise<() => void>;
   onUpdateProgress(handler: (p: UpdateProgress) => void): Promise<() => void>;
   listLogs(): Promise<LogFile[]>;
@@ -434,6 +440,7 @@ const tauriApi: Api = {
   updateStatus: () => invoke("update_status"),
   checkForUpdate: () => invoke("check_for_update"),
   installUpdate: () => invoke("install_update"),
+  seenWhatsNew: () => invoke("seen_whats_new"),
   onUpdateAvailable: (handler) => listen<UpdateStatus>("update-available", (e) => handler(e.payload)),
   onUpdateProgress: (handler) => listen<UpdateProgress>("update-progress", (e) => handler(e.payload)),
   listLogs: () => invoke("list_logs"),
@@ -543,7 +550,7 @@ function browserApi(): Api {
     mod("postgres", "PostgreSQL", "service", "PostgreSQL database server", false, true),
     mod("redis", "Redis", "service", "Cache and queues (macOS and Linux)", false, true),
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
-    mod("updates", "Updates", "feature", "Checks for new Stackyard versions twice a day; you choose when to install", true, true),
+    mod("updates", "Updates", "feature", "Checks for new Stackyard versions every few hours and tells you; you choose when to install", true, true),
     mod("logs", "Log viewer", "feature", "Live logs from every service, with search", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
     mod("databases", "Databases screen", "feature", "Browse tables, run queries, back up and restore MySQL and MariaDB", true, true),
@@ -884,12 +891,19 @@ function browserApi(): Api {
       update = {
         ...update,
         checked_at: Date.now(),
-        available: { version: "0.2.0", notes: "Databases screen, task scheduler and Disk space in Settings." },
+        available: {
+          version: "0.2.0",
+          notes: "- Databases screen: browse tables and run SQL.\n- Task scheduler.\n- Disk space in Settings.",
+        },
       };
       return update;
     },
     installUpdate: async () => {
       update = { ...update, installing: true };
+    },
+    seenWhatsNew: async () => {
+      update = { ...update, just_updated: false };
+      return update;
     },
     onUpdateAvailable: async () => () => {},
     onUpdateProgress: async () => () => {},
@@ -1059,6 +1073,8 @@ let update: UpdateStatus = {
   available: null,
   checked_at: null,
   problem: null,
+  whats_new: "- First release.",
+  just_updated: false,
 };
 
 let cleanup: CleanupItem[] = [
