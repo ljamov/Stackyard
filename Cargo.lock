@@ -5029,7 +5029,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stackyard-app"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ctrlc",
  "serde",
@@ -5043,7 +5043,7 @@ dependencies = [
 
 [[package]]
 name = "stackyard-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "ctrlc",
@@ -5052,7 +5052,7 @@ dependencies = [
 
 [[package]]
 name = "stackyard-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "dirs 6.0.0",

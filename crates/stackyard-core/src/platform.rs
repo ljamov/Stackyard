@@ -136,8 +136,12 @@ pub fn end_with_this_process(child: &std::process::Child) {
 pub fn stop_strays(program: &std::path::Path) {
     #[cfg(windows)]
     {
-        let script = "$p = Get-Process | Where-Object { $_.Path -and \
-            [string]::Equals($_.Path, $env:STACKYARD_PROGRAM, [StringComparison]::OrdinalIgnoreCase) }; \
+        // Windows reports `...\bin\mysqld.exe` where Stackyard has
+        // `...\bin/mysqld.exe`, so both sides are made full paths first.
+        let program: std::path::PathBuf = program.components().collect();
+        let script = "$want = [IO.Path]::GetFullPath($env:STACKYARD_PROGRAM); \
+            $p = Get-Process | Where-Object { $_.Path -and \
+            [string]::Equals([IO.Path]::GetFullPath($_.Path), $want, [StringComparison]::OrdinalIgnoreCase) }; \
             if ($p) { $p | Stop-Process -Force -ErrorAction SilentlyContinue; \
             $p | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue }";
         let _ = crate::system::powershell_command(script)
@@ -154,7 +158,10 @@ mod windows_tests {
     #[test]
     fn stops_a_stray_copy_of_a_program() {
         let dir = crate::testutil::tempdir();
-        let program = dir.join("ping.exe");
+        // Written the way services name their programs (`bin/mysqld.exe`),
+        // which Windows reports with a backslash.
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        let program = dir.join("bin/ping.exe");
         std::fs::copy(r"C:\Windows\System32\PING.EXE", &program).unwrap();
         let mut stray = std::process::Command::new(&program)
             .args(["-n", "60", "127.0.0.1"])
