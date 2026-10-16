@@ -32,6 +32,20 @@ cargo test -p stackyard-core -- --ignored live_   # real downloads, and services
 cargo run -p stackyard-cli -- sites list
 ```
 
+## Screenshots
+
+The pictures in `docs/images` (README and website) come from the browser preview with its sample data.
+After a change to how a screen looks, retake them:
+
+```sh
+npm i --no-save playwright
+npx playwright install chromium
+node scripts/screenshots.mjs              # every screen
+node scripts/screenshots.mjs logs images  # only these
+```
+
+With Python and Pillow installed, the script also cuts each PNG to 256 colours, which keeps them around 50 KB.
+
 ## Before you open a pull request
 
 Run the same checks CI runs:

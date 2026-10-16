@@ -1493,7 +1493,7 @@ const git: Record<string, GitStatus> = {
 };
 
 let update: UpdateStatus = {
-  current: "0.1.0",
+  current: import.meta.env.VITE_APP_VERSION ?? "0.1.0",
   configured: true,
   checking: false,
   installing: false,

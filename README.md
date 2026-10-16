@@ -154,12 +154,24 @@ stackyard use php 8.3                  # pin a version for the current project
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/dashboard.png" alt="Dashboard with services, sites and runtimes"></td>
-<td width="50%"><img src="docs/images/runtimes.png" alt="Runtimes screen with PHP versions 7.4 to 8.5"></td>
+<td width="50%"><img src="docs/images/dashboard.png" alt="Dashboard with running services, sites, runtimes and the MCP server"></td>
+<td width="50%"><img src="docs/images/services.png" alt="Services screen: Caddy, MySQL, PostgreSQL, Redis and Mailpit with start and stop buttons"></td>
 </tr>
 <tr>
-<td><img src="docs/images/databases.png" alt="Databases screen listing tables"></td>
+<td><img src="docs/images/runtimes.png" alt="Runtimes screen with PHP 7.4 to 8.5, three versions installed"></td>
+<td><img src="docs/images/servers.png" alt="A site's Servers panel with an SFTP server and upload, download and browse buttons"></td>
+</tr>
+<tr>
+<td><img src="docs/images/databases.png" alt="Databases screen listing a database's tables, with Query and Backups tabs"></td>
 <td><img src="docs/images/logs.png" alt="Logs screen with warnings and errors highlighted"></td>
+</tr>
+<tr>
+<td><img src="docs/images/images.png" alt="Image optimizer making WebP and AVIF copies of images"></td>
+<td><img src="docs/images/videos.png" alt="Video optimizer making MP4, WebM and GIF copies of videos"></td>
+</tr>
+<tr>
+<td><img src="docs/images/settings.png" alt="Settings screen with updates, local domains and modules you can switch off"></td>
+<td></td>
 </tr>
 </table>
 
