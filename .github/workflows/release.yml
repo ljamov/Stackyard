@@ -191,7 +191,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: src-tauri/tauri.conf.json
+          sparse-checkout: |
+            src-tauri/tauri.conf.json
+            CHANGELOG.md
           sparse-checkout-cone-mode: false
       - name: Pick the release tag
         id: tag
@@ -210,6 +212,20 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "TAG=$tag" >> "$GITHUB_ENV"
+      - name: Take this version's notes from the changelog
+        if: steps.tag.outputs.tag != ''
+        run: |
+          set -euo pipefail
+          # The section headed "## <version>", which the app shows next to its Update button.
+          awk -v v="${TAG#v}" '
+            /^## / { if (found) exit; rest = substr($0, 4); if (index(rest, v) == 1) { after = substr(rest, length(v) + 1); if (after == "" || after ~ /^[ (-]/) found = 1 }; next }
+            found { print }
+          ' CHANGELOG.md | sed -e '/./,$!d' > notes.md
+          if [ -s notes.md ]; then
+            cat notes.md
+          else
+            echo "::warning::CHANGELOG.md has no '## ${TAG#v}' section, so this release has no notes."
+          fi
       - uses: actions/download-artifact@v4
         if: steps.tag.outputs.tag != ''
         with:
@@ -244,7 +260,7 @@ jobs:
             exit 0
           fi
           jq -n --arg v "${TAG#v}" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson p "$platforms" \
-            '{version: $v, notes: "", pub_date: $d, platforms: $p}' > out/latest.json
+            --rawfile n notes.md '{version: $v, notes: ($n | sub("\\s+$"; "")), pub_date: $d, platforms: $p}' > out/latest.json
           cat out/latest.json
       - name: Put the installers on a draft release
         if: steps.tag.outputs.tag != ''
@@ -254,4 +270,4 @@ jobs:
           target=(); [ "$RELEASES_REPO" = "$GITHUB_REPOSITORY" ] && target=(--target "$GITHUB_SHA")
           gh release create "$TAG" out/* --repo "$RELEASES_REPO" --draft "${target[@]}" \
             --title "Stackyard $TAG" \
-            --notes "Unsigned prototype installers. macOS: right-click the app and choose Open the first time. Windows: choose More info, then Run anyway."
+            --notes-file <(cat notes.md; [ -s notes.md ] && echo; echo "Unsigned prototype installers. macOS: right-click the app and choose Open the first time. Windows: choose More info, then Run anyway.")
