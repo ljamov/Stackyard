@@ -188,6 +188,22 @@ pub const MODULES: &[ModuleDef] = &[
         true,
     ),
     module(
+        "remote",
+        "Remote servers",
+        Feature,
+        "Upload and download site files over SFTP, FTPS or FTP (Cloudways, cPanel, any VPS)",
+        true,
+        true,
+    ),
+    module(
+        "git",
+        "Git",
+        Feature,
+        "Link sites to GitHub or any Git host, then pull, commit and push (uses Git on your computer)",
+        true,
+        true,
+    ),
+    module(
         "scheduler",
         "Task scheduler",
         Feature,

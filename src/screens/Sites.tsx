@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { api, errorText, type RuntimeFamily, type Site } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
+import { SiteRemote } from "../components/SiteRemote";
 
 const SITE_LABELS: Partial<Record<RuntimeFamily["kind"], string>> = { php: "PHP", node: "Node" };
 
@@ -26,6 +27,8 @@ export function Sites() {
   const sitesFolder = useLoad(api.sitesFolder, "");
   const { isOn } = useModules();
   const options = runtimeOptions(runtimes.data, isOn);
+  const canConnect = isOn("remote") || isOn("git");
+  const [connecting, setConnecting] = useState<string | null>(null);
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
   const [name, setName] = useState("");
@@ -306,7 +309,21 @@ export function Sites() {
               </tr>
             )}
             {sites.data.map((site) => (
-              <SiteRow key={site.domain} site={site} onRemove={remove} />
+              <Fragment key={site.domain}>
+                <SiteRow
+                  site={site}
+                  onRemove={remove}
+                  connectOpen={canConnect ? connecting === site.domain : null}
+                  onConnect={() => setConnecting(connecting === site.domain ? null : site.domain)}
+                />
+                {canConnect && connecting === site.domain && (
+                  <tr className="site-detail">
+                    <td colSpan={4}>
+                      <SiteRemote site={site} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -315,7 +332,18 @@ export function Sites() {
   );
 }
 
-function SiteRow({ site, onRemove }: { site: Site; onRemove: (domain: string) => void }) {
+function SiteRow({
+  site,
+  onRemove,
+  connectOpen,
+  onConnect,
+}: {
+  site: Site;
+  onRemove: (domain: string) => void;
+  /** Whether the servers and Git panel is open; null when both modules are off. */
+  connectOpen: boolean | null;
+  onConnect: () => void;
+}) {
   return (
     <tr>
       <td>
@@ -337,7 +365,18 @@ function SiteRow({ site, onRemove }: { site: Site; onRemove: (domain: string) =>
         {site.problem && <div className="warn small">{site.problem}</div>}
       </td>
       <td className="mono muted small">{site.root}</td>
-      <td className="right">
+      <td className="right nowrap">
+        {connectOpen !== null && (
+          <button
+            type="button"
+            className="btn ghost small"
+            aria-expanded={connectOpen}
+            aria-label={`Servers and Git for ${site.domain}`}
+            onClick={onConnect}
+          >
+            {connectOpen ? "Close" : "Servers & Git"}
+          </button>
+        )}
         {!site.parked && (
           <button
             type="button"
