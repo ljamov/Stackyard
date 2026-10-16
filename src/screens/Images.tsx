@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   errorText,
@@ -35,8 +35,18 @@ function shortName(path: string) {
   return parts.slice(-2).join("/");
 }
 
+const IMAGE_FILE = /\.(jpe?g|png)$/i;
+
+/** The folder a chosen path is in: the path itself for a folder, its parent for an image. */
+function folderOf(path: string) {
+  return IMAGE_FILE.test(path) ? path.replace(/[\\/][^\\/]*$/, "") : path;
+}
+
+type Finished = { ok: boolean; message: string | null };
+
 export function Images() {
   const sites = useLoad(api.listSites, []);
+  const sitesFolder = useLoad(api.sitesFolder, "");
   const [paths, setPaths] = useState<string[]>([]);
   const [found, setFound] = useState<ImagesFound | null>(null);
   const [formats, setFormats] = useState<ImageFormat[]>(["webp", "avif"]);
@@ -49,6 +59,8 @@ export function Images() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [results, setResults] = useState<ImageResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [finished, setFinished] = useState<Finished | null>(null);
+  const banner = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let offs: (() => void)[] = [];
@@ -81,6 +93,11 @@ export function Images() {
     };
   }, [paths]);
 
+  // The button is at the bottom of the form; bring the result into view.
+  useEffect(() => {
+    if (finished) banner.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [finished]);
+
   function toggle(format: ImageFormat) {
     setFormats((f) => (f.includes(format) ? f.filter((x) => x !== format) : [...f, format]));
   }
@@ -91,12 +108,12 @@ export function Images() {
   }
 
   async function chooseFolder() {
-    const folder = await api.pickFolder("Select a folder with images");
+    const folder = await api.pickFolder("Select a folder with images", paths[0] ? folderOf(paths[0]) : sitesFolder.data);
     if (folder) setPaths((current) => [...new Set([...current, folder])]);
   }
 
   async function chooseOut() {
-    const folder = await api.pickFolder("Save the new images in", outDir);
+    const folder = await api.pickFolder("Save the new images in", outDir || (paths[0] ? folderOf(paths[0]) : sitesFolder.data));
     if (folder) setOutDir(folder);
   }
 
@@ -112,10 +129,13 @@ export function Images() {
     setResults([]);
     setProgress({ done: 0, total: found?.count ?? 0 });
     setError(null);
+    setFinished(null);
     try {
-      setResults(await api.optimizeImages(paths, options));
+      const done = await api.optimizeImages(paths, options);
+      setResults(done);
+      setFinished({ ok: done.every((r) => !r.error), message: null });
     } catch (e) {
-      setError(errorText(e));
+      setFinished({ ok: false, message: errorText(e) });
     } finally {
       setRunning(false);
     }
@@ -124,7 +144,8 @@ export function Images() {
   const made = results.flatMap((r) => r.made.filter((m) => !m.skipped).map((m) => ({ before: r.size, after: m.size })));
   const before = made.reduce((sum, m) => sum + m.before, 0);
   const after = made.reduce((sum, m) => sum + m.after, 0);
-  const failed = results.filter((r) => r.error).length;
+  const failed = results.filter((r) => r.error);
+  const skipped = results.reduce((n, r) => n + r.made.filter((m) => m.skipped).length, 0);
   const canRun = !running && (found?.count ?? 0) > 0 && formats.length > 0 && (!toFolder || outDir.trim() !== "");
 
   return (
@@ -142,6 +163,48 @@ export function Images() {
         <p className="error small" role="alert">
           {error}
         </p>
+      )}
+
+      {finished && !running && (
+        <div ref={banner} className={`banner ${finished.ok ? "ok" : "error"}`} role={finished.ok ? "status" : "alert"}>
+          <div className="row between centered">
+            <strong>
+              {finished.message
+                ? "Optimizing stopped with an error"
+                : finished.ok
+                  ? `Done: ${results.length} image${results.length === 1 ? "" : "s"} optimized`
+                  : `Done, but ${failed.length} of ${results.length} image${results.length === 1 ? "" : "s"} could not be optimized`}
+            </strong>
+            <button type="button" className="btn ghost small" onClick={() => setFinished(null)}>
+              Dismiss
+            </button>
+          </div>
+          {finished.message && <p className="small">{finished.message}</p>}
+          {made.length > 0 ? (
+            <p className="small">
+              {made.length} new file{made.length === 1 ? "" : "s"}: {size(after)} instead of {size(before)}. You save{" "}
+              <span className="strong">{size(Math.max(before - after, 0))}</span> ({saved(before, after)}).
+            </p>
+          ) : (
+            !finished.message && <p className="small">No new files were made.</p>
+          )}
+          {skipped > 0 && (
+            <p className="small">
+              {skipped} file{skipped === 1 ? " was" : "s were"} skipped, usually because the result would not be
+              smaller. The table below says why.
+            </p>
+          )}
+          {failed.length > 0 && (
+            <ul className="small banner-errors">
+              {failed.slice(0, 5).map((r) => (
+                <li key={r.source}>
+                  <span className="mono">{shortName(r.source)}</span>: {r.error}
+                </li>
+              ))}
+              {failed.length > 5 && <li>and {failed.length - 5} more, listed in the table below.</li>}
+            </ul>
+          )}
+        </div>
       )}
 
       <div className="images-top">
@@ -241,17 +304,20 @@ export function Images() {
               In another folder, keeping the folder layout
             </label>
             {toFolder && (
-              <div className="row folder-input">
-                <input
-                  aria-label="Folder for the new images"
-                  className="mono grow"
-                  value={outDir}
-                  placeholder="Choose a folder"
-                  onChange={(e) => setOutDir(e.target.value)}
-                />
-                <button type="button" className="btn" onClick={chooseOut}>
-                  Browse…
-                </button>
+              <div className="field">
+                <label htmlFor="i-out-dir">Folder for the new images</label>
+                <div className="row folder-input">
+                  <input
+                    id="i-out-dir"
+                    className="mono grow"
+                    value={outDir}
+                    placeholder="Choose a folder"
+                    onChange={(e) => setOutDir(e.target.value)}
+                  />
+                  <button type="button" className="btn" onClick={chooseOut}>
+                    Browse…
+                  </button>
+                </div>
               </div>
             )}
             {!toFolder && formats.includes("same") && (
@@ -288,7 +354,7 @@ export function Images() {
         <section aria-label="Results" className="card table-wrap">
           <p className="muted small results-summary">
             {before > 0 && `New files: ${size(after)} instead of ${size(before)} (${saved(before, after)}).`}
-            {failed > 0 && ` ${failed} could not be read.`}
+            {failed.length > 0 && ` ${failed.length} could not be read.`}
           </p>
           <table>
             <thead>
