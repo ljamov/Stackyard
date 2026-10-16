@@ -1,0 +1,45 @@
+name: Website
+
+# Publishes site/ to GitHub Pages, with the logo and screenshots copied in.
+# The download buttons read the latest release when the page loads, so a new
+# release needs no rebuild.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "site/**"
+      - "docs/images/**"
+      - "public/logo.svg"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/images
+          cp site/* _site/
+          cp public/logo.svg _site/
+          cp docs/images/*.png _site/images/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

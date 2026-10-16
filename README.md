@@ -16,6 +16,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 ![Built with Tauri 2 and Rust](https://img.shields.io/badge/built%20with-Tauri%202%20%2B%20Rust-F7CD72)
 
 [**Download**](https://github.com/ljamov/Stackyard/releases/latest) ·
+[Website](https://ljamov.github.io/Stackyard/) ·
 [Features](#features) ·
 [Quick start](#quick-start) ·
 [CLI](docs/cli.md) ·
