@@ -20,6 +20,9 @@ pub struct Settings {
     pub runtimes: BTreeMap<String, String>,
     /// Parked folders: every project folder inside one becomes a site.
     pub parked: Vec<PathBuf>,
+    /// Where new sites get their folder; see [`Settings::sites_folder`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sites_folder: Option<PathBuf>,
     pub mcp: McpSettings,
 }
 
@@ -39,6 +42,7 @@ impl Default for Settings {
             modules: BTreeMap::new(),
             runtimes: BTreeMap::new(),
             parked: Vec::new(),
+            sites_folder: None,
             mcp: McpSettings::default(),
         }
     }
@@ -113,6 +117,27 @@ impl Settings {
             Some(v) => self.runtimes.insert(kind.id().to_string(), v.to_string()),
             None => self.runtimes.remove(kind.id()),
         };
+    }
+}
+
+impl Settings {
+    /// The folder new sites are created in: the one chosen in setup, else
+    /// `www` in Stackyard's folder on Windows and `~/Code` elsewhere.
+    pub fn sites_folder(&self, home: &Path) -> PathBuf {
+        match &self.sites_folder {
+            Some(folder) => folder.clone(),
+            None => default_sites_folder(home),
+        }
+    }
+}
+
+pub fn default_sites_folder(home: &Path) -> PathBuf {
+    if cfg!(windows) {
+        home.join("www")
+    } else {
+        dirs::home_dir()
+            .unwrap_or_else(|| home.to_owned())
+            .join("Code")
     }
 }
 

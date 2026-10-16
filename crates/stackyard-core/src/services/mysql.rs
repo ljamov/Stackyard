@@ -93,9 +93,10 @@ pub(super) fn initialize(
             message,
         }
     };
-    let output = Command::new(program)
-        .args(args)
-        .current_dir(&ctx.data)
+    let mut command = Command::new(program);
+    command.args(args).current_dir(&ctx.data);
+    crate::platform::hide_console(&mut command);
+    let output = command
         .output()
         .map_err(|e| fail(format!("could not run {}: {e}", program.display())))?;
     if output.status.success() {

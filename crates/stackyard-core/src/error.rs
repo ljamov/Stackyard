@@ -79,6 +79,8 @@ pub enum Error {
     #[error("{0}")]
     Shell(String),
     #[error("{0}")]
+    Setup(String),
+    #[error("{0}")]
     Mcp(String),
     #[error("{0}")]
     Database(String),

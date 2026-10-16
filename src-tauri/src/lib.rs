@@ -22,6 +22,7 @@ use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::scheduler::{self, TaskInput, TaskView};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
+use stackyard_core::setup;
 use stackyard_core::shell::{path as user_path, shims};
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
@@ -543,6 +544,69 @@ fn read_log(id: String, from: Option<u64>, lines: usize) -> CmdResult<logs::Chun
     logs::read(&paths::home(), &id, from, lines.min(5000)).map_err(err)
 }
 
+#[tauri::command]
+fn setup_status() -> setup::Status {
+    setup::status()
+}
+
+/// Saves what first-run setup picked. When Stackyard's folder changes, the
+/// app restarts to move its files there; the interface then carries on.
+#[tauri::command]
+fn setup_choose(
+    app: AppHandle,
+    home: String,
+    sites_folder: String,
+    install: Vec<String>,
+) -> CmdResult<bool> {
+    let choices = setup::Choices {
+        sites_folder: paths::expand_home(std::path::Path::new(sites_folder.trim())),
+        install,
+    };
+    let home = paths::expand_home(std::path::Path::new(home.trim()));
+    let restart = setup::choose(&home, choices).map_err(err)?;
+    if restart {
+        std::thread::spawn(move || {
+            // Let the answer reach the interface first.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            app.restart();
+        });
+    }
+    Ok(restart)
+}
+
+/// Applies the saved picks: modules on or off, the sites folder parked.
+#[tauri::command]
+fn setup_apply(app: AppHandle) -> CmdResult<()> {
+    let choices = paths::Location::load()
+        .and_then(|l| l.choices)
+        .ok_or("nothing was picked in setup")?;
+    setup::apply(&choices).map_err(err)?;
+    sites_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn setup_finish() -> CmdResult<()> {
+    setup::finish().map_err(err)
+}
+
+/// Where new sites get their folder.
+#[tauri::command]
+fn sites_folder() -> CmdResult<String> {
+    let settings = Settings::load().map_err(err)?;
+    Ok(settings.sites_folder(&paths::home()).display().to_string())
+}
+
+/// Empties every log so each starts again from nothing.
+#[tauri::command]
+fn clear_logs() -> CmdResult<usize> {
+    Settings::load()
+        .map_err(err)?
+        .require_module("logs")
+        .map_err(err)?;
+    logs::clear(&paths::home()).map_err(err)
+}
+
 /// Sizing the data folder reads every file in it, so this runs on a worker
 /// thread.
 #[tauri::command]
@@ -684,6 +748,26 @@ fn terminal_off() -> stackyard_core::Result<()> {
     let home = paths::home();
     user_path::remove(&shims::bin_dir(&home))?;
     shims::remove(&home)
+}
+
+/// After Stackyard's folder moved: the PATH entry and the commands follow it.
+fn repoint_terminal(old: &std::path::Path, new: &std::path::Path) {
+    let (old_bin, new_home) = (shims::bin_dir(old), new.to_path_buf());
+    std::thread::spawn(move || {
+        if !user_path::status(&old_bin).on_path {
+            return;
+        }
+        let new_bin = shims::bin_dir(&new_home);
+        let result = user_path::remove(&old_bin).and_then(|_| {
+            if let Some(cli) = cli_program() {
+                shims::install(&new_home, &cli)?;
+            }
+            user_path::add(&new_bin)
+        });
+        if let Err(e) = result {
+            eprintln!("could not move the terminal commands: {e}");
+        }
+    });
 }
 
 /// After an update, points the terminal commands at the new `stackyard`.
@@ -892,7 +976,13 @@ fn add_site(
     https: bool,
 ) -> CmdResult<Vec<SiteView>> {
     let settings = Settings::load().map_err(err)?;
-    let path = paths::expand_home(std::path::Path::new(&path));
+    let path = match path.trim() {
+        "" => settings.sites_folder(&paths::home()).join(&name),
+        typed => paths::expand_home(std::path::Path::new(typed)),
+    };
+    // A new project starts as an empty folder.
+    std::fs::create_dir_all(&path)
+        .map_err(|e| format!("could not create {}: {e}", path.display()))?;
     let runtime = parse_runtime(&runtime, &path, &settings)?;
     let mut store = SiteStore::load().map_err(err)?;
     store
@@ -1036,7 +1126,7 @@ struct Tray(bool);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let home = paths::home();
+    let mut home = paths::home();
     // One process runs services at a time.
     let mut resume = Vec::new();
     if let Some(client) = control::find(&home) {
@@ -1049,6 +1139,12 @@ pub fn run() {
             // `stackyard start` or `stackyard up` runs them: take over.
             Owner::Daemon | Owner::Up => resume = take_over(&home, &client),
         }
+    }
+    // First-run setup picked another folder: move everything there now,
+    // before anything opens a file in it.
+    if let Some((old, new)) = setup::move_if_pending() {
+        repoint_terminal(&old, &new);
+        home = new;
     }
     for id in updates::take_resume() {
         if !resume.contains(&id) {
@@ -1073,6 +1169,7 @@ pub fn run() {
         .manage(Control(Mutex::new(None)))
         .manage(updates::Updates::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_runtimes,
             install_runtime,
@@ -1104,6 +1201,12 @@ pub fn run() {
             set_mcp_tool,
             list_logs,
             read_log,
+            clear_logs,
+            setup_status,
+            setup_choose,
+            setup_apply,
+            setup_finish,
+            sites_folder,
             db_server,
             db_list,
             db_create,
@@ -1151,6 +1254,10 @@ pub fn run() {
                 Err(e) => eprintln!("the stackyard command cannot reach this app: {e}"),
             }
             updates::watch(app.handle());
+            let handle = app.handle().clone();
+            Engine::watch_parked(&app.state::<Arc<Engine>>(), &paths::home(), move || {
+                let _ = handle.emit("sites-changed", ());
+            });
             Ok(())
         })
         .build(tauri::generate_context!())
