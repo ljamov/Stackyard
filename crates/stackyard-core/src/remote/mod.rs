@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::settings::{read_toml, write_toml};
 use crate::{paths, Error, Result};
 
-pub use sync::{Action, Direction, Outcome, Plan, PlannedFile, Progress};
+pub use sync::{Action, Compare, Direction, Outcome, Plan, PlannedFile, Progress};
 
 const FILE: &str = "remote.toml";
 const MAX_NAME: usize = 80;
@@ -435,11 +435,13 @@ impl Sessions {
     /// Works out what to transfer; nothing is changed yet. `only` limits it
     /// to these paths, relative to the connection's folders, which are then
     /// transferred even if unchanged.
+    #[allow(clippy::too_many_arguments)]
     pub fn plan(
         &self,
         connection: &Connection,
         local_root: &Path,
         direction: Direction,
+        compare: Compare,
         delete: bool,
         only: Option<&[String]>,
         progress: &mut dyn FnMut(Progress) -> bool,
@@ -454,6 +456,7 @@ impl Sessions {
                     skip: &connection.skip,
                 },
                 direction,
+                compare,
                 delete,
                 only,
                 progress,
@@ -739,7 +742,15 @@ mod server_tests {
         write(&local, ".git/HEAD", "skipped");
         let mut go = |_: Progress| true;
         let plan = sessions
-            .plan(&connection, &local, Direction::Upload, true, None, &mut go)
+            .plan(
+                &connection,
+                &local,
+                Direction::Upload,
+                Compare::Changed,
+                true,
+                None,
+                &mut go,
+            )
             .unwrap();
         assert_eq!(plan.files.len(), 3, "{plan:?}");
         let outcome = sessions
@@ -749,7 +760,15 @@ mod server_tests {
         assert_eq!(outcome.done, 3);
 
         let again = sessions
-            .plan(&connection, &local, Direction::Upload, true, None, &mut go)
+            .plan(
+                &connection,
+                &local,
+                Direction::Upload,
+                Compare::Changed,
+                true,
+                None,
+                &mut go,
+            )
             .unwrap();
         assert!(again.files.is_empty(), "{again:?}");
 
@@ -766,6 +785,7 @@ mod server_tests {
                 &connection,
                 &copy,
                 Direction::Download,
+                Compare::Changed,
                 false,
                 None,
                 &mut go,
@@ -784,6 +804,7 @@ mod server_tests {
                 &connection,
                 &copy,
                 Direction::Download,
+                Compare::Changed,
                 false,
                 None,
                 &mut go,
@@ -793,7 +814,15 @@ mod server_tests {
 
         std::fs::remove_file(local.join("index.php")).unwrap();
         let cleanup = sessions
-            .plan(&connection, &local, Direction::Upload, true, None, &mut go)
+            .plan(
+                &connection,
+                &local,
+                Direction::Upload,
+                Compare::Changed,
+                true,
+                None,
+                &mut go,
+            )
             .unwrap();
         assert_eq!(cleanup.files.len(), 1);
         assert_eq!(cleanup.files[0].action, Action::DeleteRemote);

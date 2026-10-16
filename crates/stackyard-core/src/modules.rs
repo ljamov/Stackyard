@@ -219,6 +219,14 @@ pub const MODULES: &[ModuleDef] = &[
         true,
         true,
     ),
+    module(
+        "videos",
+        "Video optimizer",
+        Feature,
+        "Make web-ready MP4, WebM and GIF copies of videos with FFmpeg (downloaded when you first use it)",
+        true,
+        true,
+    ),
 ];
 
 pub fn find(id: &str) -> Option<&'static ModuleDef> {

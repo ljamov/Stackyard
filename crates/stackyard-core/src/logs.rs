@@ -175,37 +175,50 @@ pub fn read(home: &Path, id: &str, from: Option<u64>, lines: usize) -> Result<Ch
 /// each one starts again from nothing. Services keep running and write new
 /// lines to the emptied files. Returns how many logs were cleared.
 pub fn clear(home: &Path) -> Result<usize> {
-    let dir = home.join("logs");
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+    let Ok(entries) = std::fs::read_dir(home.join("logs")) else {
         return Ok(0);
     };
+    let mut ids: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let id = name
+                .strip_suffix(".log.1")
+                .or_else(|| name.strip_suffix(".log"))?;
+            supervisor::log_file(home, id).ok()?;
+            Some(id.to_string())
+        })
+        .collect();
+    ids.sort();
+    ids.dedup();
+    let mut cleared = 0;
+    for id in &ids {
+        if clear_one(home, id)? {
+            cleared += 1;
+        }
+    }
+    Ok(cleared)
+}
+
+/// Empties one log (say `caddy`) and deletes its older half, leaving every
+/// other log as it is. Returns whether there was a log to empty.
+pub fn clear_one(home: &Path, id: &str) -> Result<bool> {
+    let path = supervisor::log_file(home, id)?;
     let io = |path: &Path| {
         let path = path.to_path_buf();
         move |source| Error::Io { path, source }
     };
-    let mut cleared = 0;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        if let Some(id) = file_name.strip_suffix(".log.1") {
-            if supervisor::log_file(home, id).is_ok() {
-                std::fs::remove_file(&path).map_err(io(&path))?;
-            }
-        } else if let Some(id) = file_name.strip_suffix(".log") {
-            if supervisor::log_file(home, id).is_ok() {
-                // Emptied rather than deleted: a running service keeps it open.
-                std::fs::OpenOptions::new()
-                    .write(true)
-                    .open(&path)
-                    .and_then(|f| f.set_len(0))
-                    .map_err(io(&path))?;
-                cleared += 1;
-            }
-        }
+    let old = path.with_extension("log.1");
+    match std::fs::remove_file(&old) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(io(&old)(e)),
+        _ => {}
     }
-    Ok(cleared)
+    // Emptied rather than deleted: a running service keeps it open.
+    match std::fs::OpenOptions::new().write(true).open(&path) {
+        Ok(file) => file.set_len(0).map_err(io(&path)).map(|()| true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(io(&path)(e)),
+    }
 }
 
 fn read_range(file: &mut File, start: u64, end: u64) -> std::io::Result<Vec<u8>> {
@@ -246,6 +259,23 @@ mod tests {
         // A reader that was further along sees the log started over.
         let chunk = read(&home, "caddy", Some(8), 10).unwrap();
         assert!(chunk.reset && chunk.lines.is_empty());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn clear_one_leaves_the_other_logs() {
+        let home = crate::testutil::tempdir();
+        append(&home, "caddy", "one\n");
+        append(&home, "daemon", "two\n");
+        let dir = home.join("logs");
+        std::fs::write(dir.join("caddy.log.1"), "old\n").unwrap();
+
+        assert!(clear_one(&home, "caddy").unwrap());
+        assert_eq!(std::fs::metadata(dir.join("caddy.log")).unwrap().len(), 0);
+        assert!(!dir.join("caddy.log.1").exists());
+        assert_eq!(std::fs::metadata(dir.join("daemon.log")).unwrap().len(), 4);
+        assert!(!clear_one(&home, "mysql").unwrap());
+        assert!(clear_one(&home, "../secret").is_err());
         let _ = std::fs::remove_dir_all(&home);
     }
 

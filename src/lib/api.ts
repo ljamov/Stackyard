@@ -307,6 +307,8 @@ export type RemoteTest = {
 export type RemoteEntry = { name: string; dir: boolean; size: number; modified: number | null };
 export type RemoteListing = { dir: string; root: string; entries: RemoteEntry[] };
 export type TransferDirection = "upload" | "download";
+/** Which files a transfer copies; files missing on the other side always go. */
+export type TransferCompare = "changed" | "newer" | "different" | "size" | "missing" | "all";
 
 export type PlannedFile = {
   path: string;
@@ -352,6 +354,8 @@ export type ImageOptions = {
   formats: ImageFormat[];
   quality: number;
   max_width: number | null;
+  /** With max_width: every image this many pixels high, cut from the middle. Null keeps the shape. */
+  height: number | null;
   /** Null puts new files next to the originals. */
   out_dir: string | null;
   /** Overwrite originals with smaller JPG/PNG copies. */
@@ -361,6 +365,36 @@ export type ImageMade = { format: ImageFormat; path: string; size: number; skipp
 export type ImageResult = { source: string; size: number; made: ImageMade[]; error: string | null };
 export type ImagesFound = { count: number; size: number };
 export type ImagesProgress = { done: number; total: number; result: ImageResult };
+
+export type VideoFormat = "mp4" | "webm" | "gif";
+export type VideoQuality = "small" | "balanced" | "high";
+export type VideoOptions = {
+  formats: VideoFormat[];
+  quality: VideoQuality;
+  max_width: number | null;
+  /** Leave the sound out. */
+  mute: boolean;
+  out_dir: string | null;
+};
+export type VideoMade = { format: VideoFormat; path: string; size: number; skipped: string | null };
+export type VideoResult = { source: string; size: number; made: VideoMade[]; error: string | null };
+export type VideosProgress = {
+  done: number;
+  total: number;
+  current: string | null;
+  format: VideoFormat | null;
+  percent: number | null;
+  result: VideoResult | null;
+};
+export type FfmpegStatus = {
+  /** The FFmpeg that will be used; null when there is none yet. */
+  path: string | null;
+  /** Stackyard downloaded it, so it can remove it. */
+  downloaded: boolean;
+  version: string | null;
+  installing: boolean;
+};
+export type FfmpegProgress = { step: "resolving" | "downloading" | "unpacking"; done?: number; total?: number | null };
 
 export interface Api {
   listRuntimes(): Promise<RuntimeFamily[]>;
@@ -389,6 +423,16 @@ export interface Api {
   findImages(paths: string[]): Promise<ImagesFound>;
   optimizeImages(paths: string[], options: ImageOptions): Promise<ImageResult[]>;
   onImagesProgress(handler: (p: ImagesProgress) => void): Promise<() => void>;
+  /** Opens the system's file picker for videos; empty when cancelled. */
+  pickVideos(start?: string): Promise<string[]>;
+  ffmpegStatus(): Promise<FfmpegStatus>;
+  installFfmpeg(): Promise<FfmpegStatus>;
+  removeFfmpeg(): Promise<FfmpegStatus>;
+  onFfmpegProgress(handler: (p: FfmpegProgress) => void): Promise<() => void>;
+  findVideos(paths: string[]): Promise<ImagesFound>;
+  optimizeVideos(paths: string[], options: VideoOptions): Promise<VideoResult[]>;
+  stopVideos(): Promise<void>;
+  onVideosProgress(handler: (p: VideosProgress) => void): Promise<() => void>;
   /** Files and folders dropped on the window. */
   onDrop(handler: (paths: string[]) => void): Promise<() => void>;
   /** Downloads and sets up the project, then adds the site. */
@@ -434,6 +478,8 @@ export interface Api {
   readLog(id: string, from: number | null, lines: number): Promise<LogChunk>;
   /** Empties every log; returns how many were cleared. */
   clearLogs(): Promise<number>;
+  /** Empties one log; false when it had nothing in it yet. */
+  clearLog(id: string): Promise<boolean>;
   dbServer(): Promise<DbServerStatus>;
   dbList(): Promise<Database[]>;
   dbCreate(name: string): Promise<Database[]>;
@@ -468,7 +514,13 @@ export interface Api {
   remoteTest(id: string): Promise<RemoteTest>;
   remoteBrowse(id: string, dir: string | null): Promise<RemoteListing>;
   /** What would be transferred; `paths` limits it to picked files and folders. */
-  remotePlan(id: string, direction: TransferDirection, del: boolean, paths: string[] | null): Promise<TransferPlan>;
+  remotePlan(
+    id: string,
+    direction: TransferDirection,
+    compare: TransferCompare,
+    del: boolean,
+    paths: string[] | null,
+  ): Promise<TransferPlan>;
   remoteRun(id: string, files: PlannedFile[]): Promise<TransferOutcome>;
   remoteStop(id: string): Promise<void>;
   remoteLocalFolder(id: string): Promise<string>;
@@ -516,6 +568,23 @@ const tauriApi: Api = {
   findImages: (paths) => invoke("find_images", { paths }),
   optimizeImages: (paths, options) => invoke("optimize_images", { paths, options }),
   onImagesProgress: (handler) => listen<ImagesProgress>("images-progress", (e) => handler(e.payload)),
+  pickVideos: async (start) => {
+    const picked = await openDialog({
+      multiple: true,
+      title: "Select videos",
+      defaultPath: start || undefined,
+      filters: [{ name: "Videos and GIFs", extensions: ["mp4", "m4v", "mov", "webm", "mkv", "avi", "gif"] }],
+    });
+    return Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
+  },
+  ffmpegStatus: () => invoke("videos_status"),
+  installFfmpeg: () => invoke("videos_install_ffmpeg"),
+  removeFfmpeg: () => invoke("videos_remove_ffmpeg"),
+  onFfmpegProgress: (handler) => listen<FfmpegProgress>("ffmpeg-progress", (e) => handler(e.payload)),
+  findVideos: (paths) => invoke("find_videos", { paths }),
+  optimizeVideos: (paths, options) => invoke("optimize_videos", { paths, options }),
+  stopVideos: () => invoke("stop_videos"),
+  onVideosProgress: (handler) => listen<VideosProgress>("videos-progress", (e) => handler(e.payload)),
   onDrop: (handler) =>
     getCurrentWebview().onDragDropEvent((e) => {
       if (e.payload.type === "drop") handler(e.payload.paths);
@@ -553,6 +622,7 @@ const tauriApi: Api = {
   listLogs: () => invoke("list_logs"),
   readLog: (id, from, lines) => invoke("read_log", { id, from, lines }),
   clearLogs: () => invoke("clear_logs"),
+  clearLog: (id) => invoke("clear_log", { id }),
   dbServer: () => invoke("db_server"),
   dbList: () => invoke("db_list"),
   dbCreate: (name) => invoke("db_create", { name }),
@@ -583,7 +653,8 @@ const tauriApi: Api = {
   remoteTrust: (id, fingerprint) => invoke("remote_trust", { id, fingerprint }),
   remoteTest: (id) => invoke("remote_test", { id }),
   remoteBrowse: (id, dir) => invoke("remote_browse", { id, dir }),
-  remotePlan: (id, direction, del, paths) => invoke("remote_plan", { id, direction, delete: del, paths }),
+  remotePlan: (id, direction, compare, del, paths) =>
+    invoke("remote_plan", { id, direction, compare, delete: del, paths }),
   remoteRun: (id, files) => invoke("remote_run", { id, files }),
   remoteStop: (id) => invoke("remote_stop", { id }),
   remoteLocalFolder: (id) => invoke("remote_local_folder", { id }),
@@ -653,6 +724,10 @@ function browserApi(): Api {
   const serviceHandlers = new Set<(p: ServiceProgress) => void>();
   const starterHandlers = new Set<(p: StarterProgress) => void>();
   const imageHandlers = new Set<(p: ImagesProgress) => void>();
+  const videoHandlers = new Set<(p: VideosProgress) => void>();
+  const ffmpegHandlers = new Set<(p: FfmpegProgress) => void>();
+  let ffmpeg: FfmpegStatus = { path: null, downloaded: false, version: null, installing: false };
+  let videosStopped = false;
   const logs: Record<string, string[]> = {};
   const updateService = (id: string, change: (s: Service) => Service) => {
     services = services.map((s) => (s.id === id ? change(s) : s));
@@ -687,6 +762,7 @@ function browserApi(): Api {
     mod("git", "Git", "feature", "Link sites to GitHub or any Git host, then pull, commit and push (uses Git on your computer)", true, true),
     mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),
     mod("images", "Image optimizer", "feature", "Make WebP and AVIF copies of JPG and PNG images, and smaller JPGs and PNGs", true, true),
+    mod("videos", "Video optimizer", "feature", "Make web-ready MP4, WebM and GIF copies of videos with FFmpeg (downloaded when you first use it)", true, true),
   ];
   let dbs: Database[] = [
     { name: "blog", tables: 3, size: 360448 },
@@ -948,6 +1024,63 @@ function browserApi(): Api {
       imageHandlers.add(handler);
       return () => imageHandlers.delete(handler);
     },
+    pickVideos: async () => {
+      const typed = window.prompt("Video paths, separated by commas", "C:\\stackyard\\www\\blog\\intro.mp4");
+      return typed ? typed.split(",").map((p) => p.trim()).filter(Boolean) : [];
+    },
+    ffmpegStatus: async () => ffmpeg,
+    installFfmpeg: async () => {
+      for (const done of [0, 40, 90, 156]) {
+        ffmpegHandlers.forEach((h) => h({ step: "downloading", done: done * 1_000_000, total: 156_000_000 }));
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      ffmpegHandlers.forEach((h) => h({ step: "unpacking" }));
+      ffmpeg = { path: "C:\\stackyard\\tools\\ffmpeg\\bin\\ffmpeg.exe", downloaded: true, version: "ffmpeg version n9.0", installing: false };
+      return ffmpeg;
+    },
+    removeFfmpeg: async () => (ffmpeg = { path: null, downloaded: false, version: null, installing: false }),
+    onFfmpegProgress: async (handler) => {
+      ffmpegHandlers.add(handler);
+      return () => ffmpegHandlers.delete(handler);
+    },
+    findVideos: async (paths) => ({ count: paths.length * 2, size: paths.length * 48_000_000 }),
+    optimizeVideos: async (paths, options) => {
+      videosStopped = false;
+      const files = paths.flatMap((p) => (/\.[a-z0-9]+$/i.test(p) ? [p] : [`${p}\\media\\intro.mp4`, `${p}\\media\\demo.mov`]));
+      const results: VideoResult[] = [];
+      const ratio: Record<VideoFormat, number> = { mp4: 0.32, webm: 0.24, gif: 1.6 };
+      for (const [i, source] of files.entries()) {
+        for (const format of options.formats) {
+          for (const percent of [0, 35, 70, 100]) {
+            if (videosStopped) return results;
+            videoHandlers.forEach((h) => h({ done: i, total: files.length, current: source, format, percent, result: null }));
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        }
+        const size = 24_000_000 + i * 6_000_000;
+        const result: VideoResult = {
+          source,
+          size,
+          error: null,
+          made: options.formats.map((format) => ({
+            format,
+            path: source.replace(/\.[a-z0-9]+$/i, `.${format}`),
+            size: Math.round(size * ratio[format]),
+            skipped: null,
+          })),
+        };
+        results.push(result);
+        videoHandlers.forEach((h) => h({ done: i + 1, total: files.length, current: null, format: null, percent: null, result }));
+      }
+      return results;
+    },
+    stopVideos: async () => {
+      videosStopped = true;
+    },
+    onVideosProgress: async (handler) => {
+      videoHandlers.add(handler);
+      return () => videoHandlers.delete(handler);
+    },
     onDrop: async () => () => {},
     onStarterProgress: async (handler) => {
       starterHandlers.add(handler);
@@ -1064,6 +1197,7 @@ function browserApi(): Api {
       return { lines, offset: from + lines.length, reset: false };
     },
     clearLogs: async () => 3,
+    clearLog: async () => true,
     dbServer: async () => ({ server: { id: "mysql", name: "MySQL 8.4", version: "8.4.6" }, problem: null }),
     dbList: async () => dbs,
     dbCreate: async (name) => {
@@ -1247,7 +1381,7 @@ function browserApi(): Api {
           : [{ name: "readme.txt", dir: false, size: 1_024, modified: Date.now() / 1000 - 7200 }];
       return { dir: at, root, entries };
     },
-    remotePlan: async (id, direction, del, paths) => {
+    remotePlan: async (id, direction, compare, del, paths) => {
       for (let i = 0; i < 4; i++) {
         remoteHandlers.forEach((h) => h({ id, step: "scanning", folder: ["", "wp-content", "wp-content/themes", "wp-includes"][i], found: i * 40 }));
         await new Promise((r) => setTimeout(r, 200));
@@ -1256,8 +1390,12 @@ function browserApi(): Api {
       const files: PlannedFile[] = paths
         ? paths.map((p) => ({ path: p, action: copy, reason: "picked", size: 2_048 }))
         : [
-            { path: "index.php", action: copy, reason: "changed", size: 412 },
-            { path: "wp-content/themes/site/style.css", action: copy, reason: "changed", size: 18_400 },
+            ...(compare === "missing"
+              ? []
+              : [
+                  { path: "index.php", action: copy, reason: "changed", size: 412 } as PlannedFile,
+                  { path: "wp-content/themes/site/style.css", action: copy, reason: "changed", size: 18_400 } as PlannedFile,
+                ]),
             { path: "wp-content/uploads/2026/10/hero.jpg", action: copy, reason: "new", size: 482_000 },
             ...(del
               ? [{ path: "old-page.html", action: direction === "upload" ? "delete-remote" : "delete-local", reason: "extra", size: 900 } as PlannedFile]

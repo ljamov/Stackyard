@@ -4,6 +4,26 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- New Videos screen: make web-ready MP4 (H.264), WebM (VP9) and GIF copies of videos and GIFs,
+  with a quality choice, a largest width (or a custom one), and an option to remove the sound.
+  It uses FFmpeg, which is not bundled to keep Stackyard small: one click downloads it (about
+  150 MB), or Stackyard uses the one already installed. The Video optimizer module can be
+  switched off in Settings › Modules.
+- Images: Choose images… opens in your Stackyard sites folder instead of Documents, and the site
+  list shows the site you picked. Largest width has a Custom width option: type any width, and
+  either keep the aspect ratio (the height follows) or set an exact height (edges are trimmed
+  evenly, nothing is stretched).
+- New site: the Name field no longer jumps the cursor to the end or swallows spaces while you
+  type. Type any name, such as "My Blog"; the field shows the address it makes (my-blog.stack).
+- Logs: Clear this log empties just the log you are looking at (say Caddy or MySQL), leaving the
+  others alone. Clear all logs still empties every one.
+- Servers: choose what to upload or download, like in an FTP program: new and changed files,
+  only newer files, different size or date, different size only, only missing files, or
+  everything. Every field in the server form has help when you hover over it or click in it, with
+  clearer examples, including Folder on the server.
+
 ## 0.3.1
 
 - Fixed MySQL failing to start with "ibdata1 must be writable": opening Stackyard again now brings

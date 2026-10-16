@@ -323,6 +323,9 @@ struct ImagesArgs {
     /// Scale wider images down to this width
     #[arg(long)]
     max_width: Option<u32>,
+    /// With --max-width: make every image exactly this high, cut from the middle
+    #[arg(long, requires = "max_width")]
+    height: Option<u32>,
     /// Put new files in this folder instead of next to the originals
     #[arg(long)]
     out: Option<PathBuf>,
@@ -1689,6 +1692,7 @@ fn optimize_images(args: ImagesArgs) -> stackyard_core::Result<()> {
         formats,
         quality: args.quality,
         max_width: args.max_width,
+        height: args.height,
         out_dir: args.out.map(|o| here.join(o)),
         replace: args.replace,
     };
