@@ -217,7 +217,19 @@ pub fn resolve(http: &Http, platform: Platform) -> Result<(Release, &'static str
             // The stable link redirects to this week's build, which has its
             // checksum next to it.
             let latest = format!("{RIEDL}/{arch}/release/ffmpeg.zip");
-            let url = http.final_url(&latest)?;
+            // The redirect service now and then answers 404 for a moment
+            // (seen in CI), so it gets a few tries.
+            let mut tries = 0;
+            let url = loop {
+                match http.final_url(&latest) {
+                    Ok(url) => break url,
+                    Err(_) if tries < 3 => {
+                        tries += 1;
+                        std::thread::sleep(std::time::Duration::from_secs(2 * tries));
+                    }
+                    Err(e) => return Err(e),
+                }
+            };
             let sums_url = format!("{url}.sha256");
             let sums = http.get_text(&sums_url)?;
             let checksum = sums
