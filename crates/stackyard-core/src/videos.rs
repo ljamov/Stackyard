@@ -348,8 +348,22 @@ pub fn install(home: &Path, progress: &mut dyn FnMut(Step)) -> Result<String> {
     Ok(release.version)
 }
 
+/// Windows keeps a program's file locked for a moment after it exits (and
+/// virus scanners look at new programs), so removing it right after a run
+/// gets a few tries.
 pub fn uninstall(home: &Path) -> Result<()> {
-    install::remove(&dir(home))
+    let mut tries = 0;
+    loop {
+        match install::remove(&dir(home)) {
+            Err(Error::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::PermissionDenied && tries < 10 =>
+            {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            other => return other,
+        }
+    }
 }
 
 /// Deletes everything in `dir` but `program` (a path inside it) and the
