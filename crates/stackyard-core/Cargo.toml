@@ -20,6 +20,12 @@ tar = "0.4"
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 liblzma = { version = "0.4", features = ["static"] }
+# Remote connections: SFTP (pure Rust, no system libraries) and FTPS.
+russh = { version = "0.64", default-features = false, features = ["ring", "rsa"] }
+russh-sftp = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "io-util"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-platform-verifier = "0.7"
 # Image optimizer: decode JPG/PNG/WebP, encode WebP (libwebp), AVIF (rav1e,
 # without its assembly so no extra build tools are needed) and smaller PNGs.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
@@ -31,4 +37,7 @@ oxipng = { version = "10", default-features = false, features = ["parallel"] }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Time"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Time"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3"

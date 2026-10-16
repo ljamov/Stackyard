@@ -82,6 +82,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 - **Databases screen**: browse tables, run SQL, back up and restore
 - **Live logs** for every service, with text and regex search
 - **Task scheduler** with crontab syntax, in each project's folder
+- **Servers and Git per site**: upload and download over SFTP, FTPS or FTP; pull, commit and push to GitHub
 - **Disk space cleanup** that never touches your projects
 
 </td>
@@ -198,6 +199,7 @@ See [docs/mcp.md](docs/mcp.md).
 | [Runtimes and the terminal](docs/runtimes.md) | Where versions come from, PATH shims, Stackyard Shell, Composer |
 | [Services](docs/services.md) | Every service in detail, the Databases and Logs screens, disk cleanup, background mode |
 | [Scheduled tasks](docs/scheduler.md) | Schedules, how tasks run, where output goes |
+| [Servers and Git](docs/remote.md) | SFTP, FTPS and FTP connections, uploads and downloads, passwords, Git |
 | [AI coding tools (MCP)](docs/mcp.md) | Available tools, permissions, the call log |
 | [Command line](docs/cli.md) | Every `stackyard` command, grouped by task |
 | [Updates and releases](docs/updates.md) | How updates are signed and how to publish one |
@@ -229,6 +231,7 @@ data folder; set `STACKYARD_HOME` to use another one.
 - [x] Databases screen, logs, task scheduler, disk cleanup
 - [x] MCP server for AI coding tools
 - [x] Signed auto-updates
+- [x] Servers (SFTP, FTPS, FTP) and Git for each site
 - [ ] Python, Go and Java runtimes
 - [ ] Code-signed installers for Windows and macOS
 
