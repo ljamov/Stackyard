@@ -101,7 +101,7 @@ td { padding: 12px 18px; border-top: 1px solid var(--border); }
 .tab[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); font-weight: 500; }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field label { color: var(--text-2); font-size: 13px; }
+.field label, .field .label { color: var(--text-2); font-size: 13px; }
 .field input, .field select, .input-affix {
   height: 44px; background: var(--sidebar); border: 1px solid var(--border-strong); border-radius: 10px; padding: 0 12px;
 }

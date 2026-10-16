@@ -28,6 +28,7 @@ pub mod settings;
 pub mod setup;
 pub mod shell;
 pub mod sites;
+pub mod starters;
 pub mod supervisor;
 pub mod system;
 pub mod web;

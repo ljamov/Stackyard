@@ -83,7 +83,7 @@ impl Http {
         };
         let mut hasher = Hasher::for_checksum(checksum).ok_or_else(|| Error::Download {
             url: url.to_string(),
-            message: format!("{checksum:?} is not a SHA-256 or SHA-512 checksum"),
+            message: format!("{checksum:?} is not a SHA-1, SHA-256 or SHA-512 checksum"),
         })?;
         let mut response = self.agent.get(url).call().map_err(fail)?;
         let total = response.body().content_length();
@@ -164,6 +164,8 @@ pub fn file_checksum(path: &Path, like: &str) -> Result<String> {
 }
 
 enum Hasher {
+    /// Only for downloads whose publisher offers nothing stronger (WordPress).
+    Sha1(sha1::Sha1),
     Sha256(Sha256),
     Sha512(Sha512),
 }
@@ -174,6 +176,7 @@ impl Hasher {
             return None;
         }
         match hex.len() {
+            40 => Some(Self::Sha1(sha1::Sha1::new())),
             64 => Some(Self::Sha256(Sha256::new())),
             128 => Some(Self::Sha512(Sha512::new())),
             _ => None,
@@ -182,6 +185,7 @@ impl Hasher {
 
     fn update(&mut self, data: &[u8]) {
         match self {
+            Self::Sha1(h) => h.update(data),
             Self::Sha256(h) => h.update(data),
             Self::Sha512(h) => h.update(data),
         }
@@ -189,6 +193,7 @@ impl Hasher {
 
     fn finish(self) -> String {
         match self {
+            Self::Sha1(h) => hex(&h.finalize()),
             Self::Sha256(h) => hex(&h.finalize()),
             Self::Sha512(h) => hex(&h.finalize()),
         }
@@ -209,7 +214,7 @@ pub fn is_sha256(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// A SHA-256 or SHA-512 checksum in hex.
+/// A SHA-1, SHA-256 or SHA-512 checksum in hex.
 pub fn is_checksum(s: &str) -> bool {
     Hasher::for_checksum(s).is_some()
 }
@@ -375,7 +380,7 @@ mod tests {
         let err = Http::new()
             .download(&format!("{base}/hello.txt"), &dest, "abc", &mut |_, _| {})
             .unwrap_err();
-        assert!(err.to_string().contains("not a SHA-256"), "{err}");
+        assert!(err.to_string().contains("not a SHA-1, SHA-256"), "{err}");
     }
 
     #[test]

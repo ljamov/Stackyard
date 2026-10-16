@@ -29,7 +29,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::ProcessState;
 use stackyard_core::system::{self, Elevate};
 use stackyard_core::web::{self, Backend, Ports};
-use stackyard_core::{paths, platform, Error};
+use stackyard_core::{paths, platform, starters, Error};
 
 #[derive(Parser)]
 #[command(name = "stackyard", version, about = "Local development stack manager")]
@@ -279,6 +279,19 @@ enum SitesCommand {
     List,
     /// Add a site
     Add(AddSite),
+    /// Make a new site from a starter: wordpress, laravel or astro
+    New {
+        /// Site name, e.g. `blog` for blog.stack
+        name: String,
+        /// wordpress, laravel or astro
+        starter: String,
+        /// Project folder, new or empty (default: the sites folder)
+        #[arg(long)]
+        path: Option<PathBuf>,
+        /// Serve over plain HTTP only
+        #[arg(long)]
+        no_https: bool,
+    },
     /// Remove a site by name or domain
     Remove { name: String },
     /// Make every project folder inside a folder a site (default: this folder)
@@ -401,10 +414,107 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                     path,
                     runtime,
                     https: !args.no_https,
+                    dev_server: false,
                 })?
                 .url();
             store.save()?;
             notify(Request::SitesChanged);
+            println!("Added {url}");
+        }
+        Command::Sites {
+            action:
+                Some(SitesCommand::New {
+                    name,
+                    starter,
+                    path,
+                    no_https,
+                }),
+        } => {
+            let starter = starters::Starter::from_id(&starter).ok_or_else(|| {
+                Error::Shell(format!(
+                    "unknown starter {starter:?}; pick wordpress, laravel or astro"
+                ))
+            })?;
+            domain::validate_site_name(&name)?;
+            let settings = Settings::load()?;
+            let home = paths::home();
+            let folder = match path {
+                Some(path) => current_dir()?.join(paths::expand_home(&path)),
+                None => settings.sites_folder(&home).join(&name),
+            };
+            let domain = domain::site_domain(&name, &settings.tld);
+            if SiteStore::load()?.list().iter().any(|s| s.domain() == domain) {
+                return Err(Error::SiteExists(domain));
+            }
+            if starter.needs_database() {
+                // Started by the running Stackyard, so it keeps running.
+                let client = running_stackyard()?;
+                let services = match client.send(Request::Status)? {
+                    Response::Services { services } => services,
+                    _ => Vec::new(),
+                };
+                let running = |id: &str| {
+                    services
+                        .iter()
+                        .any(|s| s.id == id && matches!(s.state, ProcessState::Running { .. }))
+                };
+                if !running("mysql") && !running("mariadb") {
+                    let services = ServiceManager::open();
+                    let id = ["mysql", "mariadb"]
+                        .into_iter()
+                        .find(|id| services.get(id).is_some())
+                        .ok_or_else(|| {
+                            Error::Shell(format!(
+                                "{} needs MySQL or MariaDB; install one with `stackyard services install mysql`",
+                                starter.name()
+                            ))
+                        })?;
+                    client.send(Request::Start {
+                        ids: vec![id.to_string()],
+                    })?;
+                }
+            }
+            let existed = folder.exists();
+            let mut last = String::new();
+            let made = starters::create(&home, starter, &name, &folder, &mut |message| {
+                // Download percentages only every tenth.
+                let shown = match message.rsplit_once(' ') {
+                    Some((text, pct)) if pct.ends_with('%') => {
+                        let n: u32 = pct.trim_end_matches('%').parse().unwrap_or(0);
+                        format!("{text} {}%", n / 10 * 10)
+                    }
+                    _ => message,
+                };
+                if shown != last {
+                    eprintln!("{shown}");
+                    last = shown;
+                }
+            });
+            let made = match made {
+                Ok(made) => made,
+                Err(e) => {
+                    if !existed {
+                        let _ = std::fs::remove_dir_all(&folder);
+                    }
+                    return Err(e);
+                }
+            };
+            let mut store = SiteStore::load()?;
+            let url = store
+                .add(Site {
+                    name,
+                    tld: settings.tld,
+                    path: folder,
+                    runtime: made.runtime,
+                    https: !no_https,
+                    dev_server: made.dev_server,
+                })?
+                .url();
+            store.save()?;
+            notify(Request::SitesChanged);
+            if let Some(database) = made.database {
+                println!("Made the database {database}");
+            }
             println!("Added {url}");
         }
         Command::Sites {
