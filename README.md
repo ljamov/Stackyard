@@ -32,7 +32,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 
 - **Native, not virtual.** Services run straight on your OS. No Docker, no VM, no waiting for
   containers to boot.
-- **Per-project versions.** One project on PHP 7.4, the next on 8.5, a third on Node 22. The browser
+- **Per-project versions.** One project on PHP 8.2, the next on 8.5, a third on Node 22. The browser
   and the terminal always agree on which version a project uses.
 - **Real HTTPS on real-looking domains.** Every project gets `https://<name>.stack` with a trusted
   certificate, set up with one click.
@@ -53,12 +53,13 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 - **Park a folder** and every project inside becomes a site
 - Detects Laravel, Symfony, WordPress, Drupal, Craft, Magento, Vite, Next.js, Astro and more
 - Node dev servers proxied automatically; static sites served as is
+- **Starters**: a new WordPress, Laravel or Astro site in one click, database and config included
 
 </td>
 <td width="50%" valign="top">
 
 ### ⚙️ Runtimes
-- **PHP 7.4 to 8.5** and **Node.js 20 to 26**, side by side
+- **PHP 8.1 to 8.5** (plus 7.4 and 8.0 on Windows) and **Node.js 20 to 26**, side by side
 - Pin a version per project with a `.stackyard` file
 - `php`, `composer`, `node`, `npm` and `mysql` pick the right version in any terminal
 - Every download checked against a published SHA-256
@@ -73,6 +74,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 - **MySQL 8.4**, **MariaDB 11.8**, **PostgreSQL 18**, **Redis 8**
 - **Meilisearch** for search, **Mailpit** to catch outgoing mail
 - Everything listens on `127.0.0.1` only
+- A port another app holds? The service moves to the next free one and keeps it
 - Data kept when a service is removed, so reinstalling brings it back
 
 </td>
@@ -80,6 +82,8 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 
 ### 🧰 Built-in tools
 - **Databases screen**: browse tables, run SQL, back up and restore
+- **phpMyAdmin** in one click, already logged in to your local database
+- **Image optimizer**: WebP, AVIF and smaller JPG/PNG for a whole site folder
 - **Live logs** for every service, with text and regex search
 - **Task scheduler** with crontab syntax, in each project's folder
 - **Servers and Git per site**: upload and download over SFTP, FTPS or FTP; pull, commit and push to GitHub
@@ -100,9 +104,10 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 <td valign="top">
 
 ### 🖥️ Desktop and CLI
+- A first-run setup screen picks your folders and what to install
 - Lives in the tray (menu bar on macOS) with services running in the background
 - A full `stackyard` CLI that drives the same engine as the app
-- Signed auto-updates you install when you choose
+- Signed auto-updates with release notes, installed when you choose
 - Windows 10/11, macOS 11+ (Intel and Apple silicon), Linux x64
 
 </td>
@@ -123,9 +128,12 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
    > The installers are not code-signed yet, so the first start needs one extra click. On Windows
    > choose **More info**, then **Run anyway**. On macOS right-click Stackyard and choose **Open**.
 
-2. **Open Stackyard** and click **Set up** on the Sites screen. It asks for your password once to
+2. **Open Stackyard.** The first-run screen asks where to keep Stackyard's files and your sites
+   (`C:\stackyard` and `C:\stackyard\www` on Windows) and what to install. Then click **Set up** on
+   the Sites screen. It asks for your password once to
    make `.stack` names and HTTPS work. Until then, every site also works at `<name>.localhost`.
-3. **Add a site**, or park your code folder so every project in it becomes one.
+3. **Add a site**, start one from WordPress, Laravel or Astro, or park your code folder so every
+   project in it becomes one.
 4. **Start Caddy** (and MySQL if you need it) from the Dashboard, then open `https://<name>.stack`.
 
 Prefer the terminal? The same steps as commands:
@@ -134,6 +142,7 @@ Prefer the terminal? The same steps as commands:
 stackyard system setup                 # local domains and HTTPS
 stackyard sites park ~/Code            # every folder in ~/Code becomes a site
 stackyard runtimes install php 8.4
+stackyard sites new blog wordpress    # a ready WordPress site at https://blog.stack
 stackyard start                        # run every installed service in the background
 stackyard use php 8.3                  # pin a version for the current project
 ```
@@ -163,6 +172,7 @@ stackyard use php 8.3                  # pin a version for the current project
 | Meilisearch 1 | 7700 | All | Off |
 | Mailpit | 1025 (SMTP), 8025 (web) | All | Off |
 
+When a port is taken by another app, the service uses the next free port and keeps it.
 MySQL and MariaDB start with user `root` and PostgreSQL with user `postgres`, all without a
 password. Switch modules on in **Settings** or with `stackyard modules on <id>`.
 
@@ -232,6 +242,9 @@ data folder; set `STACKYARD_HOME` to use another one.
 - [x] MCP server for AI coding tools
 - [x] Signed auto-updates
 - [x] Servers (SFTP, FTPS, FTP) and Git for each site
+- [x] Starters for WordPress, Laravel and Astro
+- [x] phpMyAdmin and an image optimizer
+- [x] Update notifications with release notes
 - [ ] Python, Go and Java runtimes
 - [ ] Code-signed installers for Windows and macOS
 
