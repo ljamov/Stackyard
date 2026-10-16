@@ -268,6 +268,13 @@ jobs:
           ls -l out
           # The commit only exists here, not in a separate releases repository.
           target=(); [ "$RELEASES_REPO" = "$GITHUB_REPOSITORY" ] && target=(--target "$GITHUB_SHA")
+          # A rebuild replaces an earlier draft of the same version, so only
+          # one draft is left to publish.
+          gh api "repos/$RELEASES_REPO/releases?per_page=100" \
+            --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id" |
+            while read -r id; do
+              gh api -X DELETE "repos/$RELEASES_REPO/releases/$id"
+            done
           gh release create "$TAG" out/* --repo "$RELEASES_REPO" --draft "${target[@]}" \
             --title "Stackyard $TAG" \
             --notes-file <(cat notes.md; [ -s notes.md ] && echo; echo "Unsigned prototype installers. macOS: right-click the app and choose Open the first time. Windows: choose More info, then Run anyway.")
