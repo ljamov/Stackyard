@@ -10,6 +10,7 @@ export const SCREENS = [
   "Logs",
   "Databases",
   "Scheduler",
+  "Images",
   "AI tools",
   "MCP server",
   "Settings",
@@ -22,6 +23,7 @@ const SCREEN_MODULE: Partial<Record<Screen, string>> = {
   Logs: "logs",
   Databases: "databases",
   Scheduler: "scheduler",
+  Images: "images",
   "AI tools": "mcp",
   "MCP server": "mcp",
 };

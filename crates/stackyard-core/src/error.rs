@@ -92,6 +92,8 @@ pub enum Error {
     Task(String),
     #[error("{0}")]
     Cleanup(String),
+    #[error("{0}")]
+    Images(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
