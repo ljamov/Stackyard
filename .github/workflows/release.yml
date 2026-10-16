@@ -205,8 +205,10 @@ jobs:
             tag="v$(jq -r .version src-tauri/tauri.conf.json)"
           fi
           # Publishing a draft made by hand creates its tag, which runs this
-          # workflow again; that release already has its installers.
-          if gh release view "$tag" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+          # workflow again; that release already has its installers. Only a
+          # published release counts (this address never returns drafts), so
+          # an unpublished draft is rebuilt and replaced below.
+          if gh api "repos/$RELEASES_REPO/releases/tags/$tag" >/dev/null 2>&1; then
             echo "::notice::$tag already has a release, so there is nothing to add."
             tag=""
           fi
