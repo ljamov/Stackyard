@@ -174,6 +174,12 @@ pub fn sites(
         .map(|site| from_site(site.clone(), false, runtimes))
         .collect();
     let mut taken: BTreeSet<String> = served.iter().map(ServedSite::domain).collect();
+    // A site of the user's own by that name wins.
+    if let Some(site) = crate::phpmyadmin::site(home, settings, runtimes) {
+        if taken.insert(site.domain()) {
+            served.push(from_site(site, false, runtimes));
+        }
+    }
     for folder in &settings.parked {
         for (name, path) in project_folders(folder) {
             let site = parked_site(name, path, settings, runtimes);

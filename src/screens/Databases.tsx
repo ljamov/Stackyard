@@ -8,6 +8,7 @@ import {
   type DbTable,
   type ResultSet,
 } from "../lib/api";
+import { PhpMyAdminCard } from "../components/PhpMyAdminCard";
 
 const PAGE = 100;
 type Tab = "Tables" | "Query" | "Backups";
@@ -83,6 +84,8 @@ export function Databases() {
           {error}
         </p>
       )}
+
+      <PhpMyAdminCard />
 
       {status?.problem && <p className="notice">{status.problem}</p>}
       {status?.server && !running && (

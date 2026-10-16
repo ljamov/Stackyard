@@ -6,6 +6,15 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
+export type PhpMyAdminStatus = {
+  installed: string | null;
+  enabled: boolean;
+  installing: boolean;
+  url: string | null;
+  local_url: string | null;
+  problem: string | null;
+};
+
 export type SetupOffer = {
   id: string;
   name: string;
@@ -270,6 +279,12 @@ export interface Api {
   sitesFolder(): Promise<string>;
   /** Opens the system's folder picker; null when cancelled. */
   pickFolder(title: string, start?: string): Promise<string | null>;
+  phpMyAdminStatus(): Promise<PhpMyAdminStatus>;
+  /** Downloads phpMyAdmin and adds its site; progress comes as service progress with id "phpmyadmin". */
+  installPhpMyAdmin(): Promise<PhpMyAdminStatus>;
+  uninstallPhpMyAdmin(): Promise<PhpMyAdminStatus>;
+  /** Starts the web server and database if needed, then opens phpMyAdmin in the browser. */
+  openPhpMyAdmin(): Promise<void>;
   setupStatus(): Promise<SetupStatus>;
   /** Saves the picks; true when the app restarts to move to the new folder. */
   setupChoose(home: string, sitesFolder: string, install: string[]): Promise<boolean>;
@@ -350,6 +365,10 @@ const tauriApi: Api = {
     const picked = await openDialog({ directory: true, multiple: false, title, defaultPath: start || undefined });
     return typeof picked === "string" ? picked : null;
   },
+  phpMyAdminStatus: () => invoke("phpmyadmin_status"),
+  installPhpMyAdmin: () => invoke("phpmyadmin_install"),
+  uninstallPhpMyAdmin: () => invoke("phpmyadmin_uninstall"),
+  openPhpMyAdmin: () => invoke("phpmyadmin_open"),
   setupStatus: () => invoke("setup_status"),
   setupChoose: (home, sitesFolder, install) => invoke("setup_choose", { home, sitesFolder, install }),
   setupApply: () => invoke("setup_apply"),
@@ -458,6 +477,7 @@ function browserApi(): Api {
     on: boolean,
     available: boolean,
   ): Module => ({ id, name, group, description, on_by_default: on, available, enabled: on && available });
+  let pma: PhpMyAdminStatus = { installed: null, enabled: false, installing: false, url: null, local_url: null, problem: null };
   let modules: Module[] = [
     mod("php", "PHP", "runtime", "PHP versions for sites and the shell", true, true),
     mod("node", "Node.js", "runtime", "Node.js versions for sites and the shell", true, true),
@@ -707,11 +727,23 @@ function browserApi(): Api {
         { id: "caddy", name: "Caddy", group: "service", description: "Web server for local sites, with automatic HTTPS", version: null, recommended: true },
         { id: "mysql", name: "MySQL", group: "service", description: "MySQL database server", version: null, recommended: true },
         { id: "mariadb", name: "MariaDB", group: "service", description: "MySQL-compatible database (Windows and Linux)", version: null, recommended: false },
+        { id: "phpmyadmin", name: "phpMyAdmin", group: "service", description: "Full database manager in your browser at phpmyadmin.stack: import, export, edit tables", version: null, recommended: true },
         { id: "mailpit", name: "Mailpit", group: "service", description: "Catches outgoing mail for testing", version: null, recommended: true },
         { id: "postgres", name: "PostgreSQL", group: "service", description: "PostgreSQL database server", version: null, recommended: false },
         { id: "meilisearch", name: "Meilisearch", group: "service", description: "Fast search engine for apps", version: null, recommended: false },
       ],
     }),
+    phpMyAdminStatus: async () => pma,
+    installPhpMyAdmin: async () => {
+      await new Promise((r) => setTimeout(r, 800));
+      pma = { ...pma, installed: "5.2.2", enabled: true, url: "https://phpmyadmin.stack", local_url: "https://phpmyadmin.localhost" };
+      return pma;
+    },
+    uninstallPhpMyAdmin: async () => {
+      pma = { ...pma, installed: null, enabled: false, url: null, local_url: null };
+      return pma;
+    },
+    openPhpMyAdmin: async () => {},
     setupChoose: async () => false,
     setupApply: async () => {},
     setupFinish: async () => {},

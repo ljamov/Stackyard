@@ -53,7 +53,7 @@ pub struct Status {
 
 /// The Node.js line setup installs: the current long-term support one.
 const NODE_LTS: &str = "24";
-const RECOMMENDED: &[&str] = &["caddy", "mysql", "mailpit", "php", "node"];
+const RECOMMENDED: &[&str] = &["caddy", "mysql", "phpmyadmin", "mailpit", "php", "node"];
 
 pub fn status() -> Status {
     let location = Location::load();
@@ -97,13 +97,18 @@ fn offers() -> Vec<Offer> {
         .filter_map(|m| {
             let version = match m.group {
                 ModuleGroup::Service if catalog::service(m.id).is_some() => None,
+                // Listed with the services: it is what you open to manage them.
+                ModuleGroup::Feature if m.id == crate::phpmyadmin::MODULE => None,
                 ModuleGroup::Runtime => Some(runtime(RuntimeKind::from_id(m.id)?)?),
                 _ => return None,
             };
             Some(Offer {
                 id: m.id,
                 name: m.name,
-                group: m.group,
+                group: match m.group {
+                    ModuleGroup::Feature => ModuleGroup::Service,
+                    group => group,
+                },
                 description: m.description,
                 version,
                 recommended: RECOMMENDED.contains(&m.id),

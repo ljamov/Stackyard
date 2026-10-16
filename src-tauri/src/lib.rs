@@ -28,7 +28,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
-use stackyard_core::{domain, paths};
+use stackyard_core::{domain, paths, phpmyadmin};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 mod updates;
@@ -542,6 +542,119 @@ fn read_log(id: String, from: Option<u64>, lines: usize) -> CmdResult<logs::Chun
         .require_module("logs")
         .map_err(err)?;
     logs::read(&paths::home(), &id, from, lines.min(5000)).map_err(err)
+}
+
+#[derive(Serialize)]
+struct PhpMyAdminView {
+    /// The installed release, e.g. `5.2.2`.
+    installed: Option<String>,
+    enabled: bool,
+    installing: bool,
+    /// `https://phpmyadmin.stack`, and the `.localhost` address that works
+    /// before local domains are set up.
+    url: Option<String>,
+    local_url: Option<String>,
+    problem: Option<String>,
+}
+
+fn phpmyadmin_view(installs: &Installs) -> PhpMyAdminView {
+    let home = paths::home();
+    let enabled = Settings::load().is_ok_and(|s| s.module_enabled(phpmyadmin::MODULE));
+    let dir = phpmyadmin::dir(&home).display().to_string();
+    let site = site_views()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|s| s.name == phpmyadmin::SITE && s.path == dir);
+    PhpMyAdminView {
+        installed: phpmyadmin::installed(&home),
+        enabled,
+        installing: installs.0.lock().unwrap().contains(phpmyadmin::MODULE),
+        url: site.as_ref().map(|s| s.url.clone()),
+        local_url: site.as_ref().map(|s| s.local_url.clone()),
+        problem: site.and_then(|s| s.problem),
+    }
+}
+
+#[tauri::command]
+fn phpmyadmin_status(installs: State<'_, Installs>) -> PhpMyAdminView {
+    phpmyadmin_view(&installs)
+}
+
+/// Downloads phpMyAdmin, switches its module on and adds its site.
+#[tauri::command]
+async fn phpmyadmin_install(app: AppHandle) -> CmdResult<PhpMyAdminView> {
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(phpmyadmin::MODULE.into())
+    {
+        return Err("phpMyAdmin is already being installed".into());
+    }
+    let worker = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        phpmyadmin::install(&paths::home(), &mut |step| {
+            let _ = worker.emit(
+                "service-progress",
+                ServiceProgress {
+                    id: phpmyadmin::MODULE.into(),
+                    step,
+                },
+            );
+        })?;
+        let mut settings = Settings::load()?;
+        settings.set_module(phpmyadmin::MODULE, true)?;
+        settings.save()
+    })
+    .await;
+    app.state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .remove(phpmyadmin::MODULE);
+    result.map_err(|e| e.to_string())?.map_err(err)?;
+    sites_changed(&app);
+    Ok(phpmyadmin_view(&app.state::<Installs>()))
+}
+
+#[tauri::command]
+fn phpmyadmin_uninstall(app: AppHandle) -> CmdResult<PhpMyAdminView> {
+    phpmyadmin::uninstall(&paths::home()).map_err(err)?;
+    let mut settings = Settings::load().map_err(err)?;
+    settings
+        .set_module(phpmyadmin::MODULE, false)
+        .map_err(err)?;
+    settings.save().map_err(err)?;
+    sites_changed(&app);
+    Ok(phpmyadmin_view(&app.state::<Installs>()))
+}
+
+/// Starts the web server and the installed database server when they are
+/// not running, then opens phpMyAdmin in the browser.
+#[tauri::command]
+async fn phpmyadmin_open(app: AppHandle) -> CmdResult<()> {
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    let url = tauri::async_runtime::spawn_blocking(move || {
+        let running = |id: &str| matches!(engine.state(id), ProcessState::Running { .. });
+        if !running("caddy") {
+            engine.start("caddy").map_err(err)?;
+        }
+        let database = ["mysql", "mariadb"]
+            .into_iter()
+            .find(|id| engine.manager().get(id).is_some());
+        if let Some(id) =
+            database.filter(|id| !running(id) && !running("mysql") && !running("mariadb"))
+        {
+            engine.start(id).map_err(err)?;
+        }
+        let view = phpmyadmin_view(&Installs::default());
+        view.local_url
+            .ok_or_else(|| "phpMyAdmin is not installed, or its module is off".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    open_local_page(url)
 }
 
 #[tauri::command]
@@ -1203,6 +1316,10 @@ pub fn run() {
             read_log,
             clear_logs,
             setup_status,
+            phpmyadmin_status,
+            phpmyadmin_install,
+            phpmyadmin_uninstall,
+            phpmyadmin_open,
             setup_choose,
             setup_apply,
             setup_finish,
