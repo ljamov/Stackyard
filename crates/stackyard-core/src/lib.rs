@@ -18,6 +18,7 @@ pub(crate) mod manifest;
 pub mod mcp;
 pub mod modules;
 pub mod paths;
+pub mod phpmyadmin;
 pub mod platform;
 pub mod ports;
 pub mod runtimes;

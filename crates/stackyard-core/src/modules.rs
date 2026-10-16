@@ -156,6 +156,14 @@ pub const MODULES: &[ModuleDef] = &[
         true,
     ),
     module(
+        "phpmyadmin",
+        "phpMyAdmin",
+        Feature,
+        "Full database manager in your browser at phpmyadmin.stack: import, export, edit tables",
+        false,
+        true,
+    ),
+    module(
         "databases",
         "Databases screen",
         Feature,
