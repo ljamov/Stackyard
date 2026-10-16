@@ -14,6 +14,7 @@ import { Images } from "./screens/Images";
 import { ModulesProvider } from "./lib/modules";
 import { TitleBar } from "./components/TitleBar";
 import { Setup } from "./screens/Setup";
+import { UpdateNotice } from "./components/UpdateNotice";
 import { api, type SetupStatus } from "./lib/api";
 
 export function App() {
@@ -39,6 +40,7 @@ export function App() {
           <div className="shell">
             <Sidebar current={screen} onSelect={setScreen} />
             <main className="content">
+              <UpdateNotice />
               {screen === "Dashboard" && <Dashboard onNavigate={setScreen} />}
               {screen === "Sites" && <Sites />}
               {screen === "Services" && <Services />}

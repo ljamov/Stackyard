@@ -29,7 +29,7 @@ use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
 use stackyard_core::{domain, images, paths, phpmyadmin, starters};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
 mod remote;
 mod updates;
@@ -749,6 +749,11 @@ async fn check_for_update(app: AppHandle) -> updates::UpdateView {
 #[tauri::command]
 async fn install_update(app: AppHandle) -> CmdResult<()> {
     updates::install(&app).await
+}
+
+#[tauri::command]
+fn seen_whats_new(app: AppHandle) -> updates::UpdateView {
+    updates::seen_whats_new(&app)
 }
 
 #[tauri::command]
@@ -1485,6 +1490,7 @@ pub fn run() {
         repoint_terminal(&old, &new);
         home = new;
     }
+    let just_updated = updates::take_just_updated();
     for id in updates::take_resume() {
         if !resume.contains(&id) {
             resume.push(id);
@@ -1506,9 +1512,10 @@ pub fn run() {
         .manage(engine.clone())
         .manage(Installs::default())
         .manage(Control(Mutex::new(None)))
-        .manage(updates::Updates::default())
+        .manage(updates::Updates::new(just_updated))
         .manage(remote::RemoteState::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_runtimes,
@@ -1580,6 +1587,7 @@ pub fn run() {
             update_status,
             check_for_update,
             install_update,
+            seen_whats_new,
             remote::remote_connections,
             remote::remote_save,
             remote::remote_remove,
@@ -1702,29 +1710,61 @@ fn show_window(app: &AppHandle) {
     }
 }
 
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+/// The tray menu, with an item for the update when one is available.
+fn tray_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    update: Option<&str>,
+) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 
     let item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
-    let menu = Menu::with_items(
-        app,
-        &[
-            &item("open", "Open Stackyard")?,
-            &PredefinedMenuItem::separator(app)?,
-            &item("start-all", "Start all services")?,
-            &item("stop-all", "Stop all services")?,
-            &PredefinedMenuItem::separator(app)?,
-            &item("quit", "Quit Stackyard")?,
-        ],
-    )?;
+    let open = item("open", "Open Stackyard")?;
+    let update = update
+        .map(|version| item("update", &format!("Update to {version}…")))
+        .transpose()?;
+    let start = item("start-all", "Start all services")?;
+    let stop = item("stop-all", "Stop all services")?;
+    let quit = item("quit", "Quit Stackyard")?;
+    let (gap1, gap2) = (
+        PredefinedMenuItem::separator(app)?,
+        PredefinedMenuItem::separator(app)?,
+    );
+    let mut items: Vec<&dyn IsMenuItem<R>> = vec![&open];
+    if let Some(update) = &update {
+        items.push(update);
+    }
+    items.extend([&gap1 as &dyn IsMenuItem<R>, &start, &stop, &gap2, &quit]);
+    Menu::with_items(app, &items)
+}
+
+/// Shows or removes the tray's update item.
+pub(crate) fn set_tray_update<R: Runtime>(app: &AppHandle<R>, version: Option<&str>) {
+    let Some(tray) = app.tray_by_id("main") else {
+        return;
+    };
+    match tray_menu(app, version) {
+        Ok(menu) => {
+            let _ = tray.set_menu(Some(menu));
+            if let Some(version) = version {
+                let _ = tray.set_tooltip(Some(format!("Stackyard: {version} is available")));
+            }
+        }
+        Err(e) => eprintln!("could not update the tray menu: {e}"),
+    }
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let menu = tray_menu(app, None)?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Stackyard")
         .menu(&menu)
         // macOS shows the menu on a click; elsewhere a click opens the window.
         .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => show_window(app),
+            // The window's notice has the update and its Update button.
+            "open" | "update" => show_window(app),
             "start-all" => {
                 let engine = app.state::<Arc<Engine>>().inner().clone();
                 std::thread::spawn(move || {

@@ -175,7 +175,7 @@ pub const MODULES: &[ModuleDef] = &[
         "updates",
         "Updates",
         Feature,
-        "Checks for new Stackyard versions twice a day; you choose when to install",
+        "Checks for new Stackyard versions every few hours and tells you; you choose when to install",
         true,
         true,
     ),
