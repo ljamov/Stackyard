@@ -195,6 +195,14 @@ pub const MODULES: &[ModuleDef] = &[
         false,
         true,
     ),
+    module(
+        "images",
+        "Image optimizer",
+        Feature,
+        "Make WebP and AVIF copies of JPG and PNG images, and smaller JPGs and PNGs",
+        true,
+        true,
+    ),
 ];
 
 pub fn find(id: &str) -> Option<&'static ModuleDef> {

@@ -225,3 +225,12 @@ table.result-grid td { padding: 6px 12px; max-width: 360px; white-space: pre; ov
 .sites-top > .parked { flex: 1 1 260px; min-width: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
+
+/* Images */
+.images-top { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
+.images-top > .card { flex: 1 1 360px; min-width: 0; }
+.drop-zone { border: 1px dashed var(--border); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.drop-zone p { margin: 0; }
+.images-top .grow { flex: 1 1 auto; min-width: 0; }
+.images-top .progress { width: 100%; }
+.results-summary { padding: 12px 14px 0; margin: 0; }

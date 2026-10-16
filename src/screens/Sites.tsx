@@ -260,7 +260,7 @@ export function Sites() {
             </div>
             {chosenStarter ? (
               <div className="field">
-                <span className="label">Runtime</span>
+                <span className="label">What you get</span>
                 <span className="muted small">{chosenStarter.description}</span>
               </div>
             ) : (
