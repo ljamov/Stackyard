@@ -86,6 +86,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 - **Databases screen**: browse tables, run SQL, back up and restore
 - **phpMyAdmin** in one click, already logged in to your local database
 - **Image optimizer**: WebP, AVIF and smaller JPG/PNG for a whole site folder
+- **Video optimizer**: web-ready MP4, WebM and GIF copies with FFmpeg, downloaded on first use
 - **Live logs** for every service, with text and regex search
 - **Task scheduler** with crontab syntax, in each project's folder
 - **Servers and Git per site**: upload and download over SFTP, FTPS or FTP; pull, commit and push to GitHub

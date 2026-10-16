@@ -14,7 +14,7 @@ use crate::download::{self, Http};
 use crate::settings;
 use crate::{archive, Error, Result};
 
-const RECEIPT: &str = ".stackyard-install.toml";
+pub(crate) const RECEIPT: &str = ".stackyard-install.toml";
 
 /// One downloadable release: an exact version and its archive.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

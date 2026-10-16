@@ -6,6 +6,11 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- New Videos screen: make web-ready MP4 (H.264), WebM (VP9) and GIF copies of videos and GIFs,
+  with a quality choice, a largest width (or a custom one), and an option to remove the sound.
+  It uses FFmpeg, which is not bundled to keep Stackyard small: one click downloads it (about
+  150 MB), or Stackyard uses the one already installed. The Video optimizer module can be
+  switched off in Settings › Modules.
 - Images: Choose images… opens in your Stackyard sites folder instead of Documents, and the site
   list shows the site you picked. Largest width has a Custom width option: type any width, and
   either keep the aspect ratio (the height follows) or set an exact height (edges are trimmed

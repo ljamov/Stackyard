@@ -28,7 +28,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
-use stackyard_core::{domain, images, paths, phpmyadmin, starters};
+use stackyard_core::{domain, images, paths, phpmyadmin, starters, videos};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
 mod remote;
@@ -1201,6 +1201,128 @@ async fn optimize_images(
     result.map_err(|e| e.to_string())
 }
 
+fn require_videos() -> CmdResult<()> {
+    Settings::load()
+        .map_err(err)?
+        .require_module(videos::MODULE)
+        .map_err(err)
+}
+
+#[derive(Serialize)]
+struct VideosStatus {
+    #[serde(flatten)]
+    ffmpeg: videos::Status,
+    /// FFmpeg is being downloaded.
+    installing: bool,
+}
+
+fn videos_view(installs: &Installs) -> VideosStatus {
+    VideosStatus {
+        ffmpeg: videos::status(&paths::home()),
+        installing: installs.0.lock().unwrap().contains("ffmpeg"),
+    }
+}
+
+/// Which FFmpeg the video optimizer uses, if any.
+#[tauri::command]
+async fn videos_status(app: AppHandle) -> CmdResult<VideosStatus> {
+    tauri::async_runtime::spawn_blocking(move || videos_view(&app.state::<Installs>()))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Downloads FFmpeg into Stackyard's tools folder.
+#[tauri::command]
+async fn videos_install_ffmpeg(app: AppHandle) -> CmdResult<VideosStatus> {
+    require_videos()?;
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert("ffmpeg".into())
+    {
+        return Err("FFmpeg is already being downloaded".into());
+    }
+    let worker = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        videos::install(&paths::home(), &mut |step| {
+            let _ = worker.emit("ffmpeg-progress", step);
+        })
+    })
+    .await;
+    app.state::<Installs>().0.lock().unwrap().remove("ffmpeg");
+    result.map_err(|e| e.to_string())?.map_err(err)?;
+    Ok(videos_view(&app.state::<Installs>()))
+}
+
+#[tauri::command]
+fn videos_remove_ffmpeg(app: AppHandle) -> CmdResult<VideosStatus> {
+    videos::uninstall(&paths::home()).map_err(err)?;
+    Ok(videos_view(&app.state::<Installs>()))
+}
+
+/// How many videos the chosen files and folders hold.
+#[tauri::command]
+async fn find_videos(paths: Vec<String>) -> CmdResult<ImagesFound> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
+        let found = videos::find(&paths);
+        ImagesFound {
+            count: found.len(),
+            size: found
+                .iter()
+                .map(|s| std::fs::metadata(&s.path).map_or(0, |m| m.len()))
+                .sum(),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Makes the copies the options ask for, reporting progress as it goes.
+#[tauri::command]
+async fn optimize_videos(
+    app: AppHandle,
+    paths: Vec<String>,
+    options: videos::Options,
+) -> CmdResult<Vec<videos::FileResult>> {
+    require_videos()?;
+    videos::check(&options).map_err(err)?;
+    let ffmpeg = videos::ffmpeg(&paths::home())
+        .ok_or("FFmpeg is not installed yet: download it at the top of the Videos screen")?;
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(videos::MODULE.into())
+    {
+        return Err("Videos are already being optimized".into());
+    }
+    let worker = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
+        let sources = videos::find(&paths);
+        videos::optimize_all(&ffmpeg, &sources, &options, &mut |progress| {
+            let _ = worker.emit("videos-progress", progress);
+        })
+    })
+    .await;
+    app.state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .remove(videos::MODULE);
+    result.map_err(|e| e.to_string())
+}
+
+/// Stops optimizing; the copy being made is dropped.
+#[tauri::command]
+fn stop_videos() {
+    videos::stop();
+}
+
 #[derive(Clone, Serialize)]
 struct StarterProgress {
     name: String,
@@ -1542,6 +1664,12 @@ pub fn run() {
             list_starters,
             find_images,
             optimize_images,
+            videos_status,
+            videos_install_ffmpeg,
+            videos_remove_ffmpeg,
+            find_videos,
+            optimize_videos,
+            stop_videos,
             add_starter_site,
             list_modules,
             set_module,
