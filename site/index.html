@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stackyard: your whole local dev stack in one app</title>
+<meta name="description" content="Fast, native local development for Windows, macOS and Linux. PHP, Node.js, MySQL, PostgreSQL, Redis and more, local HTTPS sites and a built-in MCP server for AI coding tools. No containers.">
+<meta property="og:title" content="Stackyard">
+<meta property="og:description" content="Your whole local dev stack in one fast desktop app. No containers.">
+<meta property="og:image" content="images/sites.png">
+<meta name="theme-color" content="#111418">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top"><img src="logo.svg" alt="" width="28" height="28"> Stackyard</a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#tour">Tour</a>
+      <a href="#ai">AI tools</a>
+      <a href="#download">Download</a>
+      <a href="https://github.com/ljamov/Stackyard" class="gh">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="glow" aria-hidden="true"></div>
+  <div class="wrap hero-inner">
+    <p class="eyebrow"><span class="dot"></span> Free and open source · <span data-version>Latest release</span></p>
+    <h1>Your whole local dev stack.<br><span class="accent">One fast app.</span> No containers.</h1>
+    <p class="lead">PHP, Node.js, MySQL, PostgreSQL, Redis and more, running natively on Windows, macOS and Linux, with trusted HTTPS sites like <code>https://myapp.stack</code> and a built-in MCP server for AI coding tools.</p>
+    <div class="cta">
+      <a class="btn primary big" data-primary href="https://github.com/ljamov/Stackyard/releases/latest">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16" /></svg>
+        <span data-primary-label>Download Stackyard</span>
+      </a>
+      <a class="btn ghost big" href="#download">Other systems</a>
+    </div>
+    <p class="fine" data-primary-note>Windows 10/11 · macOS 11+ · Linux x64</p>
+    <figure class="shot hero-shot">
+      <img src="images/sites.png" alt="The Sites screen: three local HTTPS sites running Laravel, Vite and WordPress, each with its own runtime version" width="1920" height="1200">
+    </figure>
+  </div>
+</section>
+
+<section class="why wrap" aria-label="Why Stackyard">
+  <div class="why-item"><h3>Native, not virtual</h3><p>Services run straight on your OS. No Docker, no VM, no waiting for containers to boot.</p></div>
+  <div class="why-item"><h3>Per-project versions</h3><p>One project on PHP 8.2, the next on 8.5, a third on Node 22. Browser and terminal always agree.</p></div>
+  <div class="why-item"><h3>Real HTTPS</h3><p>Every project gets <code>https://name.stack</code> with a trusted certificate, set up with one click.</p></div>
+  <div class="why-item"><h3>Small by design</h3><p>Every runtime, service and screen is a module. Off means nothing downloaded, nothing running.</p></div>
+</section>
+
+<section id="features" class="section">
+  <div class="wrap">
+    <p class="kicker">Features</p>
+    <h2>Everything a local stack needs, in one place</h2>
+    <div class="grid">
+      <article class="card">
+        <div class="icon">🌐</div>
+        <h3>Sites and HTTPS</h3>
+        <ul>
+          <li>Local domains ending in <code>.stack</code>, <code>.test</code> or anything you like</li>
+          <li>Trusted HTTPS for every site, powered by Caddy</li>
+          <li>Park a folder and every project inside becomes a site</li>
+          <li>Detects Laravel, Symfony, WordPress, Drupal, Vite, Next.js, Astro and more</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">⚡</div>
+        <h3>Starters</h3>
+        <ul>
+          <li>New WordPress, Laravel or Astro site in one click</li>
+          <li>Database and config files made for you</li>
+          <li>Node dev servers started and proxied automatically</li>
+          <li>Or <code>stackyard sites new blog wordpress</code></li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">⚙️</div>
+        <h3>Runtimes</h3>
+        <ul>
+          <li>PHP 8.1 to 8.5 (plus 7.4 and 8.0 on Windows)</li>
+          <li>Node.js 20 to 26, side by side</li>
+          <li>Pin a version per project with a <code>.stackyard</code> file</li>
+          <li><code>php</code>, <code>composer</code>, <code>node</code>, <code>npm</code> pick the right version in any terminal</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🗄️</div>
+        <h3>Databases and services</h3>
+        <ul>
+          <li>MySQL 8.4, MariaDB 11.8, PostgreSQL 18, Redis 8</li>
+          <li>Meilisearch for search, Mailpit to catch outgoing mail</li>
+          <li>phpMyAdmin in one click, already logged in</li>
+          <li>Port taken by another app? It moves to the next free one</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🧰</div>
+        <h3>Built-in tools</h3>
+        <ul>
+          <li>Databases screen: browse, run SQL, back up and restore</li>
+          <li>Live logs with text and regex search</li>
+          <li>Task scheduler with crontab syntax</li>
+          <li>Image optimizer: WebP, AVIF, smaller JPG and PNG</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🚀</div>
+        <h3>Servers and Git</h3>
+        <ul>
+          <li>Upload and download over SFTP, FTPS or FTP, with a preview first</li>
+          <li>Passwords kept in your system keychain</li>
+          <li>Link a site to GitHub: pull, commit and push</li>
+          <li>Signed auto-updates with release notes</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="tour" class="section alt">
+  <div class="wrap">
+    <p class="kicker">A quick look</p>
+    <h2>Built to stay out of your way</h2>
+    <div class="tabs" role="tablist" aria-label="Screens">
+      <button role="tab" aria-selected="true" data-shot="dashboard">Dashboard</button>
+      <button role="tab" aria-selected="false" data-shot="sites">Sites</button>
+      <button role="tab" aria-selected="false" data-shot="runtimes">Runtimes</button>
+      <button role="tab" aria-selected="false" data-shot="databases">Databases</button>
+      <button role="tab" aria-selected="false" data-shot="logs">Logs</button>
+    </div>
+    <figure class="shot">
+      <img id="tour-img" src="images/dashboard.png" alt="Dashboard with services, sites and runtimes" width="1920" height="1200" loading="lazy">
+    </figure>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap split">
+    <div>
+      <p class="kicker">Out of the box</p>
+      <h2>Services, ready when you are</h2>
+      <p class="muted">Everything listens on <code>127.0.0.1</code> only. Databases start with user <code>root</code> (or <code>postgres</code>) and no password, and their data is kept if you remove them.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Service</th><th>Port</th><th>Systems</th></tr></thead>
+        <tbody>
+          <tr><td>Caddy 2 (web, HTTPS)</td><td>80, 443</td><td>All</td></tr>
+          <tr><td>MySQL 8.4</td><td>3306</td><td>All</td></tr>
+          <tr><td>MariaDB 11.8</td><td>3306</td><td>Windows, Linux</td></tr>
+          <tr><td>PostgreSQL 18</td><td>5432</td><td>All</td></tr>
+          <tr><td>Redis 8</td><td>6379</td><td>macOS, Linux</td></tr>
+          <tr><td>Meilisearch 1</td><td>7700</td><td>All</td></tr>
+          <tr><td>Mailpit</td><td>1025, 8025</td><td>All</td></tr>
+          <tr><td>phpMyAdmin</td><td>phpmyadmin.stack</td><td>All</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="ai" class="section alt">
+  <div class="wrap split">
+    <div>
+      <p class="kicker">AI-ready</p>
+      <h2>Let your AI coding tool see your stack</h2>
+      <p class="muted">Stackyard has a built-in MCP server for Claude Code, Cursor, Claude Desktop, Windsurf and others. AI tools can list sites, services and runtimes and read logs. Starting services, creating sites and changing versions stay off until you allow them, and deleting is never offered. Every call is logged.</p>
+    </div>
+    <div class="terminal" aria-label="Terminal example">
+      <div class="term-bar"><i></i><i></i><i></i></div>
+<pre><span class="c"># connect Claude Code to Stackyard</span>
+<span class="p">$</span> claude mcp add --scope user stackyard -- stackyard mcp
+
+<span class="c"># allow one action</span>
+<span class="p">$</span> stackyard mcp allow start_service
+
+<span class="c"># see what AI tools did</span>
+<span class="p">$</span> stackyard mcp log</pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap split">
+    <div class="terminal" aria-label="Terminal example">
+      <div class="term-bar"><i></i><i></i><i></i></div>
+<pre><span class="p">$</span> stackyard system setup        <span class="c"># domains and HTTPS</span>
+<span class="p">$</span> stackyard sites park ~/Code   <span class="c"># every folder is a site</span>
+<span class="p">$</span> stackyard runtimes install php 8.4
+<span class="p">$</span> stackyard use php 8.3         <span class="c"># pin this project</span>
+<span class="p">$</span> stackyard start               <span class="c"># run it all</span></pre>
+    </div>
+    <div>
+      <p class="kicker">App or terminal</p>
+      <h2>A full CLI that drives the same engine</h2>
+      <p class="muted">Stackyard lives in your tray with services in the background. Prefer the terminal? Every screen has a <code>stackyard</code> command, and the app and CLI share the same running services.</p>
+      <p><a class="link" href="https://github.com/ljamov/Stackyard/blob/master/docs/cli.md">Every command →</a></p>
+    </div>
+  </div>
+</section>
+
+<section id="download" class="section download">
+  <div class="wrap">
+    <p class="kicker">Download</p>
+    <h2>Get Stackyard <span class="accent" data-version-short></span></h2>
+    <p class="muted center">Free, MIT licensed. Installers aren't code-signed yet: on Windows choose <b>More info → Run anyway</b>; on macOS right-click the app and choose <b>Open</b> the first time.</p>
+    <div class="platforms">
+      <article class="platform" data-os="windows">
+        <h3>Windows</h3>
+        <p class="fine">Windows 10 and 11, x64</p>
+        <a class="btn primary" data-asset="setup.exe" href="https://github.com/ljamov/Stackyard/releases/latest">Installer (.exe)</a>
+        <a class="btn ghost" data-asset=".msi" href="https://github.com/ljamov/Stackyard/releases/latest">MSI package</a>
+      </article>
+      <article class="platform" data-os="mac">
+        <h3>macOS</h3>
+        <p class="fine">macOS 11 or later</p>
+        <a class="btn primary" data-asset="aarch64.dmg" href="https://github.com/ljamov/Stackyard/releases/latest">Apple silicon (.dmg)</a>
+        <a class="btn ghost" data-asset="x64.dmg" href="https://github.com/ljamov/Stackyard/releases/latest">Intel (.dmg)</a>
+      </article>
+      <article class="platform" data-os="linux">
+        <h3>Linux</h3>
+        <p class="fine">x64</p>
+        <a class="btn primary" data-asset=".AppImage" href="https://github.com/ljamov/Stackyard/releases/latest">AppImage</a>
+        <div class="row">
+          <a class="btn ghost" data-asset=".deb" href="https://github.com/ljamov/Stackyard/releases/latest">.deb</a>
+          <a class="btn ghost" data-asset=".rpm" href="https://github.com/ljamov/Stackyard/releases/latest">.rpm</a>
+        </div>
+      </article>
+    </div>
+    <p class="center fine"><a class="link" href="https://github.com/ljamov/Stackyard/releases">All releases and release notes</a></p>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div class="brand"><img src="logo.svg" alt="" width="22" height="22"> Stackyard</div>
+    <nav aria-label="Footer">
+      <a href="https://github.com/ljamov/Stackyard">GitHub</a>
+      <a href="https://github.com/ljamov/Stackyard#documentation">Docs</a>
+      <a href="https://github.com/ljamov/Stackyard/blob/master/CHANGELOG.md">What's new</a>
+      <a href="https://github.com/ljamov/Stackyard/issues">Report a bug</a>
+      <a href="https://github.com/ljamov/Stackyard/blob/master/LICENSE">MIT license</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
