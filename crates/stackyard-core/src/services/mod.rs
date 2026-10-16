@@ -51,6 +51,8 @@ pub(crate) struct Context<'a> {
     pub data: PathBuf,
     /// Where Stackyard writes its config; created before `spec` is called.
     pub config: PathBuf,
+    /// The ports to listen on, in the order of `def.ports`.
+    pub ports: Vec<u16>,
 }
 
 impl Context<'_> {
@@ -66,7 +68,7 @@ impl Context<'_> {
             args,
             env: Vec::new(),
             cwd: Some(self.data.clone()),
-            ports: self.def.ports.to_vec(),
+            ports: self.ports.clone(),
             restart_on_crash: true,
         }
     }
@@ -175,6 +177,11 @@ impl ServiceManager {
             install: &installed.path,
             data: self.data_dir(def.id),
             config: self.home.join("config").join(def.id),
+            ports: if def.id == "caddy" {
+                Vec::new()
+            } else {
+                choose_ports(&self.home, def)?
+            },
         };
         for dir in [&ctx.data, &ctx.config] {
             std::fs::create_dir_all(dir).map_err(|source| Error::Io {
@@ -198,6 +205,81 @@ impl ServiceManager {
             _ => Err(Error::UnknownModule(id.to_string())),
         }
     }
+}
+
+/// The ports a service listens on: its usual ones, or the ones it moved to
+/// because another program had those (saved in `config/<id>/ports`).
+pub fn ports(home: &Path, def: &ServiceDef) -> Vec<u16> {
+    if def.id == "caddy" {
+        let web = Ports::current(home);
+        return vec![web.http, web.https];
+    }
+    std::fs::read_to_string(ports_file(home, def))
+        .ok()
+        .and_then(|text| {
+            text.split(',')
+                .map(|p| p.trim().parse().ok())
+                .collect::<Option<Vec<u16>>>()
+        })
+        .filter(|saved| saved.len() == def.ports.len())
+        .unwrap_or_else(|| def.ports.to_vec())
+}
+
+/// The page a service shows in the browser, on the ports it really uses.
+/// The web server's opens at `127.0.0.1`: browsers try IPv6 first for
+/// `localhost`, where another local server may answer.
+pub fn web_page(home: &Path, def: &ServiceDef) -> Option<String> {
+    if def.id == "caddy" {
+        return Some(Ports::current(home).url("127.0.0.1", false));
+    }
+    let mut url = def.web?.to_string();
+    for (usual, actual) in def.ports.iter().zip(ports(home, def)) {
+        url = url.replace(&format!(":{usual}"), &format!(":{actual}"));
+    }
+    Some(url)
+}
+
+/// The first port, the one programs connect to (3306 for MySQL).
+pub fn port(home: &Path, def: &ServiceDef) -> u16 {
+    ports(home, def)[0]
+}
+
+fn ports_file(home: &Path, def: &ServiceDef) -> PathBuf {
+    home.join("config").join(def.id).join("ports")
+}
+
+/// Before a start: the ports it used last time while they are free, else
+/// the usual ones, else the next free ones after those (MySQL moves to 3307
+/// when another MySQL has 3306). The choice is kept so apps' settings stay
+/// right.
+fn choose_ports(home: &Path, def: &ServiceDef) -> Result<Vec<u16>> {
+    let last = ports(home, def);
+    let mut chosen: Vec<u16> = Vec::new();
+    for (&usual, &before) in def.ports.iter().zip(&last) {
+        let free = [before, usual]
+            .into_iter()
+            .chain((1..=100).filter_map(|n| usual.checked_add(n)))
+            .find(|p| !chosen.contains(p) && crate::ports::is_free(*p));
+        // Nothing free nearby: keep the usual port and let the start explain.
+        chosen.push(free.unwrap_or(before));
+    }
+    let file = ports_file(home, def);
+    let io = |source| Error::Io {
+        path: file.clone(),
+        source,
+    };
+    if chosen == def.ports {
+        if file.exists() {
+            std::fs::remove_file(&file).map_err(io)?;
+        }
+    } else {
+        let text: Vec<String> = chosen.iter().map(u16::to_string).collect();
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir).map_err(io)?;
+        }
+        std::fs::write(&file, text.join(",")).map_err(io)?;
+    }
+    Ok(chosen)
 }
 
 impl ServiceManager {
@@ -450,6 +532,50 @@ mod tests {
         assert!(matches!(manager.spec("../x"), Err(Error::UnknownModule(_))));
     }
 
+    /// Another MySQL (or Local by Flywheel's) on 3306 used to stop Stackyard's
+    /// from starting; now it moves to the next free port and stays there.
+    #[test]
+    fn a_taken_port_moves_to_the_next_free_one() {
+        let home = crate::testutil::tempdir();
+        // A made-up service on a port this test holds.
+        let held = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
+        let usual = held.local_addr().unwrap().port();
+        let def: &'static ServiceDef = Box::leak(Box::new(ServiceDef {
+            id: "testdb",
+            ports: Box::leak(vec![usual].into_boxed_slice()),
+            web: Some("http://127.0.0.1:PORT"),
+            ..*catalog::service("mysql").unwrap()
+        }));
+        let chosen = choose_ports(&home, def).unwrap();
+        assert_ne!(chosen, vec![usual]);
+        assert!(chosen[0] > usual && chosen[0] <= usual.saturating_add(100));
+        assert_eq!(ports(&home, def), chosen, "kept for next time");
+        // While it is free, the moved port is kept so apps stay pointed at it.
+        drop(held);
+        assert_eq!(choose_ports(&home, def).unwrap(), chosen);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn pages_follow_moved_ports() {
+        let home = crate::testutil::tempdir();
+        let mailpit = catalog::service("mailpit").unwrap();
+        assert_eq!(
+            web_page(&home, mailpit).as_deref(),
+            Some("http://127.0.0.1:8025")
+        );
+        std::fs::create_dir_all(home.join("config/mailpit")).unwrap();
+        std::fs::write(home.join("config/mailpit/ports"), "1026,8026").unwrap();
+        assert_eq!(ports(&home, mailpit), vec![1026, 8026]);
+        assert_eq!(
+            web_page(&home, mailpit).as_deref(),
+            Some("http://127.0.0.1:8026")
+        );
+        let caddy = catalog::service("caddy").unwrap();
+        assert_eq!(web_page(&home, caddy).as_deref(), Some("http://127.0.0.1"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn caddy_gets_its_own_config_and_storage() {
         let home = crate::testutil::tempdir();
@@ -461,6 +587,7 @@ mod tests {
             install: &install,
             data: home.join("data/caddy"),
             config: home.join("config/caddy"),
+            ports: Vec::new(),
         };
         std::fs::create_dir_all(&ctx.config).unwrap();
         let spec = caddy::spec(&ctx, Ports::FALLBACK, "\nsite.stack {\n}\n").unwrap();

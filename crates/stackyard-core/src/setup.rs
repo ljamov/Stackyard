@@ -201,11 +201,12 @@ pub fn move_if_pending() -> Option<(PathBuf, PathBuf)> {
     let mut location = Location::load()?;
     let from = location.move_from.take()?;
     let to = location.home.clone();
-    let moved = move_folder(&from, &to);
+    let moved = move_when_free(&from, &to);
     if let Err(e) = &moved {
         location.home = from.clone();
         location.move_error = Some(format!(
-            "Could not move Stackyard's files from {} to {}: {e}. They stay where they are.",
+            "Could not move Stackyard's files from {} to {}: {e}. They stay where they are. \
+             Restart your computer, then click Next and Install to try again.",
             from.display(),
             to.display()
         ));
@@ -216,6 +217,51 @@ pub fn move_if_pending() -> Option<(PathBuf, PathBuf)> {
     fix_config_paths(&to, &from);
     Some((from, to))
 }
+
+/// Windows can't move a file another program has open. Stackyard's own
+/// programs (a database server still running, a terminal command an AI tool
+/// keeps open) are stopped first, and the Stackyard that restarted to get
+/// here may still be closing, so a file in use is tried again for a while.
+fn move_when_free(from: &Path, to: &Path) -> std::io::Result<()> {
+    stop_programs_in(from);
+    let mut waits = [250, 500, 1000, 2000, 3000, 4000, 5000].into_iter();
+    loop {
+        match move_folder(from, to) {
+            Err(e) if in_use(&e) => match waits.next() {
+                Some(ms) => std::thread::sleep(std::time::Duration::from_millis(ms)),
+                None => return Err(e),
+            },
+            result => return result,
+        }
+    }
+}
+
+/// Sharing and lock violations, and the access error Windows gives for a
+/// folder that is open in another program.
+fn in_use(e: &std::io::Error) -> bool {
+    let code = match e.get_ref().and_then(|inner| inner.downcast_ref::<OnFile>()) {
+        Some(on_file) => on_file.source.raw_os_error(),
+        None => e.raw_os_error(),
+    };
+    matches!(code, Some(5 | 32 | 33))
+}
+
+/// Stops programs running from inside `folder`: they are ones Stackyard
+/// installed there, and they hold their own files open.
+#[cfg(windows)]
+fn stop_programs_in(folder: &Path) {
+    let script = "$f = $env:STACKYARD_MOVE_FROM.TrimEnd('\\') + '\\'; \
+        Get-Process | Where-Object { $_.Id -ne [int]$env:STACKYARD_PID -and $_.Path -and \
+        $_.Path.StartsWith($f, [StringComparison]::OrdinalIgnoreCase) } | \
+        Stop-Process -Force -ErrorAction SilentlyContinue";
+    let _ = crate::system::powershell_command(script)
+        .env("STACKYARD_MOVE_FROM", folder)
+        .env("STACKYARD_PID", std::process::id().to_string())
+        .status();
+}
+
+#[cfg(not(windows))]
+fn stop_programs_in(_folder: &Path) {}
 
 fn move_folder(from: &Path, to: &Path) -> std::io::Result<()> {
     if let Some(parent) = to.parent() {
@@ -249,7 +295,7 @@ fn move_folder(from: &Path, to: &Path) -> std::io::Result<()> {
                 }
                 if let Err(e) = remove_all(&entry.path()) {
                     let _ = remove_all(&target);
-                    return Err(e);
+                    return Err(naming(e, &entry.path()));
                 }
             }
             moved.push(entry.file_name());
@@ -269,6 +315,32 @@ fn move_folder(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// An error about one file, which keeps the original so a file in use can
+/// still be told apart.
+#[derive(Debug)]
+struct OnFile {
+    source: std::io::Error,
+    path: PathBuf,
+}
+
+impl std::fmt::Display for OnFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({})", self.source, self.path.display())
+    }
+}
+
+impl std::error::Error for OnFile {}
+
+fn naming(source: std::io::Error, path: &Path) -> std::io::Error {
+    std::io::Error::new(
+        source.kind(),
+        OnFile {
+            source,
+            path: path.to_owned(),
+        },
+    )
+}
+
 fn copy_all(from: &Path, to: &Path) -> std::io::Result<()> {
     if std::fs::symlink_metadata(from)?.is_dir() {
         std::fs::create_dir_all(to)?;
@@ -278,7 +350,9 @@ fn copy_all(from: &Path, to: &Path) -> std::io::Result<()> {
         }
         Ok(())
     } else {
-        std::fs::copy(from, to).map(|_| ())
+        std::fs::copy(from, to)
+            .map(|_| ())
+            .map_err(|e| naming(e, from))
     }
 }
 
@@ -343,6 +417,46 @@ fn same_path(a: &Path, b: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A program left running from the old folder used to stop the move
+    /// with "the process cannot access the file" (os error 32).
+    #[cfg(windows)]
+    #[test]
+    fn moves_a_folder_a_program_is_running_from() {
+        let base = crate::testutil::tempdir();
+        let from = base.join("old");
+        let to = base.join("new");
+        std::fs::create_dir_all(from.join("bin")).unwrap();
+        let program = from.join("bin").join("ping.exe");
+        std::fs::copy(r"C:\Windows\System32\PING.EXE", &program).unwrap();
+        let mut running = std::process::Command::new(&program)
+            .args(["-n", "60", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        move_when_free(&from, &to).unwrap();
+        assert!(to.join("bin").join("ping.exe").is_file());
+        assert!(!from.exists());
+        assert!(running.try_wait().unwrap().is_some(), "still running");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_file_in_use_is_tried_again_and_named() {
+        let busy = naming(
+            std::io::Error::from_raw_os_error(32),
+            Path::new("old/logs/caddy.log"),
+        );
+        assert!(in_use(&busy));
+        assert!(busy.to_string().contains("caddy.log"), "{busy}");
+        assert!(in_use(&std::io::Error::from_raw_os_error(32)));
+        let missing = naming(
+            std::io::Error::from(std::io::ErrorKind::NotFound),
+            Path::new("x"),
+        );
+        assert!(!in_use(&missing));
+    }
 
     #[test]
     fn moves_a_folder_and_fixes_php_ini() {

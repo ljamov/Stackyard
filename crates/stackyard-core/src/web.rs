@@ -47,11 +47,14 @@ impl Ports {
     /// The standard ports when this computer lets Stackyard use them.
     /// Only meaningful while the web server is stopped.
     pub fn choose() -> Ports {
-        if ports::is_free(80) && ports::is_free(443) {
-            Ports::STANDARD
-        } else {
-            Ports::FALLBACK
-        }
+        let free = |p: &Ports| ports::is_free(p.http) && ports::is_free(p.https);
+        std::iter::once(Ports::STANDARD)
+            .chain((0..20).map(|n| Ports {
+                http: Ports::FALLBACK.http + n,
+                https: Ports::FALLBACK.https + n,
+            }))
+            .find(free)
+            .unwrap_or(Ports::FALLBACK)
     }
 
     /// The ports the web server last started with, saved by [`Ports::save`].
@@ -328,6 +331,7 @@ pub fn caddy_sites(sites: &[ServedSite]) -> String {
             )),
             Backend::Php { port, .. } => {
                 out.push_str(&format!("\troot * {}\n", quote(&slash(&served.root))));
+                out.push_str(&empty_folder_page(served));
                 out.push_str("\tencode zstd gzip\n");
                 out.push_str(&format!("\tphp_fastcgi 127.0.0.1:{port}\n"));
                 out.push_str("\tfile_server\n");
@@ -340,6 +344,7 @@ pub fn caddy_sites(sites: &[ServedSite]) -> String {
             }
             Backend::Static => {
                 out.push_str(&format!("\troot * {}\n", quote(&slash(&served.root))));
+                out.push_str(&empty_folder_page(served));
                 out.push_str("\tencode zstd gzip\n");
                 out.push_str("\tfile_server\n");
             }
@@ -347,6 +352,23 @@ pub fn caddy_sites(sites: &[ServedSite]) -> String {
         out.push_str("}\n");
     }
     out
+}
+
+/// Instead of the browser's bare "HTTP ERROR 404", a site whose folder has
+/// no start page yet says where to put one. Checked on every visit, so it
+/// goes away as soon as the file is there.
+fn empty_folder_page(served: &ServedSite) -> String {
+    let text = format!(
+        "{} works, but its folder has no index.php or index.html yet. \
+         Put one in {} and reload this page.",
+        served.domain(),
+        slash(&served.root)
+    );
+    format!(
+        "\t@empty {{\n\t\tpath /\n\t\tnot file index.php index.html index.htm\n\t}}\n\
+         \trespond @empty {} 200\n",
+        quote(&text)
+    )
 }
 
 /// A Caddyfile string token.
@@ -650,6 +672,12 @@ mod tests {
         assert!(text.contains("app.stack, app.localhost {"), "{text}");
         assert!(text.contains("root * \"/code/app/public\""), "{text}");
         assert!(text.contains("php_fastcgi 127.0.0.1:9084"), "{text}");
+        // An empty folder explains itself instead of a bare 404.
+        assert!(
+            text.contains("not file index.php index.html index.htm"),
+            "{text}"
+        );
+        assert!(text.contains("Put one in /code/app/public"), "{text}");
 
         php.backend = Backend::Php {
             version: "8.4".into(),

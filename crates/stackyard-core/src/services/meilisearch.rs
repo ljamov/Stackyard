@@ -46,7 +46,7 @@ pub(super) fn resolve(http: &Http, platform: Platform) -> Result<Release> {
 }
 
 pub(super) fn spec(ctx: &Context) -> Result<ProcessSpec> {
-    let port = ctx.def.ports[0];
+    let port = ctx.ports[0];
     let mut spec = ctx.base_spec(vec![
         "--http-addr".into(),
         format!("127.0.0.1:{port}"),

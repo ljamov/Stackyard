@@ -47,7 +47,7 @@ pub(super) fn resolve(http: &Http, platform: Platform) -> Result<Release> {
 }
 
 pub(super) fn spec(ctx: &Context) -> Result<ProcessSpec> {
-    let [smtp, web] = [ctx.def.ports[0], ctx.def.ports[1]];
+    let [smtp, web] = [ctx.ports[0], ctx.ports[1]];
     Ok(ctx.base_spec(vec![
         "--smtp".into(),
         format!("127.0.0.1:{smtp}"),

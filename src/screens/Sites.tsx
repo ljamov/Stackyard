@@ -150,7 +150,7 @@ export function Sites() {
             </button>
           </div>
           <p className="muted">
-            So addresses like <span className="mono">myapp{tldInfo.data.tld}</span> open in your browser. Your computer
+            So addresses like <span className="mono">hello{tldInfo.data.tld}</span> open in your browser. Your computer
             asks for your password once to:
           </p>
           <ul className="muted">
@@ -185,7 +185,7 @@ export function Sites() {
                   id="f-name"
                   className="mono"
                   value={name}
-                  placeholder="myapp"
+                  placeholder="hello"
                   required
                   onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                 />
@@ -199,7 +199,7 @@ export function Sites() {
                   id="f-folder"
                   className="mono grow"
                   value={path}
-                  placeholder={folderFor(name || "myapp")}
+                  placeholder={folderFor(name || "hello")}
                   onChange={(e) => setPath(e.target.value)}
                 />
                 <button type="button" className="btn" onClick={browseProject}>
@@ -230,7 +230,7 @@ export function Sites() {
             </div>
           </div>
           <span className="muted small">
-            Leave the folder empty to create <span className="mono">{folderFor(name || "myapp")}</span>. The domain
+            Leave the folder empty to create <span className="mono">{folderFor(name || "hello")}</span>. The domain
             ending applies to new sites.
           </span>
           <div className="row between centered">

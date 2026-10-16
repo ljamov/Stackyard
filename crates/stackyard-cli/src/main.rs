@@ -490,7 +490,10 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             let name_width = SERVICES.iter().map(|s| s.name.len()).max().unwrap_or(0);
             let role_width = SERVICES.iter().map(|s| s.role.len()).max().unwrap_or(0);
             for service in SERVICES {
-                let ports: Vec<String> = service.ports.iter().map(u16::to_string).collect();
+                let ports: Vec<String> = stackyard_core::services::ports(manager.home(), service)
+                    .iter()
+                    .map(u16::to_string)
+                    .collect();
                 let state = match manager.get(service.id) {
                     _ if !settings.module_enabled(service.id) => "off".to_string(),
                     Some(i) => format!("installed {}", i.release),

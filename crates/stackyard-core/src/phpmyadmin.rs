@@ -138,8 +138,8 @@ fn php_version(runtimes: &RuntimeManager) -> Option<String> {
         .cloned()
 }
 
-/// Logs in as root on the local MySQL or MariaDB (both listen on 3306).
-fn config_php(secret: &str, temp: &Path) -> String {
+/// Logs in as root on the local MySQL or MariaDB.
+fn config_php(secret: &str, temp: &Path, port: u16) -> String {
     let temp = temp.display().to_string().replace('\\', "/");
     format!(
         "<?php\n\
@@ -148,7 +148,7 @@ fn config_php(secret: &str, temp: &Path) -> String {
          $cfg['TempDir'] = '{temp}';\n\
          $cfg['Servers'][1]['verbose'] = 'Local MySQL or MariaDB';\n\
          $cfg['Servers'][1]['host'] = '127.0.0.1';\n\
-         $cfg['Servers'][1]['port'] = '3306';\n\
+         $cfg['Servers'][1]['port'] = '{port}';\n\
          $cfg['Servers'][1]['auth_type'] = 'config';\n\
          $cfg['Servers'][1]['user'] = 'root';\n\
          $cfg['Servers'][1]['password'] = '';\n\
@@ -165,9 +165,35 @@ fn config_php(secret: &str, temp: &Path) -> String {
     )
 }
 
+/// The port of the installed MySQL, else MariaDB (3306 unless another
+/// program had it).
+fn database_port(home: &Path) -> u16 {
+    let services = crate::services::ServiceManager::new(home);
+    ["mysql", "mariadb"]
+        .into_iter()
+        .filter(|id| services.get(id).is_some())
+        .find_map(crate::catalog::service)
+        .map(|def| crate::services::port(home, def))
+        .unwrap_or(3306)
+}
+
+/// Points phpMyAdmin at the database server that just started, when
+/// phpMyAdmin is installed. It reads its settings on every page.
+pub fn use_database(home: &Path, port: u16) {
+    if installed(home).is_some() {
+        if let Err(e) = write_config_for(home, port) {
+            eprintln!("could not write phpMyAdmin's settings: {e}");
+        }
+    }
+}
+
+fn write_config(home: &Path) -> Result<()> {
+    write_config_for(home, database_port(home))
+}
+
 /// Writes `config.inc.php`, with a secret kept in Stackyard's data folder
 /// so logins survive reinstalls.
-fn write_config(home: &Path) -> Result<()> {
+fn write_config_for(home: &Path, port: u16) -> Result<()> {
     let data = home.join("data").join("phpmyadmin");
     let temp = data.join("tmp");
     let io = |path: &Path| {
@@ -192,7 +218,7 @@ fn write_config(home: &Path) -> Result<()> {
     };
     crate::services::write_config(
         &dir(home).join("config.inc.php"),
-        &config_php(&secret, &temp),
+        &config_php(&secret, &temp, port),
     )
 }
 
@@ -214,7 +240,9 @@ mod tests {
         let text = config_php(
             &"ab".repeat(16),
             Path::new("C:\\stack'yard\\data\\phpmyadmin\\tmp"),
+            3307,
         );
+        assert!(text.contains("['port'] = '3307';"));
         assert!(text.contains("$cfg['Servers'][1]['auth_type'] = 'config';"));
         assert!(text.contains("'user'] = 'root'"));
         assert!(

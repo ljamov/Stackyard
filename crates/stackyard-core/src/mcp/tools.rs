@@ -366,15 +366,11 @@ fn list_services(ctx: &Ctx) -> Result<Value, String> {
     let settings = settings(ctx)?;
     let manager = ServiceManager::new(ctx.home);
     let (states, owner) = running(ctx);
-    let web = Ports::current(ctx.home);
     let services: Vec<Value> = SERVICES
         .iter()
         .filter(|def| modules::find(def.id).is_some_and(|m| m.available_here()))
         .map(|def| {
-            let ports = match def.id {
-                "caddy" => vec![web.http, web.https],
-                _ => def.ports.to_vec(),
-            };
+            let ports = crate::services::ports(ctx.home, def);
             let state = states.get(def.id).cloned().unwrap_or(ProcessState::Stopped);
             let mut value = json!({
                 "id": def.id,
