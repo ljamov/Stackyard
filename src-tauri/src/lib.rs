@@ -31,6 +31,7 @@ use stackyard_core::web::{self, Backend, Ports, ServedSite};
 use stackyard_core::{domain, images, paths, phpmyadmin, starters};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
+mod remote;
 mod updates;
 
 type CmdResult<T> = Result<T, String>;
@@ -1308,8 +1309,9 @@ async fn add_starter_site(
 #[tauri::command]
 fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
     let mut store = SiteStore::load().map_err(err)?;
-    store.remove(&name).map_err(err)?;
+    let removed = store.remove(&name).map_err(err)?;
     store.save().map_err(err)?;
+    remote::site_removed(&removed.domain());
     sites_changed(&app);
     site_views()
 }
@@ -1475,6 +1477,7 @@ pub fn run() {
         .manage(Installs::default())
         .manage(Control(Mutex::new(None)))
         .manage(updates::Updates::new(just_updated))
+        .manage(remote::RemoteState::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1548,7 +1551,23 @@ pub fn run() {
             update_status,
             check_for_update,
             install_update,
-            seen_whats_new
+            seen_whats_new,
+            remote::remote_connections,
+            remote::remote_save,
+            remote::remote_remove,
+            remote::remote_trust,
+            remote::remote_test,
+            remote::remote_browse,
+            remote::remote_plan,
+            remote::remote_run,
+            remote::remote_stop,
+            remote::remote_local_folder,
+            remote::git_status,
+            remote::git_link,
+            remote::git_fetch,
+            remote::git_pull,
+            remote::git_push,
+            remote::git_commit
         ])
         .setup(move |app| {
             let tray = match build_tray(app.handle()) {
