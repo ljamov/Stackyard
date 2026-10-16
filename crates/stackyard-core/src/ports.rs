@@ -49,6 +49,12 @@ mod tests {
         assert!(!is_free(port));
         assert!(wait_until_open(port, Duration::from_secs(1)));
         drop(listener);
+        // Other tests running at the same time bind ports too, and may get
+        // this one for a moment now that it is free again.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !is_free(port) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
         assert!(is_free(port));
     }
 

@@ -4,8 +4,18 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.3.1
 
+- Fixed MySQL failing to start with "ibdata1 must be writable": opening Stackyard again now brings
+  back the window that is already open instead of starting a second copy, and a MySQL left over
+  from an earlier Stackyard is stopped before a new one starts.
+- Sites and other screens no longer sit in a short box with their own scroll bar: the whole
+  window scrolls.
+- Servers & Git, on each site in Sites: connect to a server over SFTP, FTPS or FTP, preview and
+  upload or download changes, and browse the server. Link the site to a Git repository to pull,
+  commit, push and fetch. Passwords stay in the system's password store.
+- Images: the output folder field matches the rest of the app, Browse opens in your project's
+  folder, and a message says when optimizing is done and how much space it saved.
 - Stackyard tells you when an update is out: a notification while it runs (also from the tray),
   and a notice at the top of the window with an Update button.
 - Turned off when an update came out? You see the notice the next time you start Stackyard.
