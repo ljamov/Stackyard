@@ -20,6 +20,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 [Quick start](#quick-start) ·
 [CLI](docs/cli.md) ·
 [MCP](docs/mcp.md) ·
+[What's new](CHANGELOG.md) ·
 [Contributing](CONTRIBUTING.md)
 
 <br>
