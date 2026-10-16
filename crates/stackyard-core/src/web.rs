@@ -214,7 +214,7 @@ fn from_site(site: Site, parked: bool, runtimes: &RuntimeManager) -> ServedSite 
 }
 
 /// Project folders inside a parked folder, as (site name, path), by name.
-fn project_folders(parked: &Path) -> Vec<(String, PathBuf)> {
+pub fn project_folders(parked: &Path) -> Vec<(String, PathBuf)> {
     let Ok(entries) = std::fs::read_dir(parked) else {
         return Vec::new();
     };

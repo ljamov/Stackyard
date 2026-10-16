@@ -1306,6 +1306,7 @@ fn daemon() -> stackyard_core::Result<()> {
         ));
     }
     let engine = Arc::new(Engine::new(&home));
+    Engine::watch_parked(&engine, &home, || {});
     let (quit, quit_rx) = std::sync::mpsc::channel();
     let server = serve_control(&home, Owner::Daemon, &engine, quit.clone())?;
     let _ = ctrlc::set_handler(move || {

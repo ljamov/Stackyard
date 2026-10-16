@@ -428,6 +428,7 @@ pub(crate) fn powershell_command(script: &str) -> Command {
         "-EncodedCommand",
         &encode_powershell(script),
     ]);
+    crate::platform::hide_console(&mut c);
     c
 }
 

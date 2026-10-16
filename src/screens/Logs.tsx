@@ -18,6 +18,10 @@ export function Logs() {
   const [matchCase, setMatchCase] = useState(false);
   const [onlyMatches, setOnlyMatches] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  // Bumped after clearing, so the open log is read again from the start.
+  const [fresh, setFresh] = useState(0);
   const view = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -25,7 +29,21 @@ export function Logs() {
     load();
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
-  }, []);
+  }, [fresh]);
+
+  async function clearAll() {
+    setClearing(true);
+    setError(null);
+    try {
+      await api.clearLogs();
+      setFresh((n) => n + 1);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setClearing(false);
+      setConfirming(false);
+    }
+  }
 
   const selected = current ?? files[0]?.id ?? null;
 
@@ -60,7 +78,7 @@ export function Logs() {
       stopped = true;
       clearInterval(timer);
     };
-  }, [selected, paused]);
+  }, [selected, paused, fresh]);
 
   const matcher = useMemo(() => buildMatcher(query, regex, matchCase), [query, regex, matchCase]);
   const live = matcher && !("error" in matcher) ? matcher : null;
@@ -87,6 +105,22 @@ export function Logs() {
           <h1>Logs</h1>
           <p className="muted">Every service's log in one place, updated live. Search with plain text or a regular expression.</p>
         </div>
+        {files.length > 0 &&
+          (confirming ? (
+            <div className="row centered">
+              <span className="muted small">Empty every log and start from zero?</span>
+              <button type="button" className="btn small" disabled={clearing} onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn danger small" disabled={clearing} onClick={clearAll}>
+                {clearing ? "Clearing…" : "Clear all logs"}
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn small" onClick={() => setConfirming(true)}>
+              Clear all logs
+            </button>
+          ))}
       </header>
 
       {files.length === 0 ? (

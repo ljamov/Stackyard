@@ -51,18 +51,20 @@ export function Runtimes() {
     }
   }
 
-  function install(version: string) {
+  function install(...versions: string[]) {
     if (!family) return;
     const kind = family.kind;
     setData((all) =>
       all.map((f) =>
         f.kind !== kind
           ? f
-          : { ...f, versions: f.versions.map((v) => (v.version === version ? { ...v, installing: true } : v)) },
+          : { ...f, versions: f.versions.map((v) => (versions.includes(v.version) ? { ...v, installing: true } : v)) },
       ),
     );
-    return run(version, () => api.installRuntime(kind, version));
+    return Promise.all(versions.map((version) => run(version, () => api.installRuntime(kind, version))));
   }
+
+  const missing = family?.available ? family.versions.filter((v) => !v.installed && !v.installing) : [];
 
   return (
     <>
@@ -93,6 +95,23 @@ export function Runtimes() {
       {family && (
         <section aria-label={`${family.name} versions`} className="card">
           {!family.available && <p className="notice inset">{family.name} support is coming after the prototype.</p>}
+          {family.available && (
+            <div className="row between centered version-all">
+              <span className="muted small">
+                {missing.length === 0
+                  ? `Every ${family.name} version is installed or installing.`
+                  : `${missing.length} of ${family.versions.length} versions not installed.`}
+              </span>
+              <button
+                type="button"
+                className="btn primary small"
+                disabled={missing.length === 0}
+                onClick={() => install(...missing.map((v) => v.version))}
+              >
+                Install all
+              </button>
+            </div>
+          )}
           {family.versions.map((v) => (
             <VersionRow
               key={v.version}
@@ -101,7 +120,7 @@ export function Runtimes() {
               v={v}
               progress={progress[key(family.kind, v.version)]}
               error={errors[key(family.kind, v.version)]}
-              onInstall={() => install(v.version)}
+              onInstall={() => void install(v.version)}
               onRemove={() => run(v.version, () => api.uninstallRuntime(family.kind, v.version))}
               onDefault={() => run(v.version, () => api.setDefaultRuntime(family.kind, v.version))}
             />

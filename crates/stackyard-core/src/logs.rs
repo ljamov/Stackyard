@@ -168,6 +168,43 @@ pub fn read(home: &Path, id: &str, from: Option<u64>, lines: usize) -> Result<Ch
     }
 }
 
+/// Empties every log the viewer shows and deletes their older halves, so
+/// each one starts again from nothing. Services keep running and write new
+/// lines to the emptied files. Returns how many logs were cleared.
+pub fn clear(home: &Path) -> Result<usize> {
+    let dir = home.join("logs");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(0);
+    };
+    let io = |path: &Path| {
+        let path = path.to_path_buf();
+        move |source| Error::Io { path, source }
+    };
+    let mut cleared = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if let Some(id) = file_name.strip_suffix(".log.1") {
+            if supervisor::log_file(home, id).is_ok() {
+                std::fs::remove_file(&path).map_err(io(&path))?;
+            }
+        } else if let Some(id) = file_name.strip_suffix(".log") {
+            if supervisor::log_file(home, id).is_ok() {
+                // Emptied rather than deleted: a running service keeps it open.
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path)
+                    .and_then(|f| f.set_len(0))
+                    .map_err(io(&path))?;
+                cleared += 1;
+            }
+        }
+    }
+    Ok(cleared)
+}
+
 fn read_range(file: &mut File, start: u64, end: u64) -> std::io::Result<Vec<u8>> {
     file.seek(SeekFrom::Start(start))?;
     let mut bytes = Vec::with_capacity((end - start) as usize);
@@ -186,6 +223,28 @@ fn split(bytes: &[u8]) -> Vec<String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn clear_empties_logs_and_drops_old_halves() {
+        let home = crate::testutil::tempdir();
+        append(&home, "caddy", "one\ntwo\n");
+        append(&home, "daemon", "three\n");
+        let dir = home.join("logs");
+        std::fs::write(dir.join("caddy.log.1"), "old\n").unwrap();
+        std::fs::write(dir.join("notes.txt"), "keep\n").unwrap();
+        std::fs::write(dir.join("mcp-activity.jsonl"), "{}\n").unwrap();
+
+        assert_eq!(clear(&home).unwrap(), 2);
+        assert_eq!(std::fs::metadata(dir.join("caddy.log")).unwrap().len(), 0);
+        assert_eq!(std::fs::metadata(dir.join("daemon.log")).unwrap().len(), 0);
+        assert!(!dir.join("caddy.log.1").exists());
+        assert!(dir.join("notes.txt").exists());
+        assert!(dir.join("mcp-activity.jsonl").exists());
+        // A reader that was further along sees the log started over.
+        let chunk = read(&home, "caddy", Some(8), 10).unwrap();
+        assert!(chunk.reset && chunk.lines.is_empty());
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     fn append(home: &Path, id: &str, text: &str) {
         let dir = home.join("logs");

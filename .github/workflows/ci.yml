@@ -73,6 +73,8 @@ jobs:
   sites:
     name: Local sites end to end (${{ matrix.os }})
     needs: check
+    # A hung step fails the job instead of holding a runner for six hours.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -259,6 +261,8 @@ jobs:
           stackyard start caddy
           for _ in $(seq 100); do [ -f "$tasks/marker.txt" ] && break; sleep 1; done
           grep ran-here "$tasks/marker.txt"
+          # The marker can appear while the run is still being recorded.
+          for _ in $(seq 20); do stackyard tasks | grep -q "last run" && break; sleep 1; done
           stackyard tasks | tee "$RUNNER_TEMP/tasks.txt"
           grep "last run" "$RUNNER_TEMP/tasks.txt" >/dev/null
           id=$(head -n 1 "$RUNNER_TEMP/tasks.txt" | cut -d " " -f 1)
