@@ -167,7 +167,11 @@ stackyard use php 8.3                  # pin a version for the current project
 </tr>
 <tr>
 <td><img src="docs/images/images.png" alt="Image optimizer making WebP and AVIF copies of images"></td>
+<td><img src="docs/images/videos.png" alt="Video optimizer making MP4, WebM and GIF copies of videos"></td>
+</tr>
+<tr>
 <td><img src="docs/images/settings.png" alt="Settings screen with updates, local domains and modules you can switch off"></td>
+<td></td>
 </tr>
 </table>
 

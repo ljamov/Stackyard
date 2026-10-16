@@ -46,6 +46,7 @@ const SHOTS = {
     },
   },
   images: { screen: "Images" },
+  videos: { screen: "Videos" },
   settings: { screen: "Settings" },
 };
 

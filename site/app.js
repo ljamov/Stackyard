@@ -67,6 +67,7 @@
     databases: "Databases screen listing a database's tables",
     logs: "Logs screen with warnings and errors highlighted",
     images: "Image optimizer making WebP and AVIF copies of images",
+    videos: "Video optimizer making MP4, WebM and GIF copies of videos",
     settings: "Settings screen with updates, local domains and modules you can switch off"
   };
   document.querySelectorAll(".tabs button").forEach(function (b) {
