@@ -160,9 +160,15 @@ fn downloaded(home: &Path) -> Option<PathBuf> {
 }
 
 /// An FFmpeg on the PATH, such as one installed with Homebrew or winget.
+/// Apps opened from the Dock get a short PATH on macOS, so Homebrew's
+/// folders are looked in too.
 fn on_path() -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
+    if cfg!(target_os = "macos") {
+        dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
+    }
+    dirs.into_iter()
         .map(|dir| dir.join(program_name()))
         .find(|p| p.is_file())
 }
@@ -208,7 +214,10 @@ pub fn resolve(http: &Http, platform: Platform) -> Result<(Release, &'static str
                 Arch::Arm64 => "arm64",
                 Arch::X64 => "amd64",
             };
-            let url = format!("{RIEDL}/{arch}/release/ffmpeg.zip");
+            // The stable link redirects to this week's build, which has its
+            // checksum next to it.
+            let latest = format!("{RIEDL}/{arch}/release/ffmpeg.zip");
+            let url = http.final_url(&latest)?;
             let sums_url = format!("{url}.sha256");
             let sums = http.get_text(&sums_url)?;
             let checksum = sums
@@ -219,8 +228,15 @@ pub fn resolve(http: &Http, platform: Platform) -> Result<(Release, &'static str
                     url: sums_url,
                     message: "no checksum in the answer".into(),
                 })?;
+            // …/download/macos/arm64/1760000000_8.0.1/ffmpeg.zip → 8.0.1
+            let version = url
+                .split('/')
+                .filter_map(|part| part.split_once('_').map(|(_, v)| v))
+                .find(|v| v.starts_with(|c: char| c.is_ascii_digit()))
+                .unwrap_or("latest")
+                .to_string();
             let release = Release {
-                version: "latest".into(),
+                version,
                 url,
                 file_name: format!("ffmpeg-macos-{arch}.zip"),
                 checksum,
