@@ -75,12 +75,30 @@ impl Engine {
             });
         }
         if def.id == "caddy" {
-            self.manager.start_web(&self.supervisor)
-        } else {
-            self.supervisor
-                .start(self.manager.spec(def.id)?)
-                .map(|_| ())
+            return self.manager.start_web(&self.supervisor);
         }
+        // Its own port would look taken and move it.
+        if self.is_running(def.id) {
+            return Ok(());
+        }
+        // MySQL and MariaDB are alternatives: one runs at a time.
+        if let Some(other) = SERVICES.iter().find(|other| {
+            other.id != def.id
+                && other.id != "caddy"
+                && other.ports.iter().any(|p| def.ports.contains(p))
+                && self.is_running(other.id)
+        }) {
+            return Err(Error::Alternative {
+                name: def.name.into(),
+                other: other.name.into(),
+            });
+        }
+        self.supervisor.start(self.manager.spec(def.id)?)?;
+        if matches!(def.id, "mysql" | "mariadb") {
+            let port = crate::services::port(self.manager.home(), def);
+            crate::phpmyadmin::use_database(self.manager.home(), port);
+        }
+        Ok(())
     }
 
     pub fn stop(&self, id: &str) -> Result<()> {

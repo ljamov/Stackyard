@@ -47,11 +47,14 @@ impl Ports {
     /// The standard ports when this computer lets Stackyard use them.
     /// Only meaningful while the web server is stopped.
     pub fn choose() -> Ports {
-        if ports::is_free(80) && ports::is_free(443) {
-            Ports::STANDARD
-        } else {
-            Ports::FALLBACK
-        }
+        let free = |p: &Ports| ports::is_free(p.http) && ports::is_free(p.https);
+        std::iter::once(Ports::STANDARD)
+            .chain((0..20).map(|n| Ports {
+                http: Ports::FALLBACK.http + n,
+                https: Ports::FALLBACK.https + n,
+            }))
+            .find(free)
+            .unwrap_or(Ports::FALLBACK)
     }
 
     /// The ports the web server last started with, saved by [`Ports::save`].

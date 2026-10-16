@@ -271,25 +271,16 @@ struct ServiceProgress {
 fn service_views(supervisor: &Supervisor, installs: &Installs) -> Vec<ServiceView> {
     let manager = ServiceManager::open();
     let busy = installs.0.lock().unwrap().clone();
-    let web_ports = Ports::current(manager.home());
     SERVICES
         .iter()
         .map(|def| ServiceView {
             id: def.id,
             name: def.name,
             version: def.version,
-            // The web server's ports depend on what this computer allows.
-            ports: if def.id == "caddy" {
-                vec![web_ports.http, web_ports.https]
-            } else {
-                def.ports.to_vec()
-            },
+            // Ports move when another program has the usual ones.
+            ports: stackyard_core::services::ports(manager.home(), def),
             role: def.role,
-            web: if def.id == "caddy" {
-                Some(web_ports.url("localhost", false))
-            } else {
-                def.web.map(str::to_string)
-            },
+            web: stackyard_core::services::web_page(manager.home(), def),
             installed: manager.get(def.id).map(|i| i.release),
             installing: busy.contains(&format!("service/{}", def.id)),
             state: supervisor.state(def.id),
