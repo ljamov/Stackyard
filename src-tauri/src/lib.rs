@@ -1426,6 +1426,38 @@ async fn run_system_setup(app: AppHandle) -> CmdResult<SystemView> {
     system_view(&app)
 }
 
+/// Makes sure only one copy of the app runs. Opening Stackyard twice at
+/// once (a double click) used to start two copies before either could see
+/// the other, and both started MySQL on the same files. The lock is held
+/// for the life of this process; `None` means another copy has it, and its
+/// window was brought forward. A restart after an update waits here for the
+/// old copy to finish quitting.
+fn first_copy(home: &std::path::Path) -> Option<Option<std::fs::File>> {
+    let path = std::env::temp_dir().join("stackyard-app.lock");
+    let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+    else {
+        // No lock to be had: carry on as before.
+        return Some(None);
+    };
+    for _ in 0..150 {
+        match file.try_lock() {
+            Ok(()) => return Some(Some(file)),
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(_)) => return Some(None),
+        }
+        if let Some(client) = control::find(home).filter(|c| c.owner == Owner::App) {
+            let _ = client.send(Request::Show);
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    None
+}
+
 /// The connection that lets the CLI reach this app's services.
 struct Control(Mutex<Option<ControlServer>>);
 
@@ -1435,6 +1467,10 @@ struct Tray(bool);
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut home = paths::home();
+    // Held until this process ends.
+    let Some(_first) = first_copy(&home) else {
+        return;
+    };
     // One process runs services at a time.
     let mut resume = Vec::new();
     if let Some(client) = control::find(&home) {
