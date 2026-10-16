@@ -201,6 +201,12 @@ jobs:
           page later | grep "Added later"
           stackyard logs caddy -n 5
 
+          echo "== a site with an empty folder says where its start page goes"
+          mkdir -p "$RUNNER_TEMP/empty"
+          stackyard sites add empty --path "$RUNNER_TEMP/empty" --static
+          for _ in $(seq 30); do page empty 2>/dev/null | grep -q "has no index.php" && break; sleep 1; done
+          page empty | grep "has no index.php"
+
           echo "== stop ends everything"
           stackyard stop
           sleep 2
