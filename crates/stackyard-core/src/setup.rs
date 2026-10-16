@@ -274,10 +274,13 @@ fn move_folder(from: &Path, to: &Path) -> std::io::Result<()> {
     if !to.exists() && std::fs::rename(from, to).is_ok() {
         return Ok(());
     }
-    // Another drive, or the folder already has files: move entry by entry,
-    // and put back what was moved if one of them can't go.
+    // Another drive, the folder already has files, or something in it is
+    // open: move entry by entry. Entries that can't be renamed are copied,
+    // and nothing is deleted from the old folder until everything is in the
+    // new one, so a file that can't move never costs the files around it.
     std::fs::create_dir_all(to)?;
-    let mut moved = Vec::new();
+    let mut renamed = Vec::new();
+    let mut copied = Vec::new();
     let result = (|| {
         for entry in std::fs::read_dir(from)? {
             let entry = entry?;
@@ -288,28 +291,32 @@ fn move_folder(from: &Path, to: &Path) -> std::io::Result<()> {
                     target.display()
                 )));
             }
-            if std::fs::rename(entry.path(), &target).is_err() {
-                if let Err(e) = copy_all(&entry.path(), &target) {
-                    let _ = remove_all(&target);
-                    return Err(e);
-                }
-                if let Err(e) = remove_all(&entry.path()) {
-                    let _ = remove_all(&target);
-                    return Err(naming(e, &entry.path()));
-                }
+            if std::fs::rename(entry.path(), &target).is_ok() {
+                renamed.push(entry.file_name());
+            } else {
+                copied.push(entry.file_name());
+                copy_all(&entry.path(), &target)?;
             }
-            moved.push(entry.file_name());
         }
         Ok(())
     })();
     if result.is_err() {
-        for name in moved {
+        for name in copied {
+            let _ = remove_all(&to.join(&name));
+        }
+        for name in renamed {
             if std::fs::rename(to.join(&name), from.join(&name)).is_err() {
                 let _ = copy_all(&to.join(&name), &from.join(&name))
                     .and_then(|()| remove_all(&to.join(&name)));
             }
         }
         return result;
+    }
+    // Everything is in the new folder now. An old copy that can't be
+    // removed (still open somewhere) is left behind rather than failing a
+    // finished move.
+    for name in copied {
+        let _ = remove_all(&from.join(&name));
     }
     let _ = std::fs::remove_dir(from);
     Ok(())
@@ -439,6 +446,47 @@ mod tests {
         assert!(to.join("bin").join("ping.exe").is_file());
         assert!(!from.exists());
         assert!(running.try_wait().unwrap().is_some(), "still running");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// v0.2.0 and v0.2.1 deleted an entry's old files right after copying
+    /// it, then removed the copy when a later file was locked, so a failed
+    /// move could lose files. A failed move now leaves the old folder whole.
+    #[cfg(windows)]
+    #[test]
+    fn a_failed_move_keeps_every_file() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let base = crate::testutil::tempdir();
+        let from = base.join("old");
+        let to = base.join("new");
+        std::fs::create_dir_all(from.join("a_data")).unwrap();
+        std::fs::create_dir_all(from.join("b_logs")).unwrap();
+        std::fs::write(from.join("a_data/ibdata1"), "db").unwrap();
+        std::fs::write(from.join("a_data/open.log"), "log").unwrap();
+        std::fs::write(from.join("b_logs/locked.log"), "log").unwrap();
+        // Readable but not deletable, like a database file a server has open.
+        let readable = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(from.join("a_data/open.log"))
+            .unwrap();
+        // Not even readable, so the move has to fail.
+        let locked = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(from.join("b_logs/locked.log"))
+            .unwrap();
+        assert!(move_folder(&from, &to).is_err());
+        assert!(from.join("a_data/ibdata1").is_file());
+        assert!(from.join("a_data/open.log").is_file());
+        assert!(!to.join("a_data").exists());
+
+        drop(locked);
+        move_folder(&from, &to).unwrap();
+        assert!(to.join("a_data/ibdata1").is_file());
+        assert!(to.join("a_data/open.log").is_file());
+        assert!(to.join("b_logs/locked.log").is_file());
+        drop(readable);
         let _ = std::fs::remove_dir_all(&base);
     }
 
