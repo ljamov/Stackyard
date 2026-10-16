@@ -253,6 +253,91 @@ export type TldInfo = { tld: string; warning: string | null };
 
 export type NewSite = { name: string; path: string; runtime: string; https: boolean };
 
+export type RemoteProtocol = "sftp" | "ftps" | "ftp";
+
+export type RemoteConnection = {
+  id: string;
+  site: string;
+  name: string;
+  protocol: RemoteProtocol;
+  host: string;
+  port: number;
+  user: string;
+  key_file?: string | null;
+  /** The folder on the server that matches the site's folder. */
+  remote_dir: string;
+  /** Part of the site's folder to transfer; empty means all of it. */
+  local_dir: string;
+  skip: string[];
+  /** The trusted server key (SFTP) or certificate (FTPS). */
+  server_key?: string | null;
+  has_password: boolean;
+  busy: boolean;
+};
+
+export type RemoteConnections = { connections: RemoteConnection[]; secret_store: string };
+
+export type RemoteInput = {
+  site: string;
+  name: string;
+  protocol: RemoteProtocol;
+  host: string;
+  port: number | null;
+  user: string;
+  key_file: string | null;
+  remote_dir: string;
+  local_dir: string;
+  skip: string[];
+  /** null keeps the saved password; "" removes it. */
+  password: string | null;
+};
+
+export type RemoteTest = {
+  start_dir: string | null;
+  error: string | null;
+  /** A certificate the system does not trust, which can be trusted by hand. */
+  certificate: string | null;
+  key_changed: boolean;
+};
+
+export type RemoteEntry = { name: string; dir: boolean; size: number; modified: number | null };
+export type RemoteListing = { dir: string; root: string; entries: RemoteEntry[] };
+export type TransferDirection = "upload" | "download";
+
+export type PlannedFile = {
+  path: string;
+  action: "upload" | "download" | "delete-remote" | "delete-local";
+  reason: "new" | "changed" | "extra" | "picked";
+  size: number;
+};
+
+export type TransferPlan = { direction: TransferDirection; files: PlannedFile[]; bytes: number; unchanged: number };
+export type TransferOutcome = { done: number; bytes: number; failed: { path: string; error: string }[]; stopped: boolean };
+
+export type RemoteProgress = { id: string } & (
+  | { step: "scanning"; folder: string; found: number }
+  | { step: "transfer"; index: number; total: number; path: string; done: number; size: number }
+);
+
+export type GitChange = {
+  path: string;
+  kind: "added" | "modified" | "deleted" | "renamed" | "new" | "conflict";
+};
+
+export type GitStatus = {
+  installed: boolean;
+  repo: boolean;
+  /** The repository's top folder, when the site is inside a larger one. */
+  root: string | null;
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  remote: string | null;
+  changes: GitChange[];
+  more_changes: number;
+  identity: boolean;
+};
 /** A project a new site can start as, instead of an empty folder. */
 export type Starter = { id: string; name: string; description: string };
 export type NewStarterSite = { name: string; starter: string; path: string; https: boolean };
@@ -368,6 +453,28 @@ export interface Api {
   taskLog(id: string): Promise<string[]>;
   cleanupScan(): Promise<CleanupReport>;
   cleanupRun(ids: string[]): Promise<CleanupOutcome>;
+  remoteConnections(site: string): Promise<RemoteConnections>;
+  /** Adds a connection when `id` is null, else changes it. */
+  remoteSave(id: string | null, input: RemoteInput): Promise<RemoteConnections>;
+  remoteRemove(id: string): Promise<RemoteConnections>;
+  /** Trusts a certificate or server key; null forgets the trusted one. */
+  remoteTrust(id: string, fingerprint: string | null): Promise<RemoteConnections>;
+  remoteTest(id: string): Promise<RemoteTest>;
+  remoteBrowse(id: string, dir: string | null): Promise<RemoteListing>;
+  /** What would be transferred; `paths` limits it to picked files and folders. */
+  remotePlan(id: string, direction: TransferDirection, del: boolean, paths: string[] | null): Promise<TransferPlan>;
+  remoteRun(id: string, files: PlannedFile[]): Promise<TransferOutcome>;
+  remoteStop(id: string): Promise<void>;
+  remoteLocalFolder(id: string): Promise<string>;
+  onRemoteProgress(handler: (p: RemoteProgress) => void): Promise<() => void>;
+  /** Opens the system's file picker; empty when cancelled. */
+  pickFiles(title: string, start?: string, multiple?: boolean): Promise<string[]>;
+  gitStatus(site: string): Promise<GitStatus>;
+  gitLink(site: string, url: string): Promise<GitStatus>;
+  gitFetch(site: string): Promise<GitStatus>;
+  gitPull(site: string): Promise<GitStatus>;
+  gitPush(site: string): Promise<GitStatus>;
+  gitCommit(site: string, message: string, name: string | null, email: string | null): Promise<GitStatus>;
 }
 
 const tauriApi: Api = {
@@ -463,6 +570,28 @@ const tauriApi: Api = {
   stopTask: (id) => invoke("stop_task", { id }),
   previewSchedule: (schedule) => invoke("preview_schedule", { schedule }),
   taskLog: (id) => invoke("task_log", { id }),
+  remoteConnections: (site) => invoke("remote_connections", { site }),
+  remoteSave: (id, input) => invoke("remote_save", { id, input }),
+  remoteRemove: (id) => invoke("remote_remove", { id }),
+  remoteTrust: (id, fingerprint) => invoke("remote_trust", { id, fingerprint }),
+  remoteTest: (id) => invoke("remote_test", { id }),
+  remoteBrowse: (id, dir) => invoke("remote_browse", { id, dir }),
+  remotePlan: (id, direction, del, paths) => invoke("remote_plan", { id, direction, delete: del, paths }),
+  remoteRun: (id, files) => invoke("remote_run", { id, files }),
+  remoteStop: (id) => invoke("remote_stop", { id }),
+  remoteLocalFolder: (id) => invoke("remote_local_folder", { id }),
+  onRemoteProgress: (handler) => listen<RemoteProgress>("remote-progress", (e) => handler(e.payload)),
+  pickFiles: async (title, start, multiple = true) => {
+    const picked = await openDialog({ directory: false, multiple, title, defaultPath: start || undefined });
+    if (picked === null) return [];
+    return Array.isArray(picked) ? picked : [picked];
+  },
+  gitStatus: (site) => invoke("git_status", { site }),
+  gitLink: (site, url) => invoke("git_link", { site, url }),
+  gitFetch: (site) => invoke("git_fetch", { site }),
+  gitPull: (site) => invoke("git_pull", { site }),
+  gitPush: (site) => invoke("git_push", { site }),
+  gitCommit: (site, message, name, email) => invoke("git_commit", { site, message, name, email }),
 };
 
 function browserApi(): Api {
@@ -547,6 +676,8 @@ function browserApi(): Api {
     mod("logs", "Log viewer", "feature", "Live logs from every service, with search", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
     mod("databases", "Databases screen", "feature", "Browse tables, run queries, back up and restore MySQL and MariaDB", true, true),
+    mod("remote", "Remote servers", "feature", "Upload and download site files over SFTP, FTPS or FTP (Cloudways, cPanel, any VPS)", true, true),
+    mod("git", "Git", "feature", "Link sites to GitHub or any Git host, then pull, commit and push (uses Git on your computer)", true, true),
     mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),
     mod("images", "Image optimizer", "feature", "Make WebP and AVIF copies of JPG and PNG images, and smaller JPGs and PNGs", true, true),
   ];
@@ -1047,9 +1178,167 @@ function browserApi(): Api {
         ? [`--- 2026-10-14 22:05 ${t.name} started on schedule: ${t.command} ---`, "INFO  Running scheduled tasks.", "--- finished with exit code 0 after 0.4 s ---"]
         : [];
     },
+    remoteConnections: async (site) => ({
+      connections: remotes.filter((c) => c.site === site),
+      secret_store: "Windows Credential Manager",
+    }),
+    remoteSave: async (id, input) => {
+      const { password, ...rest } = input;
+      const port = input.port ?? (input.protocol === "sftp" ? 22 : 21);
+      const saved: RemoteConnection = {
+        ...rest,
+        port,
+        id: id ?? Math.random().toString(36).slice(2, 10),
+        has_password: password === null ? (remotes.find((c) => c.id === id)?.has_password ?? false) : password !== "",
+        busy: false,
+        server_key: null,
+      };
+      remotes = id ? remotes.map((c) => (c.id === id ? saved : c)) : [...remotes, saved];
+      return { connections: remotes.filter((c) => c.site === input.site), secret_store: "Windows Credential Manager" };
+    },
+    remoteRemove: async (id) => {
+      const site = remotes.find((c) => c.id === id)?.site ?? "";
+      remotes = remotes.filter((c) => c.id !== id);
+      return { connections: remotes.filter((c) => c.site === site), secret_store: "Windows Credential Manager" };
+    },
+    remoteTrust: async (id, fingerprint) => {
+      remotes = remotes.map((c) => (c.id === id ? { ...c, server_key: fingerprint } : c));
+      const site = remotes.find((c) => c.id === id)?.site ?? "";
+      return { connections: remotes.filter((c) => c.site === site), secret_store: "Windows Credential Manager" };
+    },
+    remoteTest: async (id) => {
+      await new Promise((r) => setTimeout(r, 600));
+      const c = remotes.find((x) => x.id === id);
+      if (c?.protocol === "ftps" && !c.server_key)
+        return {
+          start_dir: null,
+          error: "the server's certificate is not trusted (invalid peer certificate: UnknownIssuer); if this is your server, trust certificate SHA256:3F:A0:…",
+          certificate: "SHA256:3F:A0:11:9C",
+          key_changed: false,
+        };
+      return { start_dir: `/home/${c?.user ?? "user"}`, error: null, certificate: null, key_changed: false };
+    },
+    remoteBrowse: async (id, dir) => {
+      const c = remotes.find((x) => x.id === id);
+      const root = c?.remote_dir || "/home/master/applications/app/public_html";
+      const at = dir ?? root;
+      const entries: RemoteEntry[] =
+        at === root
+          ? [
+              { name: "wp-content", dir: true, size: 0, modified: null },
+              { name: "wp-includes", dir: true, size: 0, modified: null },
+              { name: "index.php", dir: false, size: 405, modified: Date.now() / 1000 - 86_400 },
+              { name: "wp-config.php", dir: false, size: 3_120, modified: Date.now() / 1000 - 3 * 86_400 },
+            ]
+          : [{ name: "readme.txt", dir: false, size: 1_024, modified: Date.now() / 1000 - 7200 }];
+      return { dir: at, root, entries };
+    },
+    remotePlan: async (id, direction, del, paths) => {
+      for (let i = 0; i < 4; i++) {
+        remoteHandlers.forEach((h) => h({ id, step: "scanning", folder: ["", "wp-content", "wp-content/themes", "wp-includes"][i], found: i * 40 }));
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      const copy = direction === "upload" ? "upload" : "download";
+      const files: PlannedFile[] = paths
+        ? paths.map((p) => ({ path: p, action: copy, reason: "picked", size: 2_048 }))
+        : [
+            { path: "index.php", action: copy, reason: "changed", size: 412 },
+            { path: "wp-content/themes/site/style.css", action: copy, reason: "changed", size: 18_400 },
+            { path: "wp-content/uploads/2026/10/hero.jpg", action: copy, reason: "new", size: 482_000 },
+            ...(del
+              ? [{ path: "old-page.html", action: direction === "upload" ? "delete-remote" : "delete-local", reason: "extra", size: 900 } as PlannedFile]
+              : []),
+          ];
+      return { direction, files, bytes: files.reduce((n, f) => n + (f.action.startsWith("delete") ? 0 : f.size), 0), unchanged: 1_204 };
+    },
+    remoteRun: async (id, files) => {
+      for (const [index, f] of files.entries()) {
+        for (const part of [0, 0.5, 1]) {
+          remoteHandlers.forEach((h) => h({ id, step: "transfer", index, total: files.length, path: f.path, done: f.size * part, size: f.size }));
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
+      return { done: files.length, bytes: files.reduce((n, f) => n + f.size, 0), failed: [], stopped: false };
+    },
+    remoteStop: async () => {},
+    remoteLocalFolder: async () => "C:\\stackyard\\www\\blog",
+    onRemoteProgress: async (handler) => {
+      remoteHandlers.add(handler);
+      return () => remoteHandlers.delete(handler);
+    },
+    pickFiles: async () => [],
+    gitStatus: async (site) => git[site] ?? { ...noGit },
+    gitLink: async (site, url) => {
+      git[site] = { ...noGit, repo: true, branch: "main", upstream: "origin/main", remote: url, identity: false, changes: [{ path: "index.php", kind: "modified" }] };
+      return git[site];
+    },
+    gitFetch: async (site) => {
+      git[site] = { ...(git[site] ?? noGit), behind: 2 };
+      return git[site];
+    },
+    gitPull: async (site) => {
+      git[site] = { ...(git[site] ?? noGit), behind: 0 };
+      return git[site];
+    },
+    gitPush: async (site) => {
+      git[site] = { ...(git[site] ?? noGit), ahead: 0 };
+      return git[site];
+    },
+    gitCommit: async (site, message) => {
+      if (!message.trim()) throw "write a short note about what changed";
+      git[site] = { ...(git[site] ?? noGit), changes: [], ahead: (git[site]?.ahead ?? 0) + 1, identity: true };
+      return git[site];
+    },
   };
   return mock;
 }
+
+const remoteHandlers = new Set<(p: RemoteProgress) => void>();
+let remotes: RemoteConnection[] = [
+  {
+    id: "k3m9q2xa",
+    site: "blog.stack",
+    name: "Cloudways",
+    protocol: "sftp",
+    host: "203.0.113.10",
+    port: 22,
+    user: "master_abc",
+    key_file: null,
+    remote_dir: "/home/master/applications/abcdefgh/public_html",
+    local_dir: "",
+    skip: [".git", "node_modules", ".DS_Store", "Thumbs.db", ".env"],
+    server_key: "SHA256:n+vJBBzrXQJlMmY88FCv2Pks3lIHM7ZZTJAG00xMZMs",
+    has_password: true,
+    busy: false,
+  },
+];
+const noGit: GitStatus = {
+  installed: true,
+  repo: false,
+  root: null,
+  branch: null,
+  upstream: null,
+  ahead: 0,
+  behind: 0,
+  remote: null,
+  changes: [],
+  more_changes: 0,
+  identity: true,
+};
+const git: Record<string, GitStatus> = {
+  "blog.stack": {
+    ...noGit,
+    repo: true,
+    branch: "main",
+    upstream: "origin/main",
+    ahead: 1,
+    remote: "https://github.com/you/blog.git",
+    changes: [
+      { path: "wp-content/themes/site/style.css", kind: "modified" },
+      { path: "wp-content/themes/site/footer.php", kind: "new" },
+    ],
+  },
+};
 
 let update: UpdateStatus = {
   current: "0.1.0",

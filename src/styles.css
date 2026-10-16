@@ -226,6 +226,17 @@ table.result-grid td { padding: 6px 12px; max-width: 360px; white-space: pre; ov
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
 
+/* Sites: a site's servers and Git, opened under its row */
+.nowrap { white-space: nowrap; }
+.site-detail > td { background: var(--sidebar); border-top: 0; padding: 16px 18px 20px; }
+.remote-panel h3 { margin: 0; font: 600 15px var(--display); letter-spacing: -0.01em; }
+.remote-panel .folder-input input {
+  height: 44px; min-width: 0; background: var(--sidebar); border: 1px solid var(--border-strong); border-radius: 10px; padding: 0 12px;
+}
+.remote-files { max-height: 280px; }
+.remote-browser .grid-wrap { max-height: 360px; }
+.check.small { min-height: 32px; font-size: 13px; }
+
 /* Images */
 .images-top { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
 .images-top > .card { flex: 1 1 360px; min-width: 0; }

@@ -93,6 +93,14 @@ pub enum Error {
     #[error("{0}")]
     Cleanup(String),
     #[error("{0}")]
+    Remote(String),
+    #[error("the server's certificate is not trusted ({reason}); if this is your server, trust certificate {fingerprint}")]
+    RemoteCertificate { fingerprint: String, reason: String },
+    #[error("the server's key changed from {expected} to {found}: if the server was not rebuilt or moved, someone may be listening in; if it was, forget the old key in the connection's settings")]
+    ServerKeyChanged { expected: String, found: String },
+    #[error("{0}")]
+    Git(String),
+    #[error("{0}")]
     Images(String),
 }
 
