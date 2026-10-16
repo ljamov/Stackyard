@@ -59,11 +59,15 @@
   // Screenshot tabs
   var img = document.getElementById("tour-img");
   var alts = {
+    dashboard: "Dashboard with running services, sites, runtimes and the MCP server",
     sites: "The Sites screen with three local HTTPS sites",
-    dashboard: "Dashboard with services, sites and runtimes",
-    runtimes: "Runtimes screen with PHP and Node.js versions",
-    databases: "Databases screen listing tables",
-    logs: "Logs screen with warnings and errors highlighted"
+    services: "Services screen: Caddy, MySQL, PostgreSQL, Redis and Mailpit",
+    runtimes: "Runtimes screen with PHP 7.4 to 8.5, three versions installed",
+    servers: "A site's Servers panel with an SFTP server and upload, download and browse buttons",
+    databases: "Databases screen listing a database's tables",
+    logs: "Logs screen with warnings and errors highlighted",
+    images: "Image optimizer making WebP and AVIF copies of images",
+    settings: "Settings screen with updates, local domains and modules you can switch off"
   };
   document.querySelectorAll(".tabs button").forEach(function (b) {
     b.addEventListener("click", function () {
