@@ -18,9 +18,12 @@ A connection pairs a **folder on the server** with the site's folder (or a part
 of it, such as `public`). Then:
 
 - **Upload changes** and **Download changes** compare both sides and list what
-  would be copied before anything happens. A file counts as changed when its
-  size differs or the side it comes from is newer. Deleting files missing on the
-  other side is a separate checkbox, off by default.
+  would be copied before anything happens. **What to upload** (or download)
+  decides which files go: new and changed files (size differs or the side it
+  comes from is newer; the default), only newer files, different size or date,
+  different size only, only missing files, or everything. Files missing on the
+  other side are copied in every mode. Deleting files missing on the side they
+  come from is a separate checkbox, off by default.
 - **Browse files** lists the server's folders; files and folders under the
   connection's folder can be downloaded into the matching place in the site, and
   files picked from the site's folder uploaded to the matching place on the

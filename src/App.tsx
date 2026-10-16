@@ -11,6 +11,7 @@ import { Databases } from "./screens/Databases";
 import { Logs } from "./screens/Logs";
 import { Scheduler } from "./screens/Scheduler";
 import { Images } from "./screens/Images";
+import { Videos } from "./screens/Videos";
 import { ModulesProvider } from "./lib/modules";
 import { TitleBar } from "./components/TitleBar";
 import { Setup } from "./screens/Setup";
@@ -51,6 +52,7 @@ export function App() {
               {screen === "Scheduler" && <Scheduler />}
               {screen === "Logs" && <Logs />}
               {screen === "Images" && <Images />}
+              {screen === "Videos" && <Videos />}
               {![
                 "Dashboard",
                 "Sites",
@@ -60,6 +62,7 @@ export function App() {
                 "MCP server",
                 "Scheduler",
                 "Images",
+                "Videos",
                 "Logs",
                 "Databases",
               ].includes(screen) && <ComingSoon screen={screen} />}

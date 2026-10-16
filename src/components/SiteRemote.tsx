@@ -12,11 +12,13 @@ import {
   type RemoteProtocol,
   type RemoteTest,
   type Site,
+  type TransferCompare,
   type TransferDirection,
   type TransferOutcome,
   type TransferPlan,
 } from "../lib/api";
 import { useModules } from "../lib/modules";
+import { Tip, TipMark } from "./Tip";
 
 const PROTOCOLS: { value: RemoteProtocol; label: string }[] = [
   { value: "sftp", label: "SFTP (SSH)" },
@@ -200,15 +202,32 @@ function ConnectionForm({
     <form className="card stack form remote-form" onSubmit={save} aria-label={existing ? `Edit ${existing.name}` : "New server"}>
       <h3>{existing ? `Edit ${existing.name}` : "New server"}</h3>
       <div className="form-grid">
-        <div className="field">
-          <label htmlFor={`r-name-${id}`}>Name</label>
-          <input id={`r-name-${id}`} value={form.name} required onChange={(e) => set("name", e.target.value)} />
+        <div className="field has-tip">
+          <label htmlFor={`r-name-${id}`}>
+            Name
+            <TipMark />
+          </label>
+          <input
+            id={`r-name-${id}`}
+            value={form.name}
+            placeholder="Production"
+            required
+            aria-describedby={`r-name-tip-${id}`}
+            onChange={(e) => set("name", e.target.value)}
+          />
+          <Tip id={`r-name-tip-${id}`}>
+            Any name you like, so you can tell your servers apart, e.g. Production or Staging.
+          </Tip>
         </div>
-        <div className="field">
-          <label htmlFor={`r-proto-${id}`}>Connect with</label>
+        <div className="field has-tip">
+          <label htmlFor={`r-proto-${id}`}>
+            Connect with
+            <TipMark />
+          </label>
           <select
             id={`r-proto-${id}`}
             value={form.protocol}
+            aria-describedby={`r-proto-tip-${id}`}
             onChange={(e) => {
               const protocol = e.target.value as RemoteProtocol;
               setForm((f) => ({ ...f, protocol, port: null }));
@@ -220,78 +239,135 @@ function ConnectionForm({
               </option>
             ))}
           </select>
+          <Tip id={`r-proto-tip-${id}`}>
+            Your host's control panel says which it offers. SFTP is the safest and works on VPS servers and Cloudways.
+            FTPS is FTP with encryption. Plain FTP works almost everywhere but is not encrypted.
+          </Tip>
         </div>
-        <div className="field">
-          <label htmlFor={`r-host-${id}`}>Server address</label>
+        <div className="field has-tip">
+          <label htmlFor={`r-host-${id}`}>
+            Server address
+            <TipMark />
+          </label>
           <input
             id={`r-host-${id}`}
             className="mono"
             value={form.host}
             placeholder="203.0.113.10 or ftp.example.com"
             required
+            aria-describedby={`r-host-tip-${id}`}
             onChange={(e) => set("host", e.target.value)}
           />
+          <Tip id={`r-host-tip-${id}`}>
+            The server's IP address or host name, without ftp:// or https://. You find it in your host's panel, often
+            under FTP or SSH access.
+          </Tip>
         </div>
-        <div className="field">
-          <label htmlFor={`r-port-${id}`}>Port</label>
+        <div className="field has-tip">
+          <label htmlFor={`r-port-${id}`}>
+            Port
+            <TipMark />
+          </label>
           <input
             id={`r-port-${id}`}
             className="mono"
             inputMode="numeric"
             value={form.port ?? ""}
-            placeholder={String(defaultPort)}
+            placeholder={`${defaultPort} (usual for ${form.protocol === "sftp" ? "SFTP" : "FTP"})`}
+            aria-describedby={`r-port-tip-${id}`}
             onChange={(e) => {
               const digits = e.target.value.replace(/\D/g, "");
               set("port", digits ? Number(digits) : null);
             }}
           />
+          <Tip id={`r-port-tip-${id}`}>
+            Leave empty for the usual port ({defaultPort}). Only fill it in if your host gave you a different one.
+          </Tip>
         </div>
-        <div className="field">
-          <label htmlFor={`r-user-${id}`}>User name</label>
+        <div className="field has-tip">
+          <label htmlFor={`r-user-${id}`}>
+            User name
+            <TipMark />
+          </label>
           <input
             id={`r-user-${id}`}
             className="mono"
             value={form.user}
+            placeholder={form.protocol === "sftp" ? "e.g. master_abc or root" : "e.g. you@example.com"}
             required
             autoComplete="off"
+            aria-describedby={`r-user-tip-${id}`}
             onChange={(e) => set("user", e.target.value)}
           />
+          <Tip id={`r-user-tip-${id}`}>
+            The {form.protocol === "sftp" ? "SFTP or SSH" : "FTP"} user from your host's panel, not your login for the
+            host's website.
+          </Tip>
         </div>
-        <div className="field">
-          <label htmlFor={`r-pass-${id}`}>{useKey && form.protocol === "sftp" ? "Key passphrase" : "Password"}</label>
+        <div className="field has-tip">
+          <label htmlFor={`r-pass-${id}`}>
+            {useKey && form.protocol === "sftp" ? "Key passphrase" : "Password"}
+            <TipMark />
+          </label>
           <input
             id={`r-pass-${id}`}
             type="password"
             autoComplete="new-password"
             value={form.password ?? ""}
-            placeholder={existing?.has_password ? "Saved; type to change" : useKey ? "Only if the key has one" : ""}
+            placeholder={
+              existing?.has_password ? "Saved; type to change" : useKey ? "Only if the key has one" : "The user's password"
+            }
+            aria-describedby={`r-pass-tip-${id}`}
             onChange={(e) => set("password", e.target.value)}
           />
+          <Tip id={`r-pass-tip-${id}`}>
+            Kept in {secretStore}, never in Stackyard's files.
+            {existing?.has_password && " Leave it empty to keep the saved one."}
+          </Tip>
         </div>
-        <div className="field">
-          <label htmlFor={`r-rdir-${id}`}>Folder on the server</label>
+        <div className="field has-tip">
+          <label htmlFor={`r-rdir-${id}`}>
+            Folder on the server
+            <TipMark />
+          </label>
           <input
             id={`r-rdir-${id}`}
             className="mono"
             value={form.remote_dir}
-            placeholder="/home/master/applications/abc/public_html"
+            placeholder="Empty = where you land after logging in"
+            aria-describedby={`r-rdir-tip-${id}`}
             onChange={(e) => set("remote_dir", e.target.value)}
           />
+          <Tip id={`r-rdir-tip-${id}`}>
+            The folder on the server that matches this site's folder, usually where index.php or index.html is. Start
+            with / for a full path, like <span className="mono">/var/www/html</span>. Without / it is inside the folder
+            you land in, like <span className="mono">public_html</span>. On Cloudways:{" "}
+            <span className="mono">/home/master/applications/&lt;app folder&gt;/public_html</span>. Use Test, then
+            Browse files, to look around.
+          </Tip>
         </div>
-        <div className="field">
-          <label htmlFor={`r-ldir-${id}`}>Part of the site folder</label>
+        <div className="field has-tip">
+          <label htmlFor={`r-ldir-${id}`}>
+            Part of the site folder
+            <TipMark />
+          </label>
           <input
             id={`r-ldir-${id}`}
             className="mono"
             value={form.local_dir}
-            placeholder="The whole folder"
+            placeholder="Empty = the whole site folder"
+            aria-describedby={`r-ldir-tip-${id}`}
             onChange={(e) => set("local_dir", e.target.value)}
           />
+          <Tip id={`r-ldir-tip-${id}`}>
+            Only sync one folder inside the site, like <span className="mono">wp-content/themes/my-theme</span> or{" "}
+            <span className="mono">public</span>. Leave it empty to sync the whole site folder.
+          </Tip>
         </div>
       </div>
       {form.protocol === "sftp" && (
         <div className="stack tight">
-          <label className="check">
+          <label className="check" title="Use a key file instead of a password, if your server is set up for it">
             <input type="checkbox" checked={useKey} onChange={(e) => setUseKey(e.target.checked)} />
             Log in with an SSH key instead of a password
           </label>
@@ -302,6 +378,7 @@ function ConnectionForm({
                 className="mono grow"
                 value={form.key_file ?? ""}
                 placeholder="~/.ssh/id_ed25519"
+                title="Your private key file (the one without .pub)"
                 onChange={(e) => set("key_file", e.target.value)}
               />
               <button type="button" className="btn" onClick={browseKey}>
@@ -311,13 +388,25 @@ function ConnectionForm({
           )}
         </div>
       )}
-      <div className="field">
-        <label htmlFor={`r-skip-${id}`}>Never transfer</label>
-        <input id={`r-skip-${id}`} className="mono" value={skipText} onChange={(e) => setSkipText(e.target.value)} />
-        <span className="muted small">
-          Names anywhere (<span className="mono">*.log</span> works) or paths from the top (
-          <span className="mono">storage/logs</span>), separated by commas.
-        </span>
+      <div className="field has-tip">
+        <label htmlFor={`r-skip-${id}`}>
+          Never transfer
+          <TipMark />
+        </label>
+        <input
+          id={`r-skip-${id}`}
+          className="mono"
+          value={skipText}
+          placeholder=".git, node_modules, *.log"
+          aria-describedby={`r-skip-tip-${id}`}
+          onChange={(e) => setSkipText(e.target.value)}
+        />
+        <Tip id={`r-skip-tip-${id}`}>
+          These are never uploaded, downloaded or deleted. A name like <span className="mono">node_modules</span> or{" "}
+          <span className="mono">*.log</span> matches anywhere; a path like{" "}
+          <span className="mono">storage/logs</span> matches from the top of the folder.
+        </Tip>
+        <span className="muted small">Separated by commas.</span>
       </div>
       {form.protocol === "ftp" && (
         <p className="warn small">Plain FTP sends your password and files unencrypted. Use SFTP or FTPS if the host offers them.</p>
@@ -345,8 +434,8 @@ function ConnectionForm({
 }
 
 type Job =
-  | { kind: "planning"; direction: TransferDirection; del: boolean }
-  | { kind: "plan"; plan: TransferPlan; del: boolean }
+  | { kind: "planning"; direction: TransferDirection; compare: TransferCompare; del: boolean }
+  | { kind: "plan"; plan: TransferPlan; compare: TransferCompare; del: boolean }
   | { kind: "running"; total: number }
   | { kind: "done"; outcome: TransferOutcome; direction: TransferDirection };
 
@@ -400,12 +489,12 @@ function ConnectionCard({
     }
   }
 
-  async function plan(direction: TransferDirection, del: boolean) {
-    setJob({ kind: "planning", direction, del });
+  async function plan(direction: TransferDirection, compare: TransferCompare, del: boolean) {
+    setJob({ kind: "planning", direction, compare, del });
     setProgress(null);
     try {
-      const result = await api.remotePlan(c.id, direction, del, null);
-      setJob({ kind: "plan", plan: result, del });
+      const result = await api.remotePlan(c.id, direction, compare, del, null);
+      setJob({ kind: "plan", plan: result, compare, del });
     } catch (e) {
       setJob(null);
       onError(errorText(e) === "stopped" ? null : errorText(e));
@@ -448,10 +537,22 @@ function ConnectionCard({
           </span>
         </div>
         <div className="row wrap">
-          <button type="button" className="btn small primary" disabled={busy} onClick={() => plan("upload", false)}>
+          <button
+            type="button"
+            className="btn small primary"
+            disabled={busy}
+            title="Compares the site folder with the server and lists what would be uploaded. Nothing is sent until you confirm."
+            onClick={() => plan("upload", "changed", false)}
+          >
             Upload changes
           </button>
-          <button type="button" className="btn small" disabled={busy} onClick={() => plan("download", false)}>
+          <button
+            type="button"
+            className="btn small"
+            disabled={busy}
+            title="Compares the server with the site folder and lists what would be downloaded. Nothing changes until you confirm."
+            onClick={() => plan("download", "changed", false)}
+          >
             Download changes
           </button>
           <button type="button" className="btn small" aria-pressed={browsing} onClick={() => setBrowsing(!browsing)}>
@@ -494,8 +595,10 @@ function ConnectionCard({
       {job?.kind === "plan" && (
         <PlanView
           plan={job.plan}
+          compare={job.compare}
           del={job.del}
-          onDelete={(del) => plan(job.plan.direction, del)}
+          onCompare={(compare) => plan(job.plan.direction, compare, job.del)}
+          onDelete={(del) => plan(job.plan.direction, job.compare, del)}
           onRun={() => run(job.plan.files, job.plan.direction)}
           onCancel={() => setJob(null)}
         />
@@ -589,15 +692,55 @@ const REASON_LABEL: Record<PlannedFile["reason"], string> = {
   picked: "picked",
 };
 
+/** The "What to upload" choices; `side` is where the files go. */
+function compareChoices(side: string): { value: TransferCompare; label: string; tip: string }[] {
+  return [
+    {
+      value: "changed",
+      label: "New and changed files",
+      tip: `Files that are new, have a different size, or are newer than the copy ${side}. The usual choice.`,
+    },
+    {
+      value: "newer",
+      label: "Only newer files",
+      tip: `Files that are new, or were changed more recently than the copy ${side}. Size is not compared.`,
+    },
+    {
+      value: "different",
+      label: "Different size or date",
+      tip: `Files whose size or date differs from the copy ${side}, even if that copy is newer. Makes both sides match.`,
+    },
+    {
+      value: "size",
+      label: "Different size only",
+      tip: "Files whose size differs. Dates are ignored, which helps when a server's clock or time zone is off.",
+    },
+    {
+      value: "missing",
+      label: "Only missing files",
+      tip: `Only files that are not ${side} yet. Nothing that is already there is overwritten.`,
+    },
+    {
+      value: "all",
+      label: "Everything",
+      tip: `Every file, even those that look the same, overwriting what is ${side}.`,
+    },
+  ];
+}
+
 function PlanView({
   plan,
+  compare,
   del,
+  onCompare,
   onDelete,
   onRun,
   onCancel,
 }: {
   plan: TransferPlan;
+  compare: TransferCompare;
   del: boolean;
+  onCompare: (compare: TransferCompare) => void;
   onDelete: (del: boolean) => void;
   onRun: () => void;
   onCancel: () => void;
@@ -607,18 +750,43 @@ function PlanView({
   const deletes = plan.files.length - copies;
   const [showAll, setShowAll] = useState(false);
   const shown = showAll ? plan.files : plan.files.slice(0, 12);
+  const choices = compareChoices(upload ? "on the server" : "in the site folder");
+  const chosen = choices.find((c) => c.value === compare);
   return (
     <div className="stack">
+      <div className="field has-tip compare-field">
+        <label htmlFor={`compare-${plan.direction}`}>
+          What to {upload ? "upload" : "download"}
+          <TipMark />
+        </label>
+        <select
+          id={`compare-${plan.direction}`}
+          value={compare}
+          aria-describedby={`compare-tip-${plan.direction}`}
+          onChange={(e) => onCompare(e.target.value as TransferCompare)}
+        >
+          {choices.map((c) => (
+            <option key={c.value} value={c.value} title={c.tip}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <span className="muted small">{chosen?.tip}</span>
+        <Tip id={`compare-tip-${plan.direction}`}>
+          Files that are only on the {upload ? "site folder" : "server"} side are always {upload ? "uploaded" : "downloaded"}.
+          The list below updates when you change this. Files in Never transfer are always left out.
+        </Tip>
+      </div>
       {plan.files.length === 0 ? (
         <p className="ok small" role="status">
-          Everything is the same on both sides ({plural(plan.unchanged, "file")} checked).
+          Nothing to {upload ? "upload" : "download"} with this choice ({plural(plan.unchanged, "file")} checked).
         </p>
       ) : (
         <>
           <p className="small">
             {upload ? "Upload" : "Download"} {plural(copies, "file")} ({size(plan.bytes)})
             {deletes > 0 && `, delete ${plural(deletes, "file")} ${upload ? "on the server" : "in the site folder"}`}.{" "}
-            <span className="muted">{plural(plan.unchanged, "file")} are already the same.</span>
+            <span className="muted">{plural(plan.unchanged, "file")} left as they are.</span>
           </p>
           <div className="grid-wrap remote-files">
             <table className="result-grid">
@@ -734,7 +902,7 @@ function Browser({
 
   async function transfer(direction: TransferDirection, paths: string[]) {
     try {
-      const plan = await api.remotePlan(connection.id, direction, false, paths);
+      const plan = await api.remotePlan(connection.id, direction, "all", false, paths);
       await onRun(plan.files, direction);
       if (direction === "upload" && listing) await open(listing.dir);
     } catch (e) {

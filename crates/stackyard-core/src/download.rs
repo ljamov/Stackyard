@@ -63,6 +63,18 @@ impl Http {
             .map_err(fail)
     }
 
+    /// Where `url` ends up after redirects, for sources whose stable
+    /// "latest" link leads to a versioned file with its checksum next to it.
+    pub fn final_url(&self, url: &str) -> Result<String> {
+        use ureq::ResponseExt;
+        let response = self
+            .agent
+            .head(url)
+            .call()
+            .map_err(|e| download_error(url, e))?;
+        Ok(response.get_uri().to_string())
+    }
+
     /// Downloads `url` to `dest`, checking it against `checksum`
     /// (SHA-256 or SHA-512 as hex; the length says which).
     ///

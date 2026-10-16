@@ -32,6 +32,11 @@ pub struct Options {
     pub quality: u8,
     /// Wider images are scaled down to this width.
     pub max_width: Option<u32>,
+    /// With `max_width`: every image comes out exactly this many pixels
+    /// high, cut from the middle to keep its shape. `None` lets the height
+    /// follow the width.
+    #[serde(default)]
+    pub height: Option<u32>,
     /// Where new files go; `None` puts them next to the originals.
     pub out_dir: Option<PathBuf>,
     /// For [`Format::Same`]: overwrite the original when the new file is
@@ -45,6 +50,7 @@ impl Default for Options {
             formats: vec![Format::Webp, Format::Avif],
             quality: 80,
             max_width: None,
+            height: None,
             out_dir: None,
             replace: false,
         }
@@ -189,7 +195,7 @@ pub fn optimize(source: &Source, options: &Options) -> FileResult {
         made: Vec::new(),
         error: None,
     };
-    let image = match load(&source.path, options.max_width) {
+    let image = match load(&source.path, options.max_width, options.height) {
         Ok(image) => image,
         Err(e) => {
             result.error = Some(e);
@@ -246,8 +252,13 @@ fn write(path: &Path, bytes: &[u8]) -> std::result::Result<(), String> {
 }
 
 /// Decodes the image the right way up (as phone cameras record it), scaled
-/// down to `max_width` when it is wider.
-fn load(path: &Path, max_width: Option<u32>) -> std::result::Result<image::DynamicImage, String> {
+/// down to `max_width` when it is wider, or to exactly `max_width` by
+/// `height` when both are given.
+fn load(
+    path: &Path,
+    max_width: Option<u32>,
+    height: Option<u32>,
+) -> std::result::Result<image::DynamicImage, String> {
     use image::ImageDecoder;
     let fail = |e: &dyn std::fmt::Display| format!("could not read {}: {e}", path.display());
     let mut decoder = image::ImageReader::open(path)
@@ -259,8 +270,13 @@ fn load(path: &Path, max_width: Option<u32>) -> std::result::Result<image::Dynam
     let orientation = decoder.orientation().map_err(|e| fail(&e))?;
     let mut image = image::DynamicImage::from_decoder(decoder).map_err(|e| fail(&e))?;
     image.apply_orientation(orientation);
-    if let Some(max) = max_width.filter(|m| *m > 0 && image.width() > *m) {
-        image = image.resize(max, u32::MAX, image::imageops::FilterType::Lanczos3);
+    let filter = image::imageops::FilterType::Lanczos3;
+    match (max_width.filter(|w| *w > 0), height.filter(|h| *h > 0)) {
+        (Some(w), Some(h)) if (image.width(), image.height()) != (w, h) => {
+            image = image.resize_to_fill(w, h, filter);
+        }
+        (Some(w), None) if image.width() > w => image = image.resize(w, u32::MAX, filter),
+        _ => {}
     }
     Ok(image)
 }
@@ -345,6 +361,9 @@ pub fn check(options: &Options) -> Result<()> {
     }
     if !(1..=100).contains(&options.quality) {
         return Err(Error::Images("quality goes from 1 to 100".into()));
+    }
+    if options.height.is_some() && options.max_width.is_none() {
+        return Err(Error::Images("a height needs a width too".into()));
     }
     Ok(())
 }
@@ -472,6 +491,24 @@ mod tests {
     }
 
     #[test]
+    fn width_and_height_make_that_exact_size() {
+        let dir = crate::testutil::tempdir();
+        let photo = dir.join("wide.png");
+        sample(&photo, 300, 100, false);
+        let options = Options {
+            formats: vec![Format::Webp],
+            max_width: Some(120),
+            height: Some(120),
+            ..Options::default()
+        };
+        let results = optimize_all(&find(std::slice::from_ref(&dir)), &options, &mut |_, _| {});
+        assert_eq!(results[0].error, None);
+        let webp = image::open(dir.join("wide.webp")).unwrap();
+        assert_eq!((webp.width(), webp.height()), (120, 120));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_broken_image_is_reported_not_fatal() {
         let dir = crate::testutil::tempdir();
         std::fs::write(dir.join("broken.jpg"), "not an image").unwrap();
@@ -498,6 +535,11 @@ mod tests {
         .is_err());
         assert!(check(&Options {
             quality: 0,
+            ..Options::default()
+        })
+        .is_err());
+        assert!(check(&Options {
+            height: Some(100),
             ..Options::default()
         })
         .is_err());

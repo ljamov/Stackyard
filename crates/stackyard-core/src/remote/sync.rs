@@ -1,10 +1,11 @@
 //! Working out which files differ between a site's folder and its folder on
 //! a server, then copying them one way.
 //!
-//! A file counts as changed when its size differs, or when the side being
-//! copied from is newer (by more than two seconds, since FTP servers round
-//! times). Transfers keep modification times on both sides, so a file that
-//! was just copied is seen as the same next time.
+//! Which files count as changed is up to [`Compare`]. By default a file is
+//! copied when its size differs, or when the side being copied from is newer
+//! (by more than two seconds, since FTP servers round times). Transfers keep
+//! modification times on both sides, so a file that was just copied is seen
+//! as the same next time.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
@@ -29,6 +30,26 @@ pub enum Direction {
     Upload,
     /// From the server to the site's folder.
     Download,
+}
+
+/// Which files a transfer copies, like the comparison settings of an FTP
+/// program. Files only on the side copied from are copied in every mode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Compare {
+    /// Different size, or newer on the side copied from.
+    #[default]
+    Changed,
+    /// Newer on the side copied from; size is not looked at.
+    Newer,
+    /// Different size or a different date, whichever side is newer.
+    Different,
+    /// Different size; dates are not looked at.
+    Size,
+    /// Only files missing on the other side; nothing is overwritten.
+    Missing,
+    /// Every file, even those that look the same.
+    All,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,6 +144,7 @@ pub(crate) fn plan(
     remote: &mut dyn Remote,
     sides: &Sides,
     direction: Direction,
+    compare: Compare,
     delete: bool,
     only: Option<&[String]>,
     progress: &mut dyn FnMut(Progress) -> bool,
@@ -164,7 +186,7 @@ pub(crate) fn plan(
         for (path, source) in from {
             let reason = match to.get(path) {
                 None => Some(Reason::New),
-                Some(target) if differs(source, target) => Some(Reason::Changed),
+                Some(target) if differs(source, target, compare) => Some(Reason::Changed),
                 Some(_) => None,
             };
             match reason {
@@ -204,13 +226,19 @@ pub(crate) fn plan(
 }
 
 /// Whether the source file should replace the target.
-fn differs(source: &FileInfo, target: &FileInfo) -> bool {
-    if source.size != target.size {
-        return true;
-    }
-    match (source.modified, target.modified) {
-        (Some(s), Some(t)) => s > t + SLACK,
-        _ => false,
+fn differs(source: &FileInfo, target: &FileInfo, compare: Compare) -> bool {
+    let sized = source.size != target.size;
+    let (newer, dated) = match (source.modified, target.modified) {
+        (Some(s), Some(t)) => (s > t + SLACK, (s - t).abs() > SLACK),
+        _ => (false, false),
+    };
+    match compare {
+        Compare::Changed => sized || newer,
+        Compare::Newer => newer,
+        Compare::Different => sized || dated,
+        Compare::Size => sized,
+        Compare::Missing => false,
+        Compare::All => true,
     }
 }
 
@@ -644,6 +672,7 @@ mod tests {
             &mut server,
             &sides(&local, &skip),
             Direction::Upload,
+            Compare::Changed,
             false,
             None,
             &mut go,
@@ -666,6 +695,7 @@ mod tests {
             &mut server,
             &sides(&local, &skip),
             Direction::Upload,
+            Compare::Changed,
             false,
             None,
             &mut go,
@@ -679,6 +709,7 @@ mod tests {
             &mut server,
             &sides(&local, &skip),
             Direction::Upload,
+            Compare::Changed,
             false,
             None,
             &mut go,
@@ -709,6 +740,7 @@ mod tests {
             &mut server,
             &sides(&local, &skip),
             Direction::Download,
+            Compare::Changed,
             false,
             None,
             &mut go,
@@ -719,6 +751,7 @@ mod tests {
             &mut server,
             &sides(&local, &skip),
             Direction::Download,
+            Compare::Changed,
             true,
             None,
             &mut go,
@@ -758,6 +791,7 @@ mod tests {
             &mut server,
             &sides(&local, &[]),
             Direction::Upload,
+            Compare::Changed,
             true,
             Some(&only),
             &mut go,
@@ -775,6 +809,7 @@ mod tests {
             &mut server,
             &sides(&local, &[]),
             Direction::Upload,
+            Compare::Changed,
             false,
             Some(&outside),
             &mut go
@@ -821,35 +856,63 @@ mod tests {
             &FileInfo {
                 size: 3,
                 modified: Some(200)
-            }
+            },
+            Compare::Changed,
         ));
         assert!(!differs(
             &a,
             &FileInfo {
                 size: 3,
                 modified: Some(99)
-            }
+            },
+            Compare::Changed,
         ));
         assert!(differs(
             &FileInfo {
                 size: 3,
                 modified: Some(110)
             },
-            &a
+            &a,
+            Compare::Changed
         ));
         assert!(differs(
             &a,
             &FileInfo {
                 size: 4,
                 modified: Some(100)
-            }
+            },
+            Compare::Changed,
         ));
         assert!(!differs(
             &a,
             &FileInfo {
                 size: 3,
                 modified: None
-            }
+            },
+            Compare::Changed,
         ));
+    }
+
+    #[test]
+    fn each_compare_mode_picks_its_files() {
+        let info = |size, modified| FileInfo {
+            size,
+            modified: Some(modified),
+        };
+        let same = (info(3, 100), info(3, 100));
+        let bigger = (info(4, 100), info(3, 100));
+        let newer = (info(3, 200), info(3, 100));
+        let older = (info(3, 100), info(3, 200));
+        let check = |compare, expect: [bool; 4]| {
+            for ((s, t), want) in [same, bigger, newer, older].iter().zip(expect) {
+                assert_eq!(differs(s, t, compare), want, "{compare:?} {s:?} {t:?}");
+            }
+        };
+        check(Compare::Changed, [false, true, true, false]);
+        check(Compare::Newer, [false, false, true, false]);
+        check(Compare::Different, [false, true, true, true]);
+        check(Compare::Size, [false, true, false, false]);
+        check(Compare::Missing, [false, false, false, false]);
+        check(Compare::All, [true, true, true, true]);
     }
 }
