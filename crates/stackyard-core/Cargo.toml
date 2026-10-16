@@ -20,6 +20,12 @@ tar = "0.4"
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 liblzma = { version = "0.4", features = ["static"] }
+# Image optimizer: decode JPG/PNG/WebP, encode WebP (libwebp), AVIF (rav1e,
+# without its assembly so no extra build tools are needed) and smaller PNGs.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+ravif = { version = "0.13", default-features = false, features = ["threading"] }
+webp = { version = "0.3", default-features = false }
+oxipng = { version = "10", default-features = false, features = ["parallel"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

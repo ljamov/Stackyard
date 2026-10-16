@@ -12,6 +12,7 @@ pub mod domain;
 pub mod download;
 pub mod engine;
 pub mod error;
+pub mod images;
 pub mod install;
 pub mod logs;
 pub(crate) mod manifest;

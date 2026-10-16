@@ -28,7 +28,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
-use stackyard_core::{domain, paths, phpmyadmin, starters};
+use stackyard_core::{domain, images, paths, phpmyadmin, starters};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 mod updates;
@@ -1108,6 +1108,83 @@ fn add_site(
     site_views()
 }
 
+#[derive(Serialize)]
+struct ImagesFound {
+    count: usize,
+    size: u64,
+}
+
+/// How many JPG and PNG images the chosen files and folders hold.
+#[tauri::command]
+async fn find_images(paths: Vec<String>) -> CmdResult<ImagesFound> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
+        let found = images::find(&paths);
+        ImagesFound {
+            count: found.len(),
+            size: found
+                .iter()
+                .map(|s| std::fs::metadata(&s.path).map_or(0, |m| m.len()))
+                .sum(),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Clone, Serialize)]
+struct ImagesProgress {
+    done: usize,
+    total: usize,
+    result: images::FileResult,
+}
+
+/// Makes the copies the options ask for, reporting each image as it is done.
+#[tauri::command]
+async fn optimize_images(
+    app: AppHandle,
+    paths: Vec<String>,
+    options: images::Options,
+) -> CmdResult<Vec<images::FileResult>> {
+    Settings::load()
+        .map_err(err)?
+        .require_module(images::MODULE)
+        .map_err(err)?;
+    images::check(&options).map_err(err)?;
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(images::MODULE.into())
+    {
+        return Err("Images are already being optimized".into());
+    }
+    let worker = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
+        let sources = images::find(&paths);
+        let total = sources.len();
+        images::optimize_all(&sources, &options, &mut |done, result| {
+            let _ = worker.emit(
+                "images-progress",
+                ImagesProgress {
+                    done,
+                    total,
+                    result: result.clone(),
+                },
+            );
+        })
+    })
+    .await;
+    app.state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .remove(images::MODULE);
+    result.map_err(|e| e.to_string())
+}
+
 #[derive(Clone, Serialize)]
 struct StarterProgress {
     name: String,
@@ -1407,6 +1484,8 @@ pub fn run() {
             service_log,
             open_local_page,
             list_starters,
+            find_images,
+            optimize_images,
             add_starter_site,
             list_modules,
             set_module,
