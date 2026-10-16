@@ -266,17 +266,35 @@ impl Context {
         })
     }
 
+    /// The port a service listens on, which moves when another program has
+    /// the usual one.
+    fn service_port(&self, id: &str) -> u16 {
+        catalog::service(id).map_or(0, |def| crate::services::port(&self.home, def))
+    }
+
     fn database_launch(&self, tool: Tool, args: Vec<OsString>) -> Result<Launch> {
         match tool {
             Tool::Psql | Tool::PgDump => {
                 let env = [
                     ("PGHOST", "127.0.0.1".to_string()),
-                    ("PGPORT", "5432".to_string()),
+                    ("PGPORT", self.service_port("postgres").to_string()),
                     ("PGUSER", crate::services::postgres::USER.to_string()),
                 ];
                 return self.service_tool("postgres", tool, args, &env);
             }
-            Tool::RedisCli => return self.service_tool("redis", tool, args, &[]),
+            Tool::RedisCli => {
+                // redis-cli has no setting for the port, only `-p`.
+                let port = self.service_port("redis");
+                let args = if port == 6379 {
+                    args
+                } else {
+                    [OsString::from("-p"), OsString::from(port.to_string())]
+                        .into_iter()
+                        .chain(args)
+                        .collect()
+                };
+                return self.service_tool("redis", tool, args, &[]);
+            }
             _ => {}
         }
         let services = ServiceManager::new(&self.home);
@@ -311,7 +329,7 @@ impl Context {
             .ok_or_else(|| Error::Shell(format!("{} has no {} program", def.name, tool.name())))?;
         let mut env = vec![(
             "MYSQL_TCP_PORT".to_string(),
-            OsString::from(def.ports[0].to_string()),
+            OsString::from(crate::services::port(&self.home, def).to_string()),
         )];
         if self.os != Os::Windows {
             env.push(("MYSQL_UNIX_PORT".into(), socket(id).into_os_string()));

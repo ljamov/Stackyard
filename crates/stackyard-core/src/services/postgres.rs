@@ -56,7 +56,7 @@ pub(super) fn spec(ctx: &Context) -> Result<ProcessSpec> {
         ];
         super::mysql::initialize(ctx, &initdb, &args, &datadir)?;
     }
-    let port = ctx.def.ports[0];
+    let port = ctx.ports[0];
     Ok(ctx.base_spec(vec![
         "-D".into(),
         slash(&datadir),

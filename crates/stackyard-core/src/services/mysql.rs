@@ -67,7 +67,7 @@ pub(super) fn server_args(ctx: &Context, datadir: &Path) -> Vec<String> {
         "--no-defaults".to_string(),
         format!("--basedir={}", slash(ctx.install)),
         format!("--datadir={}", slash(datadir)),
-        format!("--port={}", ctx.def.ports[0]),
+        format!("--port={}", ctx.ports[0]),
         "--bind-address=127.0.0.1".to_string(),
     ];
     if ctx.os == Os::Windows {

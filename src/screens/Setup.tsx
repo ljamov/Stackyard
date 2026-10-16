@@ -158,7 +158,7 @@ export function Setup({ status, onDone }: { status: SetupStatus; onDone(): void 
             <FolderField
               id="setup-sites"
               label="Sites folder"
-              hint="Every folder you create in here becomes a site, like myapp.stack."
+              hint="Every folder you create in here becomes a site, like hello.stack."
               value={sites}
               onChange={(v) => {
                 setSites(v);
