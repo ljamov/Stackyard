@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use stackyard_core::git;
 use stackyard_core::remote::{
-    self, secrets, Connection, ConnectionInput, Direction, Listing, Outcome, Plan, PlannedFile,
-    Progress, RemoteStore, Sessions,
+    self, secrets, Compare, Connection, ConnectionInput, Direction, Listing, Outcome, Plan,
+    PlannedFile, Progress, RemoteStore, Sessions,
 };
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
@@ -256,6 +256,7 @@ pub async fn remote_plan(
     app: AppHandle,
     id: String,
     direction: Direction,
+    compare: Option<Compare>,
     delete: bool,
     paths: Option<Vec<String>>,
 ) -> CmdResult<Plan> {
@@ -270,6 +271,7 @@ pub async fn remote_plan(
                 &connection,
                 &local,
                 direction,
+                compare.unwrap_or_default(),
                 delete,
                 paths.as_deref(),
                 &mut |p| busy.report(p),

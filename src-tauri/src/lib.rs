@@ -716,6 +716,16 @@ fn clear_logs() -> CmdResult<usize> {
     logs::clear(&paths::home()).map_err(err)
 }
 
+/// Empties one log, leaving the others as they are.
+#[tauri::command]
+fn clear_log(id: String) -> CmdResult<bool> {
+    Settings::load()
+        .map_err(err)?
+        .require_module("logs")
+        .map_err(err)?;
+    logs::clear_one(&paths::home(), &id).map_err(err)
+}
+
 /// Sizing the data folder reads every file in it, so this runs on a worker
 /// thread.
 #[tauri::command]
@@ -1553,6 +1563,7 @@ pub fn run() {
             list_logs,
             read_log,
             clear_logs,
+            clear_log,
             setup_status,
             phpmyadmin_status,
             phpmyadmin_install,

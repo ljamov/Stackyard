@@ -307,6 +307,8 @@ export type RemoteTest = {
 export type RemoteEntry = { name: string; dir: boolean; size: number; modified: number | null };
 export type RemoteListing = { dir: string; root: string; entries: RemoteEntry[] };
 export type TransferDirection = "upload" | "download";
+/** Which files a transfer copies; files missing on the other side always go. */
+export type TransferCompare = "changed" | "newer" | "different" | "size" | "missing" | "all";
 
 export type PlannedFile = {
   path: string;
@@ -352,6 +354,8 @@ export type ImageOptions = {
   formats: ImageFormat[];
   quality: number;
   max_width: number | null;
+  /** With max_width: every image this many pixels high, cut from the middle. Null keeps the shape. */
+  height: number | null;
   /** Null puts new files next to the originals. */
   out_dir: string | null;
   /** Overwrite originals with smaller JPG/PNG copies. */
@@ -434,6 +438,8 @@ export interface Api {
   readLog(id: string, from: number | null, lines: number): Promise<LogChunk>;
   /** Empties every log; returns how many were cleared. */
   clearLogs(): Promise<number>;
+  /** Empties one log; false when it had nothing in it yet. */
+  clearLog(id: string): Promise<boolean>;
   dbServer(): Promise<DbServerStatus>;
   dbList(): Promise<Database[]>;
   dbCreate(name: string): Promise<Database[]>;
@@ -468,7 +474,13 @@ export interface Api {
   remoteTest(id: string): Promise<RemoteTest>;
   remoteBrowse(id: string, dir: string | null): Promise<RemoteListing>;
   /** What would be transferred; `paths` limits it to picked files and folders. */
-  remotePlan(id: string, direction: TransferDirection, del: boolean, paths: string[] | null): Promise<TransferPlan>;
+  remotePlan(
+    id: string,
+    direction: TransferDirection,
+    compare: TransferCompare,
+    del: boolean,
+    paths: string[] | null,
+  ): Promise<TransferPlan>;
   remoteRun(id: string, files: PlannedFile[]): Promise<TransferOutcome>;
   remoteStop(id: string): Promise<void>;
   remoteLocalFolder(id: string): Promise<string>;
@@ -553,6 +565,7 @@ const tauriApi: Api = {
   listLogs: () => invoke("list_logs"),
   readLog: (id, from, lines) => invoke("read_log", { id, from, lines }),
   clearLogs: () => invoke("clear_logs"),
+  clearLog: (id) => invoke("clear_log", { id }),
   dbServer: () => invoke("db_server"),
   dbList: () => invoke("db_list"),
   dbCreate: (name) => invoke("db_create", { name }),
@@ -583,7 +596,8 @@ const tauriApi: Api = {
   remoteTrust: (id, fingerprint) => invoke("remote_trust", { id, fingerprint }),
   remoteTest: (id) => invoke("remote_test", { id }),
   remoteBrowse: (id, dir) => invoke("remote_browse", { id, dir }),
-  remotePlan: (id, direction, del, paths) => invoke("remote_plan", { id, direction, delete: del, paths }),
+  remotePlan: (id, direction, compare, del, paths) =>
+    invoke("remote_plan", { id, direction, compare, delete: del, paths }),
   remoteRun: (id, files) => invoke("remote_run", { id, files }),
   remoteStop: (id) => invoke("remote_stop", { id }),
   remoteLocalFolder: (id) => invoke("remote_local_folder", { id }),
@@ -1064,6 +1078,7 @@ function browserApi(): Api {
       return { lines, offset: from + lines.length, reset: false };
     },
     clearLogs: async () => 3,
+    clearLog: async () => true,
     dbServer: async () => ({ server: { id: "mysql", name: "MySQL 8.4", version: "8.4.6" }, problem: null }),
     dbList: async () => dbs,
     dbCreate: async (name) => {
@@ -1247,7 +1262,7 @@ function browserApi(): Api {
           : [{ name: "readme.txt", dir: false, size: 1_024, modified: Date.now() / 1000 - 7200 }];
       return { dir: at, root, entries };
     },
-    remotePlan: async (id, direction, del, paths) => {
+    remotePlan: async (id, direction, compare, del, paths) => {
       for (let i = 0; i < 4; i++) {
         remoteHandlers.forEach((h) => h({ id, step: "scanning", folder: ["", "wp-content", "wp-content/themes", "wp-includes"][i], found: i * 40 }));
         await new Promise((r) => setTimeout(r, 200));
@@ -1256,8 +1271,12 @@ function browserApi(): Api {
       const files: PlannedFile[] = paths
         ? paths.map((p) => ({ path: p, action: copy, reason: "picked", size: 2_048 }))
         : [
-            { path: "index.php", action: copy, reason: "changed", size: 412 },
-            { path: "wp-content/themes/site/style.css", action: copy, reason: "changed", size: 18_400 },
+            ...(compare === "missing"
+              ? []
+              : [
+                  { path: "index.php", action: copy, reason: "changed", size: 412 } as PlannedFile,
+                  { path: "wp-content/themes/site/style.css", action: copy, reason: "changed", size: 18_400 } as PlannedFile,
+                ]),
             { path: "wp-content/uploads/2026/10/hero.jpg", action: copy, reason: "new", size: 482_000 },
             ...(del
               ? [{ path: "old-page.html", action: direction === "upload" ? "delete-remote" : "delete-local", reason: "extra", size: 900 } as PlannedFile]

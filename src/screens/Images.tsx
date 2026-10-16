@@ -51,7 +51,10 @@ export function Images() {
   const [found, setFound] = useState<ImagesFound | null>(null);
   const [formats, setFormats] = useState<ImageFormat[]>(["webp", "avif"]);
   const [quality, setQuality] = useState(80);
-  const [maxWidth, setMaxWidth] = useState(0);
+  const [maxWidth, setMaxWidth] = useState<number | "custom">(0);
+  const [customWidth, setCustomWidth] = useState("");
+  const [keepShape, setKeepShape] = useState(true);
+  const [customHeight, setCustomHeight] = useState("");
   const [toFolder, setToFolder] = useState(false);
   const [outDir, setOutDir] = useState("");
   const [replace, setReplace] = useState(false);
@@ -103,7 +106,7 @@ export function Images() {
   }
 
   async function chooseImages() {
-    const picked = await api.pickImages();
+    const picked = await api.pickImages(paths[0] ? folderOf(paths[0]) : sitesFolder.data);
     if (picked.length) setPaths((current) => [...new Set([...current, ...picked])]);
   }
 
@@ -121,7 +124,8 @@ export function Images() {
     const options: ImageOptions = {
       formats,
       quality,
-      max_width: maxWidth || null,
+      max_width: width,
+      height,
       out_dir: toFolder && outDir.trim() ? outDir.trim() : null,
       replace: !toFolder && replace && formats.includes("same"),
     };
@@ -146,7 +150,13 @@ export function Images() {
   const after = made.reduce((sum, m) => sum + m.after, 0);
   const failed = results.filter((r) => r.error);
   const skipped = results.reduce((n, r) => n + r.made.filter((m) => m.skipped).length, 0);
-  const canRun = !running && (found?.count ?? 0) > 0 && formats.length > 0 && (!toFolder || outDir.trim() !== "");
+  const custom = maxWidth === "custom";
+  const width = custom ? Number(customWidth) || null : maxWidth || null;
+  const height = custom && !keepShape ? Number(customHeight) || null : null;
+  const sizeReady = !custom || (width !== null && (keepShape || height !== null));
+  const pickedSite = sites.data.find((s) => paths.includes(s.path));
+  const canRun =
+    !running && (found?.count ?? 0) > 0 && formats.length > 0 && sizeReady && (!toFolder || outDir.trim() !== "");
 
   return (
     <>
@@ -225,7 +235,7 @@ export function Images() {
                 <label htmlFor="i-site">Or a site's folder</label>
                 <select
                   id="i-site"
-                  value=""
+                  value={pickedSite?.path ?? ""}
                   onChange={(e) => e.target.value && setPaths((c) => [...new Set([...c, e.target.value])])}
                 >
                   <option value="">Pick a site…</option>
@@ -285,15 +295,61 @@ export function Images() {
             </div>
             <div className="field">
               <label htmlFor="i-width">Largest width</label>
-              <select id="i-width" value={maxWidth} onChange={(e) => setMaxWidth(Number(e.target.value))}>
+              <select
+                id="i-width"
+                value={maxWidth}
+                onChange={(e) => setMaxWidth(e.target.value === "custom" ? "custom" : Number(e.target.value))}
+              >
                 {WIDTHS.map((w) => (
                   <option key={w} value={w}>
                     {w ? `${w} px` : "Keep the size"}
                   </option>
                 ))}
+                <option value="custom">Custom width…</option>
               </select>
             </div>
           </div>
+          {custom && (
+            <div className="stack tight">
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="i-custom-w">Width in pixels</label>
+                  <input
+                    id="i-custom-w"
+                    className="mono"
+                    inputMode="numeric"
+                    value={customWidth}
+                    placeholder="e.g. 1200"
+                    title="Wider images are made this wide. Narrower ones keep their size unless you set a height."
+                    onChange={(e) => setCustomWidth(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                  />
+                </div>
+                {!keepShape && (
+                  <div className="field">
+                    <label htmlFor="i-custom-h">Height in pixels</label>
+                    <input
+                      id="i-custom-h"
+                      className="mono"
+                      inputMode="numeric"
+                      value={customHeight}
+                      placeholder="e.g. 630"
+                      title="Every image comes out exactly this high, cut from the middle so nothing is stretched."
+                      onChange={(e) => setCustomHeight(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                    />
+                  </div>
+                )}
+              </div>
+              <label className="check">
+                <input type="checkbox" checked={keepShape} onChange={(e) => setKeepShape(e.target.checked)} />
+                Keep the aspect ratio (the height follows the width)
+              </label>
+              <span className="muted small">
+                {keepShape
+                  ? "Images wider than this are scaled down; the height of each one is worked out for you."
+                  : "Every image comes out exactly this size. Edges are cut off evenly so nothing looks stretched."}
+              </span>
+            </div>
+          )}
           <div className="stack tight">
             <label className="check">
               <input type="radio" name="i-out" checked={!toFolder} onChange={() => setToFolder(false)} />

@@ -19,6 +19,15 @@ function runtimeOptions(families: RuntimeFamily[], isOn: (id: string) => boolean
   return [{ value: "Auto", label: "Detect from the folder" }, ...options, { value: "Static", label: "Static files" }];
 }
 
+/** "My Blog 2" → "my-blog-2": what a typed name becomes in the site's address. */
+function siteName(typed: string) {
+  return typed
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function Sites() {
   const sites = useLoad(api.listSites, []);
   const runtimes = useLoad(api.listRuntimes, []);
@@ -31,7 +40,10 @@ export function Sites() {
   const [connecting, setConnecting] = useState<string | null>(null);
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
-  const [name, setName] = useState("");
+  // What was typed, as typed; `name` is the address it makes. Rewriting the
+  // field on every key moved the cursor to the end and swallowed spaces.
+  const [typedName, setTypedName] = useState("");
+  const name = siteName(typedName);
   const [path, setPath] = useState("");
   const [runtime, setRuntime] = useState("Auto");
   const [https, setHttps] = useState(true);
@@ -111,7 +123,7 @@ export function Sites() {
       ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https }));
     }
     if (ok) {
-      setName("");
+      setTypedName("");
       setPath("");
     }
     sites.reload();
@@ -227,13 +239,30 @@ export function Sites() {
                 <input
                   id="f-name"
                   className="mono"
-                  value={name}
+                  value={typedName}
                   placeholder="hello"
                   required
-                  onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-describedby="f-name-hint"
+                  title="Letters, numbers and dashes. Spaces and other characters become dashes."
+                  onChange={(e) => setTypedName(e.target.value)}
                 />
                 <span className="mono muted">{tldDraft}</span>
               </div>
+              <span id="f-name-hint" className="muted small">
+                {typedName && name !== typedName ? (
+                  name ? (
+                    <>
+                      The address will be <span className="mono">{name + tldDraft}</span>
+                    </>
+                  ) : (
+                    <span className="warn">Use letters or numbers</span>
+                  )
+                ) : (
+                  "Letters, numbers and dashes"
+                )}
+              </span>
             </div>
             <div className="field">
               <label htmlFor="f-folder">Project folder</label>
@@ -305,7 +334,7 @@ export function Sites() {
               <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
               Secure with local HTTPS (SSL) certificate
             </label>
-            <button type="submit" className="btn primary" disabled={making !== null}>
+            <button type="submit" className="btn primary" disabled={making !== null || !name}>
               {making ? "Creating…" : chosenStarter ? `Create ${chosenStarter.name} site` : "Create site"}
             </button>
           </div>

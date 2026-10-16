@@ -20,6 +20,8 @@ export function Logs() {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
+  // The log whose "Clear" was pressed once and waits for the second press.
+  const [confirmingOne, setConfirmingOne] = useState<string | null>(null);
   // Bumped after clearing, so the open log is read again from the start.
   const [fresh, setFresh] = useState(0);
   const view = useRef<HTMLDivElement>(null);
@@ -42,6 +44,20 @@ export function Logs() {
     } finally {
       setClearing(false);
       setConfirming(false);
+    }
+  }
+
+  async function clearOne(id: string) {
+    setClearing(true);
+    setError(null);
+    try {
+      await api.clearLog(id);
+      setFresh((n) => n + 1);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setClearing(false);
+      setConfirmingOne(null);
     }
   }
 
@@ -189,6 +205,31 @@ export function Logs() {
                 <button type="button" className="btn small" onClick={() => setPaused(!paused)} aria-pressed={paused}>
                   {paused ? "Resume" : "Pause"}
                 </button>
+                {selected &&
+                  (confirmingOne === selected ? (
+                    <>
+                      <button type="button" className="btn small" disabled={clearing} onClick={() => setConfirmingOne(null)}>
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="btn danger small"
+                        disabled={clearing}
+                        onClick={() => clearOne(selected)}
+                      >
+                        {clearing ? "Clearing…" : `Empty the ${name} log`}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn small"
+                      title={`Empties only the ${name} log; other logs stay as they are`}
+                      onClick={() => setConfirmingOne(selected)}
+                    >
+                      Clear this log
+                    </button>
+                  ))}
               </div>
             </div>
 
