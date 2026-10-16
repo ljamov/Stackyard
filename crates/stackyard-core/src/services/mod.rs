@@ -306,6 +306,7 @@ impl ServiceManager {
         let sites = self.sites()?;
         let mut specs = web::php_processes(&self.home, &sites, &RuntimeManager::new(&self.home))?;
         specs.push(self.spec("caddy")?);
+        specs.extend(web::dev_servers(&self.home, &sites));
         Ok(specs)
     }
 
@@ -318,20 +319,28 @@ impl ServiceManager {
         let specs = self.web_specs()?;
         for (id, state) in supervisor.states() {
             let unused = !specs.iter().any(|s| s.id == id);
-            if id.starts_with("php-") && unused && state != ProcessState::Stopped {
+            if is_web_helper(&id) && unused && state != ProcessState::Stopped {
                 supervisor.stop(&id)?;
             }
         }
         for spec in specs {
-            supervisor.start(spec)?;
+            // A dev server that can't start (its port taken by a copy the
+            // user runs) shows in its log; the other sites still work.
+            if spec.id.starts_with("dev-") {
+                if let Err(e) = supervisor.start(spec) {
+                    eprintln!("{e}");
+                }
+            } else {
+                supervisor.start(spec)?;
+            }
         }
         Ok(())
     }
 
-    /// Stops the web server and every PHP process.
+    /// Stops the web server, every PHP process and every dev server.
     pub fn stop_web(&self, supervisor: &Supervisor) -> Result<()> {
         for (id, state) in supervisor.states() {
-            if (id == "caddy" || id.starts_with("php-")) && state != ProcessState::Stopped {
+            if (id == "caddy" || is_web_helper(&id)) && state != ProcessState::Stopped {
                 supervisor.stop(&id)?;
             }
         }
@@ -369,6 +378,11 @@ impl ServiceManager {
     pub fn home(&self) -> &Path {
         &self.home
     }
+}
+
+/// The processes that run only for the web server's sites.
+fn is_web_helper(id: &str) -> bool {
+    id.starts_with("php-") || id.starts_with("dev-")
 }
 
 /// The main program inside an installed service folder.

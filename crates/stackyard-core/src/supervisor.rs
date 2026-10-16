@@ -353,6 +353,15 @@ fn terminate(mut child: Child) {
 
 #[cfg(not(unix))]
 fn terminate(mut child: Child) {
+    // Programs started this way (`npm run dev` starting the dev server)
+    // would keep running and hold the port, so end the whole tree.
+    let mut taskkill = Command::new("taskkill");
+    taskkill
+        .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    crate::platform::hide_console(&mut taskkill);
+    let _ = taskkill.status();
     let _ = child.kill();
     let _ = child.wait();
 }

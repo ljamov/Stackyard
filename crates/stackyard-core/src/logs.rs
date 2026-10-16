@@ -47,6 +47,9 @@ pub fn name(id: &str) -> String {
     if let Some(version) = id.strip_prefix("php-") {
         return format!("PHP {version}");
     }
+    if let Some(site) = id.strip_prefix("dev-") {
+        return format!("Dev server: {site}");
+    }
     match id {
         "daemon" => "Background service".into(),
         other => other.into(),

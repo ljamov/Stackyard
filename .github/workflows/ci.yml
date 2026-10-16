@@ -368,6 +368,45 @@ jobs:
             echo "== the database client"
             run "$code/new" 'mysql --version' | grep -i mariadb
           fi
+      - name: Sites made from starters
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            curl() { /c/Windows/System32/curl.exe --ssl-no-revoke "$@"; }
+          elif [ "$RUNNER_OS" = macOS ]; then
+            curl() { /usr/bin/curl "$@"; }
+          fi
+          trap 'tail -n 40 "$STACKYARD_HOME/logs/starter.log" "$STACKYARD_HOME/logs/dev-docs.log" 2>/dev/null || true' ERR
+          made="$RUNNER_TEMP/made"
+
+          echo "== Astro, with the dev server Stackyard runs"
+          stackyard sites new docs astro --path "$made/docs"
+          [ -f "$made/docs/package.json" ] && [ -d "$made/docs/node_modules/astro" ]
+          stackyard services install caddy
+          stackyard start caddy
+          port=$(sed -n 's/^https = //p' "$STACKYARD_HOME/config/caddy/ports.toml")
+          for _ in $(seq 60); do curl -fsSk --max-time 5 "https://docs.localhost:$port/" 2>/dev/null | grep -qi astro && break; sleep 2; done
+          curl -fsSk --max-time 5 "https://docs.localhost:$port/" | grep -i astro
+          stackyard stop
+          echo "== a starter refuses a folder that has files"
+          if stackyard sites new docs2 astro --path "$made/docs"; then echo "made over existing files"; exit 1; fi
+
+          if [ "$RUNNER_OS" != macOS ]; then
+            echo "== Laravel, made with Composer"
+            stackyard sites new shop laravel --path "$made/shop"
+            [ -f "$made/shop/artisan" ] && [ -f "$made/shop/.env" ] && [ -d "$made/shop/vendor" ]
+            stackyard sites | grep -q "shop"
+          fi
+          if [ "$RUNNER_OS" = Linux ]; then
+            echo "== WordPress, with its database"
+            stackyard sites new blog wordpress --path "$made/blog"
+            grep -q "'DB_NAME', 'blog'" "$made/blog/wp-config.php"
+            [ -f "$made/blog/wp-load.php" ]
+            stackyard db | grep -q "blog"
+            stackyard stop
+          fi
       - name: Turn the commands off
         shell: bash
         run: |
