@@ -35,6 +35,11 @@ export function Sites() {
   const [parkDraft, setParkDraft] = useState("");
   const [settingUp, setSettingUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const starters = useLoad(api.listStarters, []);
+  const [starter, setStarter] = useState("");
+  const [making, setMaking] = useState<string | null>(null);
+  const [made, setMade] = useState<Site | null>(null);
+  const chosenStarter = starters.data.find((s) => s.id === starter);
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
   const reloadSites = sites.reload;
@@ -54,6 +59,18 @@ export function Sites() {
     };
   }, [reloadSites, reloadParked]);
   const chosenRuntime = options.some((o) => o.value === runtime) ? runtime : "Auto";
+
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let cancelled = false;
+    api
+      .onStarterProgress((p) => setMaking(p.message))
+      .then((unsubscribe) => (cancelled ? unsubscribe() : (off = unsubscribe)));
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, []);
 
   async function attempt(action: () => Promise<unknown>) {
     try {
@@ -76,8 +93,20 @@ export function Sites() {
   async function create(e: FormEvent) {
     e.preventDefault();
     await saveTld();
-    // An empty folder means a new folder in the sites folder, made by the app.
-    const ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https }));
+    setMade(null);
+    let ok: boolean;
+    if (chosenStarter) {
+      setMaking(`Making the ${chosenStarter.name} site…`);
+      let list: Site[] = [];
+      ok = await attempt(async () => {
+        list = await api.addStarterSite({ name, starter: chosenStarter.id, path: path.trim(), https });
+      });
+      setMaking(null);
+      if (ok) setMade(list.find((s) => s.name === name) ?? null);
+    } else {
+      // An empty folder means a new folder in the sites folder, made by the app.
+      ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https }));
+    }
     if (ok) {
       setName("");
       setPath("");
@@ -173,6 +202,17 @@ export function Sites() {
           {error}
         </p>
       )}
+      {made && (
+        <p className="notice small row between centered" role="status">
+          <span>
+            <span className="mono">{made.domain}</span> is ready.
+            {made.framework === "WordPress" && " Open it to finish WordPress's install (site title and your login)."}
+          </span>
+          <button type="button" className="btn small" onClick={() => api.openLocalPage(made.url)}>
+            Open
+          </button>
+        </p>
+      )}
 
       <div className="sites-top">
         <form className="card stack form new-site" aria-labelledby="new-h" onSubmit={create}>
@@ -208,15 +248,33 @@ export function Sites() {
               </div>
             </div>
             <div className="field">
-              <label htmlFor="f-rt">Runtime</label>
-              <select id="f-rt" value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
-                {options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
+              <label htmlFor="f-starter">Start from</label>
+              <select id="f-starter" value={starter} onChange={(e) => setStarter(e.target.value)}>
+                <option value="">Empty or existing folder</option>
+                {starters.data.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
                   </option>
                 ))}
               </select>
             </div>
+            {chosenStarter ? (
+              <div className="field">
+                <span className="label">Runtime</span>
+                <span className="muted small">{chosenStarter.description}</span>
+              </div>
+            ) : (
+              <div className="field">
+                <label htmlFor="f-rt">Runtime</label>
+                <select id="f-rt" value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
+                  {options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="field">
               <label htmlFor="f-tld">Domain ending</label>
               <input
@@ -232,14 +290,20 @@ export function Sites() {
           <span className="muted small">
             Leave the folder empty to create <span className="mono">{folderFor(name || "hello")}</span>. The domain
             ending applies to new sites.
+            {chosenStarter && " A starter needs a new or empty folder."}
           </span>
+          {making && (
+            <p className="muted small" role="status">
+              {making}
+            </p>
+          )}
           <div className="row between centered">
             <label className="check">
               <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
               Secure with local HTTPS (SSL) certificate
             </label>
-            <button type="submit" className="btn primary">
-              Create site
+            <button type="submit" className="btn primary" disabled={making !== null}>
+              {making ? "Creating…" : chosenStarter ? `Create ${chosenStarter.name} site` : "Create site"}
             </button>
           </div>
         </form>

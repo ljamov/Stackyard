@@ -252,6 +252,11 @@ export type TldInfo = { tld: string; warning: string | null };
 
 export type NewSite = { name: string; path: string; runtime: string; https: boolean };
 
+/** A project a new site can start as, instead of an empty folder. */
+export type Starter = { id: string; name: string; description: string };
+export type NewStarterSite = { name: string; starter: string; path: string; https: boolean };
+export type StarterProgress = { name: string; message: string };
+
 export interface Api {
   listRuntimes(): Promise<RuntimeFamily[]>;
   installRuntime(kind: RuntimeKind, version: string): Promise<RuntimeFamily[]>;
@@ -273,6 +278,10 @@ export interface Api {
   setModule(id: string, enabled: boolean): Promise<Module[]>;
   listSites(): Promise<Site[]>;
   addSite(site: NewSite): Promise<Site[]>;
+  listStarters(): Promise<Starter[]>;
+  /** Downloads and sets up the project, then adds the site. */
+  addStarterSite(site: NewStarterSite): Promise<Site[]>;
+  onStarterProgress(handler: (p: StarterProgress) => void): Promise<() => void>;
   removeSite(name: string): Promise<Site[]>;
   listParked(): Promise<string[]>;
   /** Where new sites get their folder. */
@@ -358,6 +367,9 @@ const tauriApi: Api = {
   setModule: (id, enabled) => invoke("set_module", { id, enabled }),
   listSites: () => invoke("list_sites"),
   addSite: (site) => invoke("add_site", site),
+  listStarters: () => invoke("list_starters"),
+  addStarterSite: (site) => invoke("add_starter_site", site),
+  onStarterProgress: (handler) => listen<StarterProgress>("starter-progress", (e) => handler(e.payload)),
   removeSite: (name) => invoke("remove_site", { name }),
   listParked: () => invoke("list_parked"),
   sitesFolder: () => invoke("sites_folder"),
@@ -464,6 +476,7 @@ function browserApi(): Api {
     service("meilisearch", "Meilisearch", "1", [7700], "Search engine", "http://127.0.0.1:7700", null),
   ];
   const serviceHandlers = new Set<(p: ServiceProgress) => void>();
+  const starterHandlers = new Set<(p: StarterProgress) => void>();
   const logs: Record<string, string[]> = {};
   const updateService = (id: string, change: (s: Service) => Service) => {
     services = services.map((s) => (s.id === id ? change(s) : s));
@@ -620,7 +633,7 @@ function browserApi(): Api {
   const logTicks: Record<string, number> = {};
   const warn = (t: string) =>
     t === ".local" ? ".local is used by Bonjour/mDNS for devices on your network" : null;
-  return {
+  const mock: Api = {
     listRuntimes: async () => runtimes,
     installRuntime: async (kind, version) => {
       updateVersion(kind, version, (v) => ({ ...v, installing: true }));
@@ -705,6 +718,26 @@ function browserApi(): Api {
       };
       sites = [site, ...sites];
       return sites;
+    },
+    listStarters: async () => [
+      { id: "wordpress", name: "WordPress", description: "The latest WordPress, with its database made in MySQL or MariaDB" },
+      { id: "laravel", name: "Laravel", description: "A new Laravel app, made with Composer" },
+      { id: "astro", name: "Astro", description: "A new Astro site; Stackyard runs its dev server" },
+    ],
+    addStarterSite: async ({ name, starter, path, https }) => {
+      for (const message of ["Downloading… 40%", "Downloading… 100%", "Setting it up…"]) {
+        starterHandlers.forEach((h) => h({ name, message }));
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      const runtime = starter === "astro" ? "Node 22" : "PHP 8.4";
+      const all = await mock.addSite({ name, path: path || `C:\\stackyard\\www\\${name}`, runtime, https });
+      const label = { wordpress: "WordPress", laravel: "Laravel", astro: "Astro" }[starter] ?? null;
+      sites = all.map((s) => (s.name === name ? { ...s, framework: label } : s));
+      return sites;
+    },
+    onStarterProgress: async (handler) => {
+      starterHandlers.add(handler);
+      return () => starterHandlers.delete(handler);
     },
     removeSite: async (name) => {
       sites = sites.filter((s) => s.domain !== name && s.name !== name);
@@ -939,6 +972,7 @@ function browserApi(): Api {
         : [];
     },
   };
+  return mock;
 }
 
 let update: UpdateStatus = {

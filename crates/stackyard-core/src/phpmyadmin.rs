@@ -113,6 +113,7 @@ pub fn site(home: &Path, settings: &Settings, runtimes: &RuntimeManager) -> Opti
             version: php_version(runtimes).unwrap_or_else(|| "8.4".into()),
         },
         https: true,
+        dev_server: false,
     })
 }
 

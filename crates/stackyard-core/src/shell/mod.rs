@@ -257,11 +257,22 @@ impl Context {
             _ => {}
         }
         full.extend(args);
+        // PHP on Windows reads no php.ini of its own, so without this the
+        // terminal had no openssl, curl or zip and Composer could not
+        // download. Point it at the one the web server uses.
+        let mut env = Vec::new();
+        if kind == RuntimeKind::Php {
+            let ini =
+                crate::web::php_ini_file(&self.home, &choice.version, &installed.path, self.os)?;
+            if let Some(dir) = ini.parent() {
+                env.push(("PHPRC".to_string(), dir.as_os_str().to_owned()));
+            }
+        }
         Ok(Launch {
             program: installed.binary,
             args: full,
             path_first: bin,
-            env: Vec::new(),
+            env,
             summary: format!("{name} {} ({})", choice.version, choice.reason),
         })
     }
@@ -428,6 +439,7 @@ mod tests {
                 version: version.into(),
             },
             https: true,
+            dev_server: false,
         }
     }
 

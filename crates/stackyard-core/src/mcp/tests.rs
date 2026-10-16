@@ -220,6 +220,7 @@ fn lists_sites_services_and_runtimes() {
                 version: "8.4".into(),
             },
             https: true,
+            dev_server: false,
         })
         .unwrap();
     store.save().unwrap();

@@ -3,7 +3,8 @@
 //!
 //! - PHP sites go through FastCGI: `php-fpm` on macOS and Linux, `php-cgi`
 //!   on Windows (the official Windows builds have no php-fpm).
-//! - Node sites are proxied to the app's own dev server.
+//! - Node sites are proxied to the app's own dev server, which Stackyard
+//!   runs itself for sites made from a starter (`npm run dev`).
 //! - Static sites are served straight from the folder.
 //!
 //! Every site also answers on `<name>.localhost`, which browsers send to
@@ -271,6 +272,7 @@ fn parked_site(
         runtime: runtime_for(&path, settings, runtimes),
         path,
         https: true,
+        dev_server: false,
     }
 }
 
@@ -376,6 +378,69 @@ fn quote(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+/// The process id of a site's dev server, e.g. `dev-blog`.
+pub fn dev_server_id(site: &str) -> String {
+    format!("dev-{site}")
+}
+
+/// `npm run dev` for each Node site Stackyard runs the dev server of, on
+/// the site's port, with the site's Node version.
+pub fn dev_servers(home: &Path, sites: &[ServedSite]) -> Vec<ProcessSpec> {
+    let wanted: Vec<&ServedSite> = sites
+        .iter()
+        .filter(|s| s.site.dev_server && !s.parked)
+        .collect();
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let context = match crate::shell::Context::load(home) {
+        Ok(context) => context,
+        Err(e) => {
+            eprintln!("could not start dev servers: {e}");
+            return Vec::new();
+        }
+    };
+    wanted
+        .into_iter()
+        .filter_map(|served| {
+            let Backend::Node { port, .. } = served.backend else {
+                return None;
+            };
+            let args = ["run", "dev", "--", "--port", &port.to_string()]
+                .map(std::ffi::OsString::from)
+                .to_vec();
+            let launch = context
+                .launch(crate::shell::Tool::Npm, &served.site.path, args)
+                .map_err(|e| eprintln!("no dev server for {}: {e}", served.domain()))
+                .ok()?;
+            let mut env = vec![(
+                "PATH".to_string(),
+                launch.path_var().to_string_lossy().into_owned(),
+            )];
+            env.extend(
+                launch
+                    .env
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_string_lossy().into_owned())),
+            );
+            Some(ProcessSpec {
+                id: dev_server_id(&served.site.name),
+                name: format!("{} dev server", served.domain()),
+                program: launch.program,
+                args: launch
+                    .args
+                    .iter()
+                    .map(|a| a.to_string_lossy().into_owned())
+                    .collect(),
+                env,
+                cwd: Some(served.site.path.clone()),
+                ports: vec![port],
+                restart_on_crash: true,
+            })
+        })
+        .collect()
+}
+
 /// One process per installed PHP version that a site uses.
 pub fn php_processes(
     home: &Path,
@@ -406,7 +471,10 @@ pub fn php_process_id(version: &str) -> String {
     format!("php-{version}")
 }
 
-fn php_process(home: &Path, version: &str, install: &Path, os: Os) -> Result<ProcessSpec> {
+/// The `php.ini` of an installed PHP version, written with development
+/// defaults the first time. The web server and the terminal commands both
+/// use it, so they see the same extensions and settings.
+pub fn php_ini_file(home: &Path, version: &str, install: &Path, os: Os) -> Result<PathBuf> {
     let config = home.join("config").join("php").join(version);
     std::fs::create_dir_all(&config).map_err(|source| Error::Io {
         path: config.clone(),
@@ -416,6 +484,12 @@ fn php_process(home: &Path, version: &str, install: &Path, os: Os) -> Result<Pro
     if !ini.exists() {
         write_config(&ini, &php_ini(install, os))?;
     }
+    Ok(ini)
+}
+
+fn php_process(home: &Path, version: &str, install: &Path, os: Os) -> Result<ProcessSpec> {
+    let ini = php_ini_file(home, version, install, os)?;
+    let config = ini.parent().expect("in a folder").to_path_buf();
     let port = php_port(version);
     let (program, args, env) = if os == Os::Windows {
         (
@@ -610,6 +684,7 @@ mod tests {
                 path: home.join("elsewhere"),
                 runtime: SiteRuntime::Static,
                 https: false,
+                dev_server: false,
             })
             .unwrap();
         store.save().unwrap();
@@ -651,6 +726,7 @@ mod tests {
                 path: PathBuf::from("/code/app"),
                 runtime,
                 https,
+                dev_server: false,
             },
             parked: false,
             framework: None,

@@ -598,6 +598,7 @@ fn create_site(ctx: &Ctx, args: &Args) -> Result<Value, String> {
             path: folder,
             runtime,
             https: flag(args, "https")?.unwrap_or(true),
+            dev_server: false,
         })
         .map_err(fail)?
         .domain();

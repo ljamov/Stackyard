@@ -28,7 +28,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
-use stackyard_core::{domain, paths, phpmyadmin};
+use stackyard_core::{domain, paths, phpmyadmin, starters};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 mod updates;
@@ -1100,9 +1100,125 @@ fn add_site(
             path,
             runtime,
             https,
+            dev_server: false,
         })
         .map_err(err)?;
     store.save().map_err(err)?;
+    sites_changed(&app);
+    site_views()
+}
+
+#[derive(Clone, Serialize)]
+struct StarterProgress {
+    name: String,
+    message: String,
+}
+
+#[tauri::command]
+fn list_starters() -> Vec<starters::StarterInfo> {
+    starters::list()
+}
+
+/// Makes a new site from a starter (WordPress, Laravel, Astro), starting
+/// what it needs: MySQL or MariaDB for WordPress, and the web server so the
+/// site opens right away.
+#[tauri::command]
+async fn add_starter_site(
+    app: AppHandle,
+    name: String,
+    starter: String,
+    path: String,
+    https: bool,
+) -> CmdResult<Vec<SiteView>> {
+    let starter = starters::Starter::from_id(&starter)
+        .ok_or_else(|| format!("unknown starter {starter:?}"))?;
+    domain::validate_site_name(&name).map_err(err)?;
+    let settings = Settings::load().map_err(err)?;
+    let tld = domain::normalize_tld(&settings.tld).map_err(err)?;
+    let domain_name = domain::site_domain(&name, &tld);
+    if ServiceManager::open()
+        .sites()
+        .map_err(err)?
+        .iter()
+        .any(|s| s.domain() == domain_name)
+    {
+        return Err(stackyard_core::Error::SiteExists(domain_name).to_string());
+    }
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(format!("starter-{name}"))
+    {
+        return Err(format!("{domain_name} is already being made"));
+    }
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    let worker = app.clone();
+    let site_name = name.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> CmdResult<()> {
+        let home = paths::home();
+        let folder = match path.trim() {
+            "" => settings.sites_folder(&home).join(&site_name),
+            typed => paths::expand_home(std::path::Path::new(typed)),
+        };
+        let running = |id: &str| matches!(engine.state(id), ProcessState::Running { .. });
+        if starter.needs_database() && !running("mysql") && !running("mariadb") {
+            let id = ["mysql", "mariadb"]
+                .into_iter()
+                .find(|id| engine.manager().get(id).is_some())
+                .ok_or_else(|| {
+                    format!(
+                        "{} needs MySQL or MariaDB. Install one under Services first.",
+                        starter.name()
+                    )
+                })?;
+            engine.start(id).map_err(err)?;
+        }
+        let existed = folder.exists();
+        let made = starters::create(&home, starter, &site_name, &folder, &mut |message| {
+            let _ = worker.emit(
+                "starter-progress",
+                StarterProgress {
+                    name: site_name.clone(),
+                    message,
+                },
+            );
+        });
+        let made = match made {
+            Ok(made) => made,
+            Err(e) => {
+                // Leave nothing half-made, so trying again works.
+                if !existed {
+                    let _ = std::fs::remove_dir_all(&folder);
+                }
+                return Err(err(e));
+            }
+        };
+        let mut store = SiteStore::load().map_err(err)?;
+        store
+            .add(Site {
+                name: site_name.clone(),
+                tld,
+                path: folder,
+                runtime: made.runtime,
+                https,
+                dev_server: made.dev_server,
+            })
+            .map_err(err)?;
+        store.save().map_err(err)?;
+        if !running("caddy") {
+            engine.start("caddy").map_err(err)?;
+        }
+        Ok(())
+    })
+    .await;
+    app.state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .remove(&format!("starter-{name}"));
+    result.map_err(|e| e.to_string())??;
     sites_changed(&app);
     site_views()
 }
@@ -1290,6 +1406,8 @@ pub fn run() {
             stop_service,
             service_log,
             open_local_page,
+            list_starters,
+            add_starter_site,
             list_modules,
             set_module,
             service_states,
