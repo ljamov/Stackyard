@@ -90,7 +90,7 @@ impl SiteView {
 fn site_views() -> CmdResult<Vec<SiteView>> {
     let manager = ServiceManager::open();
     let ports = Ports::current(manager.home());
-    let sites = manager.sites().map_err(err)?;
+    let sites = manager.user_sites().map_err(err)?;
     Ok(sites.iter().map(|s| SiteView::new(s, ports)).collect())
 }
 
@@ -552,9 +552,13 @@ fn phpmyadmin_view(installs: &Installs) -> PhpMyAdminView {
     let home = paths::home();
     let enabled = Settings::load().is_ok_and(|s| s.module_enabled(phpmyadmin::MODULE));
     let dir = phpmyadmin::dir(&home).display().to_string();
-    let site = site_views()
+    let manager = ServiceManager::new(&home);
+    let ports = Ports::current(&home);
+    let site = manager
+        .sites()
         .unwrap_or_default()
-        .into_iter()
+        .iter()
+        .map(|s| SiteView::new(s, ports))
         .find(|s| s.name == phpmyadmin::SITE && s.path == dir);
     PhpMyAdminView {
         installed: phpmyadmin::installed(&home),
