@@ -349,7 +349,9 @@ fn served_sites(ctx: &Ctx) -> Result<Vec<ServedSite>, String> {
 
 fn list_sites(ctx: &Ctx) -> Result<Value, String> {
     let ports = Ports::current(ctx.home);
-    let sites: Vec<Value> = served_sites(ctx)?
+    let sites: Vec<Value> = ServiceManager::new(ctx.home)
+        .user_sites()
+        .map_err(fail)?
         .iter()
         .map(|s| site_json(s, ports))
         .collect();

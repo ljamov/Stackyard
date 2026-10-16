@@ -328,7 +328,10 @@ fn spawn(spec: &ProcessSpec, log_dir: &Path) -> std::io::Result<Child> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    command.spawn()
+    let child = command.spawn()?;
+    #[cfg(windows)]
+    crate::platform::end_with_this_process(&child);
+    Ok(child)
 }
 
 #[cfg(unix)]

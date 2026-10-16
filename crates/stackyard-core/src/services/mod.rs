@@ -171,6 +171,8 @@ impl ServiceManager {
     pub fn spec(&self, id: &str) -> Result<ProcessSpec> {
         let def = offered(id)?;
         let installed = self.get(id).ok_or_else(|| not_installed(def))?;
+        // Before ports are checked: a leftover copy would hold them.
+        crate::platform::stop_strays(&installed.path.join(program(def.id, self.platform.os)));
         let ctx = Context {
             def,
             os: self.platform.os,
@@ -287,6 +289,15 @@ impl ServiceManager {
     pub fn sites(&self) -> Result<Vec<ServedSite>> {
         let settings = Settings::load_from(&self.home.join("settings.toml"))?;
         web::sites(&self.home, &settings, &RuntimeManager::new(&self.home))
+    }
+
+    /// The sites the user made or parked, without the ones Stackyard adds
+    /// itself (phpMyAdmin), for lists.
+    pub fn user_sites(&self) -> Result<Vec<ServedSite>> {
+        let builtin = crate::phpmyadmin::dir(&self.home);
+        let mut sites = self.sites()?;
+        sites.retain(|s| s.site.path != builtin);
+        Ok(sites)
     }
 
     /// The web server and the PHP processes its sites need, in start order
