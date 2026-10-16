@@ -136,11 +136,14 @@ jobs:
           trap 'cat "$log"; tail -n 30 "$home/logs/caddy.log" || true' ERR
 
           suffix() { p=$(https_port); [ "$p" = 443 ] && echo "" || echo ":$p"; }
+          # Caddy makes each site's certificate just after it starts, and a
+          # request before that fails the TLS handshake, so wait for it.
+          page() { for _ in $(seq 30); do curl -fsS "$@" >/dev/null 2>&1 && break; sleep 1; done; curl -fsS "$@"; }
 
           echo "== .localhost works before setup, and the first start makes the certificate"
           start
           for _ in $(seq 30); do [ -f "$home/data/caddy/pki/authorities/local/root.crt" ] && break; sleep 1; done
-          curl -fsS -k "https://hello.localhost:$(https_port)/" | grep "Hello from Stackyard"
+          page -k "https://hello.localhost:$(https_port)/" | grep "Hello from Stackyard"
           stop
 
           if [ "$RUNNER_OS" = macOS ]; then
@@ -150,7 +153,7 @@ jobs:
             stackyard system setup --print
             stackyard system setup
             start
-            curl -fsS -k "https://hello.stack$(suffix)/" | grep "Hello from Stackyard"
+            page -k "https://hello.stack$(suffix)/" | grep "Hello from Stackyard"
             stop
             exit 0
           fi
@@ -164,9 +167,9 @@ jobs:
           echo "== Real domain, trusted certificate"
           start
           if [ "$RUNNER_OS" = Linux ]; then [ "$(https_port)" = 443 ]; fi
-          curl -fsS "https://hello.stack$(suffix)/" | grep "Hello from Stackyard"
+          page "https://hello.stack$(suffix)/" | grep "Hello from Stackyard"
           if [ "$RUNNER_OS" = Windows ]; then
-            curl -fsS "https://php-app.stack$(suffix)/" | grep "PHP 8.4"
+            page "https://php-app.stack$(suffix)/" | grep "PHP 8.4"
           fi
           stop
       - name: Background service shared by every stackyard command

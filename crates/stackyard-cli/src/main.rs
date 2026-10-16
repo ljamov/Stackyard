@@ -342,7 +342,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         } => {
             let manager = ServiceManager::open();
             let ports = Ports::current(manager.home());
-            let sites = manager.sites()?;
+            let sites = manager.user_sites()?;
             if sites.is_empty() {
                 println!(
                     "No sites yet. Add one with `stackyard sites add <name>`, or park a folder of projects with `stackyard sites park`."
