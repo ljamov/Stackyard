@@ -31,6 +31,7 @@ use stackyard_core::web::{self, Backend, Ports, ServedSite};
 use stackyard_core::{domain, images, paths, phpmyadmin, starters, videos};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
+mod ai;
 mod remote;
 mod updates;
 
@@ -1732,6 +1733,7 @@ pub fn run() {
         .manage(Control(Mutex::new(None)))
         .manage(updates::Updates::new(just_updated))
         .manage(remote::RemoteState::default())
+        .manage(ai::AiInstalls::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1814,6 +1816,12 @@ pub fn run() {
             check_for_update,
             install_update,
             seen_whats_new,
+            ai::ai_tools,
+            ai::ai_tools_check,
+            ai::ai_tool_install,
+            ai::ai_tool_remove,
+            ai::ai_tool_open,
+            ai::ai_tool_docs,
             remote::remote_connections,
             remote::remote_save,
             remote::remote_remove,

@@ -29,7 +29,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::ProcessState;
 use stackyard_core::system::{self, Elevate};
 use stackyard_core::web::{self, Backend, Ports};
-use stackyard_core::{images, paths, platform, starters, Error};
+use stackyard_core::{ai, images, paths, platform, starters, Error};
 
 #[derive(Parser)]
 #[command(name = "stackyard", version, about = "Local development stack manager")]
@@ -142,6 +142,29 @@ enum Command {
     Mcp {
         #[command(subcommand)]
         action: Option<McpAction>,
+    },
+    /// List AI coding tools (Claude Code, Codex, Gemini CLI...), or install, update and open them
+    Ai {
+        #[command(subcommand)]
+        action: Option<AiAction>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AiAction {
+    /// List the tools, which are installed, and whether updates are out
+    List,
+    /// Install a tool with npm on Stackyard's Node.js, e.g. `install claude`
+    Install { id: String },
+    /// Update a tool to its newest version
+    Update { id: String },
+    /// Remove a tool
+    Remove { id: String },
+    /// Open a tool in a new terminal window, in a site's folder or this folder
+    Open {
+        id: String,
+        /// A site such as `shop.stack`, or a folder
+        place: Option<String>,
     },
 }
 
@@ -359,17 +382,21 @@ struct AddSite {
 }
 
 fn main() -> ExitCode {
-    // Started as `php`, `node`... through a shim: run that tool.
+    // Started as `php`, `node`, `claude`... through a shim: run that tool.
     let mut args = std::env::args_os();
-    let tool = args
+    let name = args
         .next()
         .as_deref()
         .map(Path::new)
         .and_then(Path::file_name)
         .and_then(|name| name.to_str())
-        .and_then(Tool::from_name);
-    if let Some(tool) = tool {
+        .map(str::to_string)
+        .unwrap_or_default();
+    if let Some(tool) = Tool::from_name(&name) {
         return run_shim(tool, args.collect());
+    }
+    if let Some(tool) = ai::from_command(&name) {
+        return run_ai_tool(tool, args.collect());
     }
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -946,6 +973,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         Command::Images(args) => optimize_images(args)?,
         Command::Tasks { action } => tasks(action)?,
         Command::Mcp { action } => mcp(action)?,
+        Command::Ai { action } => ai_tools(action)?,
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
         Command::Tld { value: Some(value) } => {
             let mut settings = Settings::load()?;
@@ -1591,6 +1619,91 @@ fn run_shim(tool: Tool, args: Vec<OsString>) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Runs an AI coding tool installed on the AI tools screen.
+fn run_ai_tool(tool: &ai::AiTool, args: Vec<OsString>) -> ExitCode {
+    let result = (|| {
+        let launch = ai::launch(&paths::home(), tool, args)?;
+        let mut command = Process::new(&launch.program);
+        command.args(&launch.args).env("PATH", launch.path_var());
+        run_in_place(command, &launch.program)
+    })();
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("stackyard ({}): {e}", tool.command);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn ai_tools(action: Option<AiAction>) -> stackyard_core::Result<()> {
+    let home = paths::home();
+    match action.unwrap_or(AiAction::List) {
+        AiAction::List => {
+            Settings::load()?.require_module("ai")?;
+            let mut tools = ai::list(&home);
+            ai::check_updates(&mut tools);
+            for status in &tools {
+                let state = match (&status.installed, &status.latest) {
+                    (Some(have), Some(newest)) if status.update => {
+                        format!(
+                            "{have}, update to {newest} with `stackyard ai update {}`",
+                            status.tool.id
+                        )
+                    }
+                    (Some(have), _) => have.clone(),
+                    (None, _) => "not installed".to_string(),
+                };
+                let command = format!("`{}`", status.tool.command);
+                println!(
+                    "{:<9} {:<20} {command:<11} {state}",
+                    status.tool.id, status.tool.name
+                );
+            }
+        }
+        AiAction::Install { id } | AiAction::Update { id } => {
+            let tool = ai::find(&id)?;
+            let status = ai::install(&home, tool, &mut |line| {
+                eprint!("\r\x1b[2K{line}");
+                let _ = std::io::stderr().flush();
+            })?;
+            eprintln!();
+            println!(
+                "{} {} is installed. Run `{}` in a terminal, or `stackyard ai open {}` in a site's folder.",
+                tool.name,
+                status.installed.unwrap_or_default(),
+                tool.command,
+                tool.id
+            );
+        }
+        AiAction::Remove { id } => {
+            let tool = ai::find(&id)?;
+            ai::uninstall(&home, tool)?;
+            println!("Removed {}", tool.name);
+        }
+        AiAction::Open { id, place } => {
+            let tool = ai::find(&id)?;
+            let folder = match place {
+                None => current_dir()?,
+                Some(place) => {
+                    let store = SiteStore::load()?;
+                    let site = store
+                        .list()
+                        .iter()
+                        .find(|s| s.domain() == place || s.name == place);
+                    match site {
+                        Some(site) => site.path.clone(),
+                        None => current_dir()?.join(paths::expand_home(Path::new(&place))),
+                    }
+                }
+            };
+            ai::open(&home, tool, &folder)?;
+            println!("Opened {} in {}", tool.name, folder.display());
+        }
+    }
+    Ok(())
 }
 
 /// Replaces this process with `command` (macOS, Linux), or runs it and exits

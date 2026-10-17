@@ -46,7 +46,7 @@ pub fn install(home: &Path, exe: &Path) -> Result<Vec<PathBuf>> {
             }
         })?;
     }
-    Tool::ALL
+    let shims = Tool::ALL
         .into_iter()
         .map(|tool| {
             let shim = shim_path(home, tool);
@@ -54,7 +54,9 @@ pub fn install(home: &Path, exe: &Path) -> Result<Vec<PathBuf>> {
             link(&program, &shim).map_err(io(&shim))?;
             Ok(shim)
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    crate::ai::link_shims(home)?;
+    Ok(shims)
 }
 
 /// Whether the shims run an older `stackyard` than `exe`, e.g. after an update.
@@ -68,6 +70,7 @@ pub fn outdated(home: &Path, exe: &Path) -> bool {
 
 /// Removes the shims and the copy; other files in `<home>/bin` are left alone.
 pub fn remove(home: &Path) -> Result<()> {
+    crate::ai::remove_shims(home)?;
     let program = program_path(home);
     let files = Tool::ALL.into_iter().map(|tool| shim_path(home, tool));
     for file in files.chain([program]) {

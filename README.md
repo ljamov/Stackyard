@@ -97,7 +97,9 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 <tr>
 <td valign="top">
 
-### 🤖 AI coding tools (MCP)
+### 🤖 AI coding tools
+- **Install Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Qwen Code and OpenCode** in one click, on Stackyard's own Node.js
+- Update them from the same screen; **Open** starts one in a new terminal in a site's folder
 - `stackyard mcp` works with Claude Code, Cursor, Claude Desktop, Windsurf
 - Lists sites, services and databases, reads logs, starts, stops and restarts services, runs SQL
 - Read-only by default; you allow each action in Settings
@@ -171,8 +173,8 @@ stackyard use php 8.3                  # pin a version for the current project
 <td><img src="docs/images/videos.png" alt="Video optimizer making MP4, WebM and GIF copies of videos"></td>
 </tr>
 <tr>
+<td><img src="docs/images/ai-tools.png" alt="AI tools screen: Claude Code and Codex installed, Gemini CLI and others ready to install, each opening in a chosen site's folder"></td>
 <td><img src="docs/images/settings.png" alt="Settings screen with updates, local domains and modules you can switch off"></td>
-<td></td>
 </tr>
 </table>
 
@@ -207,6 +209,13 @@ the site's version, then your default, then the newest installed. The Sites scre
 Node.js picker on each site, and installs a missing version for you.
 `stackyard which` shows what each command will run, and why.
 
+## AI coding tools
+
+The **AI tools** screen installs Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Qwen Code
+and OpenCode with npm on Stackyard's own Node.js, shows when an update is out, and opens a tool in a
+new terminal window in the site folder you pick. With the terminal commands on, `claude`, `codex`
+and the others also work in any terminal. See [docs/ai-tools.md](docs/ai-tools.md).
+
 ## Connect your AI coding tool
 
 Switch on the **MCP server** module in Settings, then add Stackyard to your tool, for example:
@@ -229,7 +238,8 @@ See [docs/mcp.md](docs/mcp.md).
 | [Services](docs/services.md) | Every service in detail, the Databases and Logs screens, disk cleanup, background mode |
 | [Scheduled tasks](docs/scheduler.md) | Schedules, how tasks run, where output goes |
 | [Servers and Git](docs/remote.md) | SFTP, FTPS and FTP connections, uploads and downloads, passwords, Git |
-| [AI coding tools (MCP)](docs/mcp.md) | Available tools, permissions, the call log |
+| [AI coding tools](docs/ai-tools.md) | Installing and updating Claude Code, Codex, Gemini CLI and others, opening them in a site |
+| [MCP server](docs/mcp.md) | What AI tools can see and do, permissions, the call log |
 | [Command line](docs/cli.md) | Every `stackyard` command, grouped by task |
 | [Updates and releases](docs/updates.md) | How updates are signed and how to publish one |
 

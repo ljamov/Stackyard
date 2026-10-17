@@ -102,6 +102,8 @@ pub enum Error {
     Git(String),
     #[error("{0}")]
     Images(String),
+    #[error("{0}")]
+    Ai(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
