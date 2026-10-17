@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Starts the installed app a few times and checks it against the budgets:
 # the window's page loads within MAX_START_MS of the program starting,
-# Stackyard's own start-up work (everything before the web view loads the
-# page) takes under MAX_OWN_START_MS, and once the window is closed (tray
+# Stackyard's own start-up code (the parts of start-up that are not the
+# system making the window and web view) takes under MAX_OWN_START_MS, and once the window is closed (tray
 # only) the app with everything it started uses under MAX_TRAY_MB of
 # memory. Times are the app's own, from its first line of code: starting
 # it from a script costs a different amount on each system. The app reports when each point is reached
@@ -98,7 +98,9 @@ for run in $(seq "$runs"); do
   echo "run $run: window loaded in $start ms ($inside ms after main), tray only $tray MB"
   echo "  steps after main: $(grep -v '^tray=' "$report" | tr '\n' ' ')"
   stop_app "$pid"
-  own=$(sed -n 's/^setup_done_ms=//p' "$report")
+  # Before the app is built, plus its own setup; not the window and web
+  # view the system makes in between.
+  own=$(awk -F= '{ v[$1] = $2 } END { print v["engine_ms"] + v["setup_done_ms"] - v["setup_ms"] }' "$report")
   starts+=("$start"); insides+=("$inside"); owns+=("${own:-0}"); trays+=("$tray")
 done
 

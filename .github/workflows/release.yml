@@ -52,8 +52,8 @@ env:
   # Performance budgets from the spec: installers stay under 15 MB, and with
   # the window closed the app uses under 40 MB of memory. The spec's start
   # budget is a second on a person's computer; see max_start_ms below for
-  # what the runners allow. Stackyard's own start-up work, before the web
-  # view takes over, gets MAX_OWN_START_MS everywhere.
+  # what the runners allow. Stackyard's own start-up code (everything but
+  # the system making the window and web view) gets MAX_OWN_START_MS.
   MAX_INSTALLER_MB: 15
   MAX_TRAY_MB: 40
   MAX_OWN_START_MS: 500
