@@ -6,6 +6,18 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- Python, Go and Java: install Python 3.11 to 3.15, Go 1.25 to 1.27 and Java 11, 17, 21 and 25
+  (Eclipse Temurin) on the Runtimes screen, side by side like PHP and Node.js. Each is a module,
+  off until you switch it on in Settings › Modules. Downloads are checked against their published
+  SHA-256.
+- Django, FastAPI, Flask, Go, Spring Boot, Quarkus and Micronaut projects are detected when you add
+  them as sites. Stackyard starts the app's server with the site's version on a port of its own and
+  serves it at `https://<name>.stack`; a Python project's own `.venv` is used when it has one. Pick
+  the version on the Sites screen like any other.
+- Terminal: `python`, `python3`, `pip`, `pip3`, `go`, `gofmt`, `java`, `javac` and `jar` follow
+  each project's version (`.python-version`, `.go-version`, `.java-version`, `.sdkmanrc` and
+  `.tool-versions` are read too). Until Stackyard has its own version installed, they run the one
+  already on your computer.
 - New AI tools screen: install Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Qwen Code
   and OpenCode with one click. Stackyard installs them with npm on its own Node.js (and installs
   Node.js 24 first when needed), so nothing else is required. The screen shows when an update is

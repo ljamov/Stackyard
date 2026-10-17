@@ -123,6 +123,16 @@ impl SiteView {
             Backend::Node { version, port } => {
                 (format!("Node {version} · dev server on port {port}"), None)
             }
+            Backend::App {
+                runtime,
+                version,
+                port,
+            } => (
+                format!("{} {version} · server on port {port}", site_label(*runtime)),
+                served.parked.then(|| {
+                    "Stackyard runs the server only for sites you add, not parked folders: add this folder as a site".to_string()
+                }),
+            ),
             Backend::Static => ("Static".to_string(), None),
         };
         let problem = problem.or_else(|| {
@@ -1575,25 +1585,38 @@ fn sites_changed(app: &AppHandle) {
     });
 }
 
+/// How the Sites screen names a runtime: `PHP`, `Node`, `Python`, `Go`, `Java`.
+fn site_label(kind: RuntimeKind) -> &'static str {
+    match kind {
+        RuntimeKind::Node => "Node",
+        other => catalog::runtime(other).name,
+    }
+}
+
 /// Accepts the labels the Sites screen offers: `Auto`, `PHP 8.3`,
-/// `Node 22`, `Static`. `Auto` looks at the project folder.
+/// `Node 22`, `Python 3.13`, `Go 1.26`, `Java 21`, `Static`. `Auto` looks at
+/// the project folder.
 fn parse_runtime(
     label: &str,
     path: &std::path::Path,
     settings: &Settings,
 ) -> CmdResult<SiteRuntime> {
-    let node_port = || match detect::detect(path).needs {
-        Needs::Node { port } => port,
-        _ => 3000,
+    let kind = |name: &str| {
+        RuntimeKind::ALL
+            .into_iter()
+            .find(|k| site_label(*k) == name)
     };
     match label.split_once(' ') {
-        Some(("PHP", version)) => Ok(SiteRuntime::Php {
-            version: version.to_string(),
-        }),
-        Some(("Node", version)) => Ok(SiteRuntime::Node {
-            version: version.to_string(),
-            port: node_port(),
-        }),
+        Some((name, version)) if kind(name).is_some() => {
+            let kind = kind(name).expect("checked");
+            let port = match detect::detect(path).needs {
+                Needs::Node { port } if kind == RuntimeKind::Node => port,
+                Needs::App { runtime, port } if runtime == kind => port,
+                _ if kind == RuntimeKind::Node => 3000,
+                _ => 8000,
+            };
+            Ok(SiteRuntime::new(kind, version.to_string(), port))
+        }
         None if label == "Static" => Ok(SiteRuntime::Static),
         None if label == "Auto" => Ok(web::runtime_for(path, settings, &RuntimeManager::open())),
         _ => Err(format!("unknown runtime {label:?}")),
@@ -2053,6 +2076,15 @@ mod tests {
                 port: 3000
             }
         );
+        assert_eq!(
+            parse("Python 3.13").unwrap(),
+            SiteRuntime::Python {
+                version: "3.13".into(),
+                port: 8000
+            }
+        );
+        assert_eq!(parse("Go 1.26").unwrap().kind(), Some(RuntimeKind::Go));
+        assert_eq!(parse("Java 21").unwrap().version(), Some("21"));
         assert_eq!(parse("Static").unwrap(), SiteRuntime::Static);
         // An empty folder holds plain files.
         assert_eq!(parse("Auto").unwrap(), SiteRuntime::Static);

@@ -1,6 +1,6 @@
 use super::*;
 use crate::install::write_receipt_for_tests;
-use crate::sites::{Site, SiteStore};
+use crate::sites::{Site, SiteRuntime, SiteStore};
 
 fn write(path: &Path, bytes: usize) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

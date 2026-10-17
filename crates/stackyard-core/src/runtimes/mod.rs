@@ -1,12 +1,15 @@
-//! Installs and removes runtime versions (PHP, Node.js).
+//! Installs and removes runtime versions (PHP, Node.js, Python, Go, Java).
 //!
 //! Each version lives in its own folder, `runtimes/<kind>/<version>/`, e.g.
 //! `runtimes/php/8.4/`, so versions sit side by side and removing one is a
 //! single folder delete. A receipt file in that folder records which exact
 //! release is installed and where it came from.
 
+mod go;
+mod java;
 mod node;
 mod php;
+mod python;
 
 use std::path::{Path, PathBuf};
 
@@ -24,6 +27,9 @@ const NODE_DIST: &str = "https://nodejs.org/dist";
 const PHP_WINDOWS: &str = "https://www.php.net/~windows/releases";
 const PHP_MANIFEST: &str =
     "https://github.com/ljamov/Stackyard/releases/download/php-builds/manifest.json";
+const PYTHON_LATEST: &str = "https://raw.githubusercontent.com/astral-sh/python-build-standalone/latest-release/latest-release.json";
+const GO_DL: &str = "https://go.dev/dl";
+const ADOPTIUM_API: &str = "https://api.adoptium.net/v3";
 
 /// Where downloads come from. Each can be pointed at a mirror with an
 /// environment variable, which also lets tests use a local server.
@@ -32,6 +38,9 @@ pub struct Sources {
     pub node_dist: String,
     pub php_windows: String,
     pub php_manifest: String,
+    pub python_latest: String,
+    pub go_dl: String,
+    pub adoptium_api: String,
 }
 
 impl Default for Sources {
@@ -42,6 +51,9 @@ impl Default for Sources {
             node_dist: env("STACKYARD_NODE_MIRROR", NODE_DIST),
             php_windows: env("STACKYARD_PHP_WINDOWS_MIRROR", PHP_WINDOWS),
             php_manifest: env("STACKYARD_PHP_MANIFEST", PHP_MANIFEST),
+            python_latest: env("STACKYARD_PYTHON_MIRROR", PYTHON_LATEST),
+            go_dl: env("STACKYARD_GO_MIRROR", GO_DL),
+            adoptium_api: env("STACKYARD_JAVA_MIRROR", ADOPTIUM_API),
         }
     }
 }
@@ -137,7 +149,24 @@ impl RuntimeManager {
                 self.platform,
             ),
             RuntimeKind::Php => php::resolve(&self.http, &self.sources, version, self.platform),
-            _ => Err(Error::ModuleUnavailable(catalog::runtime(kind).name.into())),
+            RuntimeKind::Python => python::resolve(
+                &self.http,
+                &self.sources.python_latest,
+                version,
+                self.platform,
+            ),
+            RuntimeKind::Go => go::resolve(
+                &self.http,
+                self.sources.go_dl.trim_end_matches('/'),
+                version,
+                self.platform,
+            ),
+            RuntimeKind::Java => java::resolve(
+                &self.http,
+                self.sources.adoptium_api.trim_end_matches('/'),
+                version,
+                self.platform,
+            ),
         }
     }
 
@@ -242,7 +271,17 @@ pub fn binary_path(kind: RuntimeKind, os: Os) -> &'static str {
         (RuntimeKind::Go, Os::Windows) => "bin/go.exe",
         (RuntimeKind::Go, _) => "bin/go",
         (RuntimeKind::Java, Os::Windows) => "bin/java.exe",
-        (RuntimeKind::Java, _) => "bin/java",
+        // macOS JDKs are app bundles.
+        (RuntimeKind::Java, Os::Macos) => "Contents/Home/bin/java",
+        (RuntimeKind::Java, Os::Linux) => "bin/java",
+    }
+}
+
+/// `JAVA_HOME` for a JDK installed in `install`.
+pub fn java_home(install: &Path, os: Os) -> PathBuf {
+    match os {
+        Os::Macos => install.join("Contents/Home"),
+        _ => install.to_owned(),
     }
 }
 
@@ -402,8 +441,6 @@ mod tests {
                 .unwrap_err();
             assert!(matches!(err, Error::UnknownVersion { .. }), "{err}");
         }
-        let err = manager.resolve(RuntimeKind::Python, "3.13").unwrap_err();
-        assert!(matches!(err, Error::ModuleUnavailable(_)), "{err}");
     }
 
     #[test]
@@ -442,5 +479,61 @@ mod tests {
         let printed = String::from_utf8_lossy(&out.stdout);
         assert_eq!(printed.trim(), format!("v{}", installed.release));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Installs a real runtime and returns what `<program> <arg>` prints.
+    fn live_install(kind: RuntimeKind, version: &str, arg: &str) -> (Installed, String) {
+        let home = crate::testutil::tempdir();
+        let manager = RuntimeManager::new(&home);
+        let installed = manager.install(kind, version, &mut |_| {}).unwrap();
+        let out = std::process::Command::new(&installed.binary)
+            .arg(arg)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        // `java -version` prints to stderr.
+        let printed = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (installed, printed)
+    }
+
+    /// Downloads real Python: `cargo test -p stackyard-core -- --ignored live_`.
+    #[test]
+    #[ignore]
+    fn live_installs_python() {
+        let (installed, printed) = live_install(RuntimeKind::Python, "3.13", "--version");
+        assert_eq!(printed.trim(), format!("Python {}", installed.release));
+        // pip and venv come with it.
+        let out = std::process::Command::new(&installed.binary)
+            .args(["-m", "pip", "--version"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let _ = std::fs::remove_dir_all(installed.path.parent().unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn live_installs_go() {
+        let (installed, printed) = live_install(RuntimeKind::Go, "1.26", "version");
+        assert!(
+            printed.contains(&format!("go{} ", installed.release)),
+            "{printed}"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn live_installs_java() {
+        let (installed, printed) = live_install(RuntimeKind::Java, "21", "-version");
+        let short = installed.release.split('+').next().unwrap().to_string();
+        assert!(printed.contains(&short), "{printed}");
+        let javac = installed
+            .binary
+            .with_file_name(format!("javac{}", std::env::consts::EXE_SUFFIX));
+        assert!(javac.is_file());
     }
 }

@@ -504,10 +504,7 @@ fn free_dev_port(home: &Path) -> u16 {
             store
                 .list()
                 .iter()
-                .filter_map(|s| match s.runtime {
-                    SiteRuntime::Node { port, .. } => Some(port),
-                    _ => None,
-                })
+                .filter_map(|s| s.runtime.port())
                 .collect()
         })
         .unwrap_or_default();

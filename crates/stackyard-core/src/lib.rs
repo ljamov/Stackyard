@@ -2,6 +2,7 @@
 //! the MCP server. Nothing in here knows about windows or terminals.
 
 pub mod ai;
+pub mod apps;
 pub mod archive;
 pub mod catalog;
 pub mod cleanup;

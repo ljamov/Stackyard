@@ -5,7 +5,7 @@ import { useModules } from "../lib/modules";
 import { SiteRemote } from "../components/SiteRemote";
 import { SiteVersions } from "../components/SiteVersions";
 
-const SITE_LABELS: Partial<Record<RuntimeFamily["kind"], string>> = { php: "PHP", node: "Node" };
+const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
 
 /** Choices for the runtime picker, e.g. "PHP 8.4"; installed versions say so. */
 function runtimeOptions(families: RuntimeFamily[], isOn: (id: string) => boolean) {

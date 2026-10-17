@@ -737,9 +737,9 @@ function browserApi(): Api {
   let runtimes: RuntimeFamily[] = [
     family("php", "PHP", ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"], true),
     family("node", "Node.js", ["26", "24", "22", "20"], true),
-    family("python", "Python", ["3.13", "3.12", "3.11"], false),
-    family("go", "Go", ["1.23", "1.22"], false),
-    family("java", "Java", ["21", "17"], false),
+    family("python", "Python", ["3.15", "3.14", "3.13", "3.12", "3.11"], true),
+    family("go", "Go", ["1.27", "1.26", "1.25"], true),
+    family("java", "Java", ["25", "21", "17", "11"], true),
   ];
   // Sample state so previews show both installed and missing versions.
   runtimes[0].versions[1] = { version: "8.4", installed: "8.4.26", default: true, installing: false };
@@ -820,7 +820,9 @@ function browserApi(): Api {
   let modules: Module[] = [
     mod("php", "PHP", "runtime", "PHP versions for sites and the shell", true, true),
     mod("node", "Node.js", "runtime", "Node.js versions for sites and the shell", true, true),
-    mod("python", "Python", "runtime", "Python versions", false, false),
+    mod("python", "Python", "runtime", "Python versions for Django, Flask and FastAPI sites and the shell", false, true),
+    mod("go", "Go", "runtime", "Go toolchains for Go sites and the shell", false, true),
+    mod("java", "Java", "runtime", "Java JDKs (Eclipse Temurin) for Spring Boot, Quarkus and Micronaut sites and the shell", false, true),
     mod("caddy", "Caddy", "service", "Web server for local sites, with automatic HTTPS", true, true),
     mod("mysql", "MySQL", "service", "MySQL database server", true, true),
     mod("mariadb", "MariaDB", "service", "MySQL-compatible database (Windows and Linux)", false, true),
@@ -910,7 +912,8 @@ function browserApi(): Api {
   /** What the app reports for a site: its own runtime, then Node.js. */
   const withVersions = (site: Site): Site => {
     const [label, version] = site.runtime.split(" ");
-    const main: RuntimeKind | null = label === "PHP" ? "php" : label === "Node" ? "node" : null;
+    const labels: Record<string, RuntimeKind> = { PHP: "php", Node: "node", Python: "python", Go: "go", Java: "java" };
+    const main: RuntimeKind | null = labels[label] ?? null;
     const own = main && {
       kind: main,
       version,
@@ -1066,7 +1069,8 @@ function browserApi(): Api {
         const own = site.runtime.toLowerCase().startsWith(kind);
         if (own && version) {
           const rest = site.runtime.split(" ").slice(2).join(" ");
-          return withVersions({ ...site, runtime: [kind === "php" ? "PHP" : "Node", version, rest].filter(Boolean).join(" "), problem: null });
+          const name = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" }[kind];
+          return withVersions({ ...site, runtime: [name, version, rest].filter(Boolean).join(" "), problem: null });
         }
         const pinned: SiteVersion[] = version
           ? [{ kind, version, installed: isInstalled(kind, version), from: "pinned", file: ".stackyard", can_unset: true }]
@@ -1248,6 +1252,9 @@ function browserApi(): Api {
       offers: [
         { id: "php", name: "PHP", group: "runtime", description: "PHP versions for sites and the shell", version: "8.5", recommended: true },
         { id: "node", name: "Node.js", group: "runtime", description: "Node.js versions for sites and the shell", version: "24", recommended: true },
+        { id: "python", name: "Python", group: "runtime", description: "Python versions for Django, Flask and FastAPI sites and the shell", version: "3.15", recommended: false },
+        { id: "go", name: "Go", group: "runtime", description: "Go toolchains for Go sites and the shell", version: "1.27", recommended: false },
+        { id: "java", name: "Java", group: "runtime", description: "Java JDKs (Eclipse Temurin) for Spring Boot, Quarkus and Micronaut sites and the shell", version: "25", recommended: false },
         { id: "caddy", name: "Caddy", group: "service", description: "Web server for local sites, with automatic HTTPS", version: null, recommended: true },
         { id: "mysql", name: "MySQL", group: "service", description: "MySQL database server", version: null, recommended: true },
         { id: "mariadb", name: "MariaDB", group: "service", description: "MySQL-compatible database (Windows and Linux)", version: null, recommended: false },

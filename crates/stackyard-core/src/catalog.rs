@@ -66,22 +66,22 @@ pub const RUNTIMES: &[RuntimeFamily] = &[
     RuntimeFamily {
         kind: RuntimeKind::Python,
         name: "Python",
-        versions: &["3.13", "3.12", "3.11"],
-        available: false,
+        versions: &["3.15", "3.14", "3.13", "3.12", "3.11"],
+        available: true,
         windows_only: &[],
     },
     RuntimeFamily {
         kind: RuntimeKind::Go,
         name: "Go",
-        versions: &["1.23", "1.22"],
-        available: false,
+        versions: &["1.27", "1.26", "1.25"],
+        available: true,
         windows_only: &[],
     },
     RuntimeFamily {
         kind: RuntimeKind::Java,
         name: "Java",
-        versions: &["21", "17"],
-        available: false,
+        versions: &["25", "21", "17", "11"],
+        available: true,
         windows_only: &[],
     },
 ];

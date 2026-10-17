@@ -267,7 +267,8 @@ mod tests {
             !settings.modules.contains_key("php"),
             "defaults are not stored"
         );
-        assert!(settings.set_module("python", true).is_err());
+        settings.set_module("python", true).unwrap();
+        assert!(settings.module_enabled("python"));
         assert!(settings.set_module("nope", false).is_err());
     }
 
