@@ -24,6 +24,10 @@ use crate::platform::Os;
 use crate::shell::{Context, Launch, Tool};
 use crate::{Error, Result};
 
+/// Where Go and Java apps (which usually say 8080) are run: the web server
+/// falls back to 8080 and up when it cannot have port 80.
+pub const APP_PORT: u16 = 8100;
+
 /// What [`detect`] found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct App {
@@ -101,7 +105,7 @@ fn go(project: &Path) -> Option<App> {
     Some(App {
         kind: RuntimeKind::Go,
         framework,
-        port: 8080,
+        port: APP_PORT,
     })
 }
 
@@ -144,7 +148,7 @@ fn java(project: &Path) -> Option<App> {
     Some(App {
         kind: RuntimeKind::Java,
         framework,
-        port: 8080,
+        port: APP_PORT,
     })
 }
 
@@ -342,14 +346,14 @@ mod tests {
         let gin = "module shop\n\nrequire github.com/gin-gonic/gin v1.11.0\n";
         assert_eq!(
             found(&[("go.mod", gin), ("main.go", "package main")]),
-            Some((Go, "Gin", 8080))
+            Some((Go, "Gin", APP_PORT))
         );
         assert_eq!(
             found(&[
                 ("go.mod", "module x"),
                 ("cmd/server/main.go", "package main")
             ]),
-            Some((Go, "Go", 8080))
+            Some((Go, "Go", APP_PORT))
         );
         // A Go library has nothing to run.
         assert_eq!(
@@ -364,11 +368,11 @@ mod tests {
         let pom = "<parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId></parent>";
         assert_eq!(
             found(&[("pom.xml", pom)]),
-            Some((Java, "Spring Boot", 8080))
+            Some((Java, "Spring Boot", APP_PORT))
         );
         assert_eq!(
             found(&[("build.gradle.kts", "plugins { id(\"io.quarkus\") }")]),
-            Some((Java, "Quarkus", 8080))
+            Some((Java, "Quarkus", APP_PORT))
         );
         assert_eq!(found(&[("pom.xml", "<project/>")]), None);
     }

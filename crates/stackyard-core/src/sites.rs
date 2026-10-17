@@ -176,7 +176,7 @@ impl SiteStore {
         let taken: Vec<u16> = self.sites.iter().filter_map(|s| s.runtime.port()).collect();
         if let Some(port) = runtime.port_mut() {
             if let Some(free) = (*port..port.saturating_add(100))
-                .find(|p| !taken.contains(p) && crate::ports::is_free(*p))
+                .find(|p| !taken.contains(p) && !web_server_port(*p) && crate::ports::is_free(*p))
             {
                 *port = free;
             }
@@ -200,6 +200,14 @@ impl SiteStore {
             .ok_or_else(|| Error::SiteNotFound(name_or_domain.to_string()))?;
         Ok(self.sites.remove(index))
     }
+}
+
+/// Ports the web server may take: 80 and 443, or 8080 and 8443 and up.
+fn web_server_port(port: u16) -> bool {
+    let fallback = crate::web::Ports::FALLBACK;
+    [80, 443].contains(&port)
+        || (fallback.http..fallback.http + 20).contains(&port)
+        || (fallback.https..fallback.https + 20).contains(&port)
 }
 
 #[cfg(test)]
@@ -273,6 +281,16 @@ mod tests {
         assert_ne!(first, second);
         assert!(second > first);
         assert!(store.list()[1].runtime.runs_own_server());
+        let spring = store
+            .add(Site {
+                runtime: SiteRuntime::new(RuntimeKind::Java, "21".into(), 8080),
+                ..php_site("three")
+            })
+            .unwrap();
+        assert!(
+            spring.runtime.port().unwrap() >= 8100,
+            "kept clear of the web server"
+        );
         assert_eq!(store.list()[1].runtime.version(), Some("3.13"));
     }
 
