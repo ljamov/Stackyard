@@ -63,7 +63,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 
 ### ⚙️ Runtimes
 - **PHP 8.1 to 8.5** (plus 7.4 and 8.0 on Windows) and **Node.js 20 to 26**, side by side
-- **Python 3.10 to 3.15**, **Go 1.25 to 1.27** and **Java 11 to 25** (Temurin), each a module you switch on
+- **Python 3.11 to 3.15**, **Go 1.25 to 1.27** and **Java 11 to 25** (Temurin), each a module you switch on
 - Pin a version per project with a `.stackyard` file (or an existing `.nvmrc`, `.php-version`, `.tool-versions`)
 - `php`, `composer`, `node`, `npm`, `python`, `pip`, `go`, `java` and `mysql` pick the right version in any terminal
 - Every download checked against a published SHA-256

@@ -13,7 +13,7 @@ checksum before it is unpacked.
 | --- | --- | --- |
 | Node.js 20, 22, 24, 26 | Official builds from nodejs.org | Official builds from nodejs.org |
 | PHP 7.4 to 8.5 | Official builds from the PHP project | PHP 8.1 and later, built from the official PHP source by `.github/workflows/php-builds.yml` |
-| Python 3.10 to 3.15 | Portable CPython builds from the python-build-standalone project | Same |
+| Python 3.11 to 3.15 | Portable CPython builds from the python-build-standalone project | Same |
 | Go 1.25, 1.26, 1.27 | Official builds from go.dev | Official builds from go.dev |
 | Java 11, 17, 21, 25 | Eclipse Temurin (OpenJDK) from Eclipse Adoptium | Same |
 

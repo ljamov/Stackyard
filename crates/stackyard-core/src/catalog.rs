@@ -66,7 +66,7 @@ pub const RUNTIMES: &[RuntimeFamily] = &[
     RuntimeFamily {
         kind: RuntimeKind::Python,
         name: "Python",
-        versions: &["3.15", "3.14", "3.13", "3.12", "3.11", "3.10"],
+        versions: &["3.15", "3.14", "3.13", "3.12", "3.11"],
         available: true,
         windows_only: &[],
     },

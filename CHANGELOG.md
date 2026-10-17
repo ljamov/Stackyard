@@ -6,7 +6,7 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
-- Python, Go and Java: install Python 3.10 to 3.15, Go 1.25 to 1.27 and Java 11, 17, 21 and 25
+- Python, Go and Java: install Python 3.11 to 3.15, Go 1.25 to 1.27 and Java 11, 17, 21 and 25
   (Eclipse Temurin) on the Runtimes screen, side by side like PHP and Node.js. Each is a module,
   off until you switch it on in Settings › Modules. Downloads are checked against their published
   SHA-256.

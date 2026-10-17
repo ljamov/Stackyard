@@ -699,7 +699,7 @@ function browserApi(): Api {
   let runtimes: RuntimeFamily[] = [
     family("php", "PHP", ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"], true),
     family("node", "Node.js", ["26", "24", "22", "20"], true),
-    family("python", "Python", ["3.15", "3.14", "3.13", "3.12", "3.11", "3.10"], true),
+    family("python", "Python", ["3.15", "3.14", "3.13", "3.12", "3.11"], true),
     family("go", "Go", ["1.27", "1.26", "1.25"], true),
     family("java", "Java", ["25", "21", "17", "11"], true),
   ];
