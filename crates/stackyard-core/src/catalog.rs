@@ -95,6 +95,8 @@ pub struct ServiceDef {
     pub role: &'static str,
     /// Page to open in a browser while it runs, if it has one.
     pub web: Option<&'static str>,
+    /// How apps connect, shown on its card; ports follow the real ones.
+    pub connect: Option<&'static str>,
 }
 
 /// `version` is the release line Stackyard installs and keeps updated:
@@ -108,6 +110,7 @@ pub const SERVICES: &[ServiceDef] = &[
         ports: &[80, 443],
         role: "Web server",
         web: Some("http://localhost"),
+        connect: None,
     },
     ServiceDef {
         id: "mysql",
@@ -116,6 +119,7 @@ pub const SERVICES: &[ServiceDef] = &[
         ports: &[3306],
         role: "Database",
         web: None,
+        connect: Some("mysql://root@127.0.0.1:3306"),
     },
     ServiceDef {
         id: "mariadb",
@@ -124,6 +128,7 @@ pub const SERVICES: &[ServiceDef] = &[
         ports: &[3306],
         role: "Database",
         web: None,
+        connect: Some("mysql://root@127.0.0.1:3306"),
     },
     ServiceDef {
         id: "postgres",
@@ -132,6 +137,7 @@ pub const SERVICES: &[ServiceDef] = &[
         ports: &[5432],
         role: "Database",
         web: None,
+        connect: Some("postgresql://postgres@127.0.0.1:5432"),
     },
     ServiceDef {
         id: "redis",
@@ -140,6 +146,7 @@ pub const SERVICES: &[ServiceDef] = &[
         ports: &[6379],
         role: "Cache and queues",
         web: None,
+        connect: Some("redis://127.0.0.1:6379"),
     },
     ServiceDef {
         id: "mailpit",
@@ -148,6 +155,7 @@ pub const SERVICES: &[ServiceDef] = &[
         ports: &[1025, 8025],
         role: "Mail catcher",
         web: Some("http://127.0.0.1:8025"),
+        connect: Some("smtp://127.0.0.1:1025"),
     },
     ServiceDef {
         id: "meilisearch",
@@ -156,6 +164,35 @@ pub const SERVICES: &[ServiceDef] = &[
         ports: &[7700],
         role: "Search engine",
         web: Some("http://127.0.0.1:7700"),
+        connect: Some("http://127.0.0.1:7700"),
+    },
+    ServiceDef {
+        id: "mongodb",
+        name: "MongoDB",
+        version: "9.0",
+        ports: &[27017],
+        role: "Document database",
+        web: None,
+        connect: Some("mongodb://127.0.0.1:27017"),
+    },
+    ServiceDef {
+        id: "seaweedfs",
+        name: "SeaweedFS",
+        version: "4",
+        // S3, the bucket and key manager, then the storage parts behind them.
+        ports: &[8333, 23646, 9333, 9340, 8888],
+        role: "S3-compatible storage",
+        web: Some("http://127.0.0.1:23646"),
+        connect: Some("http://127.0.0.1:8333 · key stackyard · secret stackyard-secret"),
+    },
+    ServiceDef {
+        id: "nats",
+        name: "NATS",
+        version: "2",
+        ports: &[4222, 8222],
+        role: "Message queue",
+        web: Some("http://127.0.0.1:8222"),
+        connect: Some("nats://127.0.0.1:4222"),
     },
 ];
 

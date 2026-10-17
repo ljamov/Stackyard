@@ -11,9 +11,12 @@ mod github;
 mod mailpit;
 mod mariadb;
 mod meilisearch;
+mod mongodb;
 mod mysql;
+mod nats;
 pub mod postgres;
 mod redis;
+pub mod seaweedfs;
 
 use std::path::{Path, PathBuf};
 
@@ -127,6 +130,9 @@ impl ServiceManager {
             "meilisearch" => meilisearch::resolve(&self.http, p),
             "postgres" => postgres::resolve(&self.http, def, p),
             "redis" => redis::resolve(&self.http, def, p),
+            "mongodb" => mongodb::resolve(&self.http, def, p),
+            "seaweedfs" => seaweedfs::resolve(&self.http, p),
+            "nats" => nats::resolve(&self.http, p),
             _ => Err(Error::UnknownModule(id.to_string())),
         }
     }
@@ -204,6 +210,9 @@ impl ServiceManager {
             "meilisearch" => meilisearch::spec(&ctx),
             "postgres" => postgres::spec(&ctx),
             "redis" => redis::spec(&ctx),
+            "mongodb" => mongodb::spec(&ctx),
+            "seaweedfs" => seaweedfs::spec(&ctx),
+            "nats" => nats::spec(&ctx),
             _ => Err(Error::UnknownModule(id.to_string())),
         }
     }
@@ -234,11 +243,20 @@ pub fn web_page(home: &Path, def: &ServiceDef) -> Option<String> {
     if def.id == "caddy" {
         return Some(Ports::current(home).url("127.0.0.1", false));
     }
-    let mut url = def.web?.to_string();
+    Some(follow_ports(home, def, def.web?))
+}
+
+/// How apps connect to a service, on the ports it really uses.
+pub fn connect(home: &Path, def: &ServiceDef) -> Option<String> {
+    Some(follow_ports(home, def, def.connect?))
+}
+
+fn follow_ports(home: &Path, def: &ServiceDef, text: &str) -> String {
+    let mut text = text.to_string();
     for (usual, actual) in def.ports.iter().zip(ports(home, def)) {
-        url = url.replace(&format!(":{usual}"), &format!(":{actual}"));
+        text = text.replace(&format!(":{usual}"), &format!(":{actual}"));
     }
-    Some(url)
+    text
 }
 
 /// The first port, the one programs connect to (3306 for MySQL).
@@ -402,6 +420,12 @@ pub fn program(id: &str, os: Os) -> &'static str {
         ("postgres", false) => "bin/postgres",
         ("postgres", true) => "bin/postgres.exe",
         ("redis", _) => "bin/redis-server",
+        ("mongodb", false) => "bin/mongod",
+        ("mongodb", true) => "bin/mongod.exe",
+        ("seaweedfs", false) => "weed",
+        ("seaweedfs", true) => "weed.exe",
+        ("nats", false) => "nats-server",
+        ("nats", true) => "nats-server.exe",
         _ => "",
     }
 }
@@ -724,6 +748,79 @@ mod tests {
         assert!(health.contains("available"), "{health}");
         assert!(home.join("data/meilisearch/data.ms").is_dir());
         live_stop("meilisearch", supervisor, home);
+    }
+
+    #[test]
+    #[ignore]
+    fn live_runs_postgres() {
+        let Some((supervisor, home)) = live_start("postgres") else {
+            return;
+        };
+        // The Databases screen against it: queries, backup and restore.
+        let mut settings = Settings::default();
+        settings.set_module("postgres", true).unwrap();
+        settings.save_to(&home.join("settings.toml")).unwrap();
+        // Accepting connections a moment after the port opens.
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        crate::databases::tests::exercise_postgres(&home);
+        live_stop("postgres", supervisor, home);
+    }
+
+    #[test]
+    #[ignore]
+    fn live_runs_nats() {
+        let Some((supervisor, home)) = live_start("nats") else {
+            return;
+        };
+        assert!(crate::ports::wait_until_open(
+            8222,
+            std::time::Duration::from_secs(30)
+        ));
+        let info = Http::new().get_text("http://127.0.0.1:8222/jsz").unwrap();
+        assert!(info.contains("\"config\""), "JetStream is on: {info}");
+        live_stop("nats", supervisor, home);
+    }
+
+    #[test]
+    #[ignore]
+    fn live_runs_seaweedfs() {
+        let Some((supervisor, home)) = live_start("seaweedfs") else {
+            return;
+        };
+        // Unsigned requests are refused once the key exists.
+        let mut answer = String::new();
+        for _ in 0..60 {
+            match Http::new().get_text("http://127.0.0.1:8333/") {
+                Ok(text) => answer = text,
+                Err(e) => answer = e.to_string(),
+            }
+            if answer.contains("AccessDenied") || answer.contains("403") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        let log = supervisor.tail_log("seaweedfs", 40).unwrap_or_default();
+        assert!(
+            answer.contains("AccessDenied") || answer.contains("403"),
+            "{answer}\n{}",
+            log.join("\n")
+        );
+        live_stop("seaweedfs", supervisor, home);
+    }
+
+    #[test]
+    #[ignore]
+    fn live_runs_mongodb() {
+        let Some((supervisor, home)) = live_start("mongodb") else {
+            return;
+        };
+        // MongoDB answers plain HTTP on its port with a fixed message.
+        let answer = Http::new()
+            .get_text("http://127.0.0.1:27017/")
+            .unwrap_or_else(|e| e.to_string());
+        assert!(answer.contains("MongoDB"), "{answer}");
+        assert!(home.join("data/mongodb/db").is_dir());
+        live_stop("mongodb", supervisor, home);
     }
 
     #[test]

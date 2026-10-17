@@ -205,3 +205,173 @@ fn against_a_system_mariadb() {
         std::panic::resume_unwind(e);
     }
 }
+
+/// Everything the screen does, against a real PostgreSQL that `home` knows.
+pub(crate) fn exercise_postgres(home: &Path) {
+    let client = Client::open_server(home, Some("postgres")).unwrap();
+    let server = client.server();
+    assert_eq!(server.id, "postgres");
+    assert!(server.version.is_some(), "{server:?}");
+    assert!(servers(home).contains(&"postgres"));
+
+    client.create("stackyard_test").unwrap();
+    assert!(client.create("stackyard_test").is_err());
+    let sets = client
+        .query(
+            Some("stackyard_test"),
+            "CREATE TABLE people (id INT PRIMARY KEY, name VARCHAR(50), note TEXT);\n\
+             CREATE SCHEMA extra; CREATE TABLE extra.things (id INT);\n\
+             INSERT INTO people VALUES (1, 'Ana & <Bo>', NULL), (2, E'line\\nbreak', ''), (3, '  two spaces', ' ');\n\
+             SELECT * FROM people ORDER BY id; SELECT COUNT(*) AS n FROM people;",
+        )
+        .unwrap();
+    assert_eq!(sets.len(), 2, "{sets:?}");
+    assert_eq!(sets[0].columns, ["id", "name", "note"]);
+    assert_eq!(
+        sets[0].rows[0],
+        [Some("1".into()), Some("Ana & <Bo>".into()), None]
+    );
+    assert_eq!(sets[0].rows[1][1].as_deref(), Some("line\nbreak"));
+    assert_eq!(sets[0].rows[1][2].as_deref(), Some(""));
+    assert_eq!(sets[0].rows[2][1].as_deref(), Some("  two spaces"));
+    // psql prints a value of only spaces like an empty one.
+    assert_eq!(sets[0].rows[2][2].as_deref(), Some(""));
+    assert_eq!(sets[1].rows[0][0].as_deref(), Some("3"));
+
+    let err = client.query(Some("stackyard_test"), "SELEC 1").unwrap_err();
+    assert!(err.to_string().contains("syntax error"), "{err}");
+    let err = client.query(Some("nope"), "SELECT 1").unwrap_err();
+    assert!(err.to_string().contains("does not exist"), "{err}");
+
+    let dbs = client.databases().unwrap();
+    let db = dbs.iter().find(|d| d.name == "stackyard_test").unwrap();
+    assert_eq!(db.tables, 2, "{dbs:?}");
+    assert!(db.size > 0);
+    assert!(!dbs
+        .iter()
+        .any(|d| d.name == "postgres" || d.name.starts_with("template")));
+    let tables = client.tables("stackyard_test").unwrap();
+    let names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["extra.things", "people"]);
+    let page = client.browse("stackyard_test", "people", 1, 10).unwrap();
+    assert_eq!(page.rows.len(), 2);
+    let empty = client
+        .browse("stackyard_test", "extra.things", 0, 10)
+        .unwrap();
+    assert!(empty.rows.is_empty());
+    assert_eq!(empty.columns, ["id"]);
+
+    let many = client
+        .query(None, "SELECT n FROM generate_series(1, 1500) n")
+        .unwrap();
+    assert_eq!(many[0].rows.len(), MAX_ROWS);
+    assert!(many[0].truncated);
+
+    // Back up, lose the data, restore it; and restore a copy elsewhere.
+    let backup = client.backup("stackyard_test").unwrap();
+    assert!(backup.size > 0);
+    assert_eq!(backup.server, "postgres");
+    assert!(backups(home).contains(&backup));
+    client.drop("stackyard_test").unwrap();
+    assert!(!client
+        .databases()
+        .unwrap()
+        .iter()
+        .any(|d| d.name == "stackyard_test"));
+    client
+        .restore("stackyard_test", &backup.file, None)
+        .unwrap();
+    // Restoring over what is there replaces it.
+    client
+        .restore("stackyard_test", &backup.file, None)
+        .unwrap();
+    client
+        .restore("stackyard_test", &backup.file, Some("stackyard_copy"))
+        .unwrap();
+    for db in ["stackyard_test", "stackyard_copy"] {
+        let rows = client
+            .query(Some(db), "SELECT name FROM people ORDER BY id")
+            .unwrap();
+        assert_eq!(rows[0].rows.len(), 3, "{db}");
+        assert_eq!(rows[0].rows[0][0].as_deref(), Some("Ana & <Bo>"), "{db}");
+    }
+    assert!(client.drop("postgres").is_err());
+    client.drop("stackyard_test").unwrap();
+    client.drop("stackyard_copy").unwrap();
+}
+
+/// Runs [`exercise_postgres`] against a PostgreSQL installed by the system
+/// package manager, laid out the way Stackyard installs one. Set
+/// `STACKYARD_TEST_SYSTEM_POSTGRES` to its `bin` folder (e.g.
+/// `/usr/lib/postgresql/16/bin`) to run it; it can't run as root.
+#[cfg(unix)]
+#[test]
+fn against_a_system_postgres() {
+    let Some(bin) = std::env::var_os("STACKYARD_TEST_SYSTEM_POSTGRES") else {
+        return;
+    };
+    use std::os::unix::fs::symlink;
+    let bin = PathBuf::from(bin);
+    let home = crate::testutil::tempdir();
+    let install = home.join("services/postgres/18");
+    std::fs::create_dir_all(install.join("bin")).unwrap();
+    crate::install::write_receipt_for_tests(&install, "18.0");
+    for tool in ["postgres", "initdb", "psql", "pg_dump"] {
+        symlink(bin.join(tool), install.join("bin").join(tool)).unwrap();
+    }
+    let mut settings = crate::settings::Settings::default();
+    settings.set_module("postgres", true).unwrap();
+    settings.save_to(&home.join("settings.toml")).unwrap();
+    // A free port, saved the way Stackyard keeps a moved one.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    std::fs::create_dir_all(home.join("config/postgres")).unwrap();
+    std::fs::write(home.join("config/postgres/ports"), port.to_string()).unwrap();
+
+    let db = home.join("data/postgres/db");
+    let ok = std::process::Command::new(bin.join("initdb"))
+        .arg(format!("--pgdata={}", db.display()))
+        .args([
+            "--username=postgres",
+            "--auth=trust",
+            "--encoding=UTF8",
+            "--locale=C",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+    let mut server = std::process::Command::new(bin.join("postgres"))
+        .arg("-D")
+        .arg(&db)
+        .args([
+            "-p",
+            &port.to_string(),
+            "-c",
+            "listen_addresses=127.0.0.1",
+            "-c",
+            "unix_socket_directories=",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    assert!(crate::ports::wait_until_open(
+        port,
+        std::time::Duration::from_secs(20)
+    ));
+    // Accepting connections a moment after the port opens.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let result = std::panic::catch_unwind(|| exercise_postgres(&home));
+    let _ = server.kill();
+    let _ = server.wait();
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
+    }
+}

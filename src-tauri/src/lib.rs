@@ -316,6 +316,8 @@ struct ServiceView {
     ports: Vec<u16>,
     role: &'static str,
     web: Option<String>,
+    /// How apps connect, e.g. `mongodb://127.0.0.1:27017`.
+    connect: Option<String>,
     /// Exact installed release, or null when not installed.
     installed: Option<String>,
     installing: bool,
@@ -343,6 +345,7 @@ fn service_views(supervisor: &Supervisor, installs: &Installs) -> Vec<ServiceVie
             ports: stackyard_core::services::ports(manager.home(), def),
             role: def.role,
             web: stackyard_core::services::web_page(manager.home(), def),
+            connect: stackyard_core::services::connect(manager.home(), def),
             installed: manager.get(def.id).map(|i| i.release),
             installing: busy.contains(&format!("service/{}", def.id)),
             state: supervisor.state(def.id),
@@ -423,12 +426,14 @@ async fn start_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceView>
 }
 
 /// Runs database work off the interface thread: queries can take a while.
+/// `server` is `postgres` for PostgreSQL; anything else is MySQL or MariaDB.
 async fn with_db<T: Send + 'static>(
+    server: Option<String>,
     work: impl FnOnce(&DbClient) -> stackyard_core::Result<T> + Send + 'static,
 ) -> CmdResult<T> {
     tauri::async_runtime::spawn_blocking(move || {
         Settings::load()?.require_module("databases")?;
-        work(&DbClient::open(&paths::home())?)
+        work(&DbClient::open_server(&paths::home(), server.as_deref())?)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -443,11 +448,11 @@ struct DbServerView {
 }
 
 #[tauri::command]
-async fn db_server() -> CmdResult<DbServerView> {
-    tauri::async_runtime::spawn_blocking(|| {
+async fn db_server(server: Option<String>) -> CmdResult<DbServerView> {
+    tauri::async_runtime::spawn_blocking(move || {
         let opened = Settings::load()
             .and_then(|s| s.require_module("databases"))
-            .and_then(|_| DbClient::open(&paths::home()));
+            .and_then(|_| DbClient::open_server(&paths::home(), server.as_deref()));
         match opened {
             Ok(client) => DbServerView {
                 server: Some(client.server()),
@@ -464,13 +469,13 @@ async fn db_server() -> CmdResult<DbServerView> {
 }
 
 #[tauri::command]
-async fn db_list() -> CmdResult<Vec<Database>> {
-    with_db(|c| c.databases()).await
+async fn db_list(server: Option<String>) -> CmdResult<Vec<Database>> {
+    with_db(server, |c| c.databases()).await
 }
 
 #[tauri::command]
-async fn db_create(name: String) -> CmdResult<Vec<Database>> {
-    with_db(move |c| {
+async fn db_create(name: String, server: Option<String>) -> CmdResult<Vec<Database>> {
+    with_db(server, move |c| {
         c.create(&name)?;
         c.databases()
     })
@@ -478,8 +483,8 @@ async fn db_create(name: String) -> CmdResult<Vec<Database>> {
 }
 
 #[tauri::command]
-async fn db_drop(name: String) -> CmdResult<Vec<Database>> {
-    with_db(move |c| {
+async fn db_drop(name: String, server: Option<String>) -> CmdResult<Vec<Database>> {
+    with_db(server, move |c| {
         c.drop(&name)?;
         c.databases()
     })
@@ -487,8 +492,8 @@ async fn db_drop(name: String) -> CmdResult<Vec<Database>> {
 }
 
 #[tauri::command]
-async fn db_tables(database: String) -> CmdResult<Vec<Table>> {
-    with_db(move |c| c.tables(&database)).await
+async fn db_tables(database: String, server: Option<String>) -> CmdResult<Vec<Table>> {
+    with_db(server, move |c| c.tables(&database)).await
 }
 
 #[tauri::command]
@@ -497,22 +502,33 @@ async fn db_browse(
     table: String,
     offset: u64,
     limit: usize,
+    server: Option<String>,
 ) -> CmdResult<ResultSet> {
-    with_db(move |c| c.browse(&database, &table, offset, limit)).await
+    with_db(server, move |c| c.browse(&database, &table, offset, limit)).await
 }
 
 #[tauri::command]
-async fn db_query(database: Option<String>, sql: String) -> CmdResult<Vec<ResultSet>> {
-    with_db(move |c| c.query(database.as_deref(), &sql)).await
+async fn db_query(
+    database: Option<String>,
+    sql: String,
+    server: Option<String>,
+) -> CmdResult<Vec<ResultSet>> {
+    with_db(server, move |c| c.query(database.as_deref(), &sql)).await
 }
 
 #[tauri::command]
-async fn db_backup(database: String) -> CmdResult<Vec<Backup>> {
-    with_db(move |c| {
+async fn db_backup(database: String, server: Option<String>) -> CmdResult<Vec<Backup>> {
+    with_db(server, move |c| {
         c.backup(&database)?;
         Ok(databases::backups(&paths::home()))
     })
     .await
+}
+
+/// The servers the Databases screen can switch between.
+#[tauri::command]
+fn db_servers() -> Vec<&'static str> {
+    databases::servers(&paths::home())
 }
 
 #[tauri::command]
@@ -525,8 +541,9 @@ async fn db_restore(
     database: String,
     file: String,
     into: Option<String>,
+    server: Option<String>,
 ) -> CmdResult<Vec<Database>> {
-    with_db(move |c| {
+    with_db(server, move |c| {
         c.restore(&database, &file, into.as_deref())?;
         c.databases()
     })
@@ -1789,6 +1806,7 @@ pub fn run() {
             setup_finish,
             sites_folder,
             db_server,
+            db_servers,
             db_list,
             db_create,
             db_drop,

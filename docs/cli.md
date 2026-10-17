@@ -55,7 +55,9 @@ stackyard db query shop "SELECT * FROM orders LIMIT 5"
 stackyard db backup shop              # backups/shop/shop-<date>-<time>.sql.gz
 stackyard db restore shop             # the newest backup (or name a file; --into another database)
 stackyard db drop shop --yes
-psql -c "create database shop"        # PostgreSQL, once it runs (`stackyard start postgres`)
+stackyard db --postgres               # the same for PostgreSQL (`stackyard start postgres`)
+stackyard db --postgres backup shop   # backups/shop/shop-<date>-<time>.pg.sql.gz
+psql -c "create database shop"        # PostgreSQL's own tools work too
 pg_dump shop > shop.sql
 redis-cli ping                        # Redis (`stackyard start redis`)
 ```

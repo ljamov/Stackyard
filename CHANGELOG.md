@@ -6,6 +6,16 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- Three new services, each off until you switch it on in Settings › Modules: MongoDB 9.0
+  (downloaded from mongodb.com), SeaweedFS for S3-compatible file storage (in place of MinIO,
+  which no longer publishes downloads), and NATS, a small message queue that keeps its messages
+  on disk. Each has its log, moves to a free port when its usual one is taken, and starts and stops
+  from the tray and with `stackyard start`.
+- Service cards show how apps connect, such as `mongodb://127.0.0.1:27017`, or the S3 address and
+  keys for SeaweedFS.
+- Databases screen: PostgreSQL databases too. Switch between MySQL and PostgreSQL at the top to
+  list, create and drop databases, browse tables, run SQL, and back up and restore. In the
+  terminal: `stackyard db --postgres`.
 - Sites: each site has version pickers for PHP and Node.js (Node.js for build tools such as Vite),
   parked sites included. Picking a version that is not installed downloads it first, then the site
   switches to it.
