@@ -62,7 +62,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 
 ### ⚙️ Runtimes
 - **PHP 8.1 to 8.5** (plus 7.4 and 8.0 on Windows) and **Node.js 20 to 26**, side by side
-- Pin a version per project with a `.stackyard` file
+- Pin a version per project with a `.stackyard` file (or an existing `.nvmrc`, `.php-version`, `.tool-versions`)
 - `php`, `composer`, `node`, `npm` and `mysql` pick the right version in any terminal
 - Every download checked against a published SHA-256
 - Own `php.ini` per PHP version
@@ -201,8 +201,10 @@ php = "8.3"
 node = "22"
 ```
 
-The site in your browser and the `php`/`node` commands in your terminal both follow it. Without one,
-Stackyard uses the site's version, then your default, then the newest installed.
+The site in your browser and the `php`/`node` commands in your terminal both follow it. An existing
+`.nvmrc`, `.node-version`, `.php-version` or `.tool-versions` works too. Without one, Stackyard uses
+the site's version, then your default, then the newest installed. The Sites screen has a PHP and a
+Node.js picker on each site, and installs a missing version for you.
 `stackyard which` shows what each command will run, and why.
 
 ## Connect your AI coding tool

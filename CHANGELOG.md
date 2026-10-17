@@ -6,6 +6,14 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- Sites: each site has version pickers for PHP and Node.js (Node.js for build tools such as Vite),
+  parked sites included. Picking a version that is not installed downloads it first, then the site
+  switches to it.
+- Projects that already name a version for other tools need nothing new: `.nvmrc`,
+  `.node-version`, `.php-version` and `.tool-versions` are read like a `.stackyard` file, by the web
+  server and the terminal alike.
+- Fixed the web server ignoring a project's `.stackyard` file for sites added by hand: the browser
+  and the terminal now always use the same version.
 - MCP server: AI tools such as Claude Code and Cursor can now restart services, list your MySQL
   and MariaDB databases and their tables, run read-only queries (Query a database) and run SQL
   that changes data (Change a database). Querying and changing stay off until you allow them.

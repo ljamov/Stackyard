@@ -3,6 +3,7 @@ import { api, errorText, type RuntimeFamily, type Site } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { SiteRemote } from "../components/SiteRemote";
+import { SiteVersions } from "../components/SiteVersions";
 
 const SITE_LABELS: Partial<Record<RuntimeFamily["kind"], string>> = { php: "PHP", node: "Node" };
 
@@ -405,6 +406,11 @@ export function Sites() {
               <Fragment key={site.domain}>
                 <SiteRow
                   site={site}
+                  families={runtimes.data}
+                  onVersionChanged={() => {
+                    sites.reload();
+                    runtimes.reload();
+                  }}
                   onRemove={remove}
                   connectOpen={canConnect ? connecting === site.domain : null}
                   onConnect={() => setConnecting(connecting === site.domain ? null : site.domain)}
@@ -427,11 +433,15 @@ export function Sites() {
 
 function SiteRow({
   site,
+  families,
+  onVersionChanged,
   onRemove,
   connectOpen,
   onConnect,
 }: {
   site: Site;
+  families: RuntimeFamily[];
+  onVersionChanged: () => void;
   onRemove: (domain: string) => void;
   /** Whether the servers and Git panel is open; null when both modules are off. */
   connectOpen: boolean | null;
@@ -456,6 +466,7 @@ function SiteRow({
         {site.framework ? `${site.framework} · ` : ""}
         {site.runtime}
         {site.problem && <div className="warn small">{site.problem}</div>}
+        <SiteVersions site={site} families={families} onChanged={onVersionChanged} />
       </td>
       <td className="mono muted small">{site.root}</td>
       <td className="right nowrap">

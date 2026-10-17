@@ -792,19 +792,12 @@ fn set_site_runtime(ctx: &Ctx, args: &Args) -> Result<Value, String> {
             format!("{domain} serves plain files and has no PHP or Node.js version")
         })?;
     check_version(&settings(ctx)?, kind, version)?;
-    let saved_in = if served.parked {
-        pins::pin(&served.site.path, kind, version).map_err(fail)?
-    } else {
-        let file = ctx.home.join("sites.toml");
-        let mut store = SiteStore::load_from(&file).map_err(fail)?;
-        match &mut store.get_mut(&domain).map_err(fail)?.runtime {
-            SiteRuntime::Php { version: v } | SiteRuntime::Node { version: v, .. } => {
-                *v = version.into()
-            }
-            SiteRuntime::Static => {}
-        }
-        store.save().map_err(fail)?;
-        file
+    let file = ctx.home.join("sites.toml");
+    let mut store = SiteStore::load_from(&file).map_err(fail)?;
+    crate::shell::set_site_version(&mut store, &served.site, kind, Some(version)).map_err(fail)?;
+    let saved_in = match pins::pinned(&served.site.path, kind) {
+        Ok(Some(pin)) => pin.file,
+        _ => file,
     };
     let mut answer = answer_for_site(ctx, &domain)?;
     answer["saved_in"] = json!(saved_in);
