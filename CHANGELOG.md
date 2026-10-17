@@ -18,7 +18,13 @@ Update button, and the app shows its own version's section after it updates.
   each project's version (`.python-version`, `.go-version`, `.java-version`, `.sdkmanrc` and
   `.tool-versions` are read too). Until Stackyard has its own version installed, they run the one
   already on your computer.
-
+- New AI tools screen: install Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Qwen Code
+  and OpenCode with one click. Stackyard installs them with npm on its own Node.js (and installs
+  Node.js 24 first when needed), so nothing else is required. The screen shows when an update is
+  out, and **Open** starts a tool in a new terminal window in the site folder you pick. With the
+  terminal commands on, `claude`, `codex` and the others also work in any terminal. Also on the
+  command line as `stackyard ai`. The AI coding tools module can be switched off in Settings ›
+  Modules.
 - Sites: each site has version pickers for PHP and Node.js (Node.js for build tools such as Vite),
   parked sites included. Picking a version that is not installed downloads it first, then the site
   switches to it.

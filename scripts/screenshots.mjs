@@ -47,6 +47,7 @@ const SHOTS = {
   },
   images: { screen: "Images" },
   videos: { screen: "Videos" },
+  "ai-tools": { screen: "AI tools", wait: 800 },
   settings: { screen: "Settings" },
 };
 
