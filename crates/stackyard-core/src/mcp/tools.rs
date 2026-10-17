@@ -1,11 +1,14 @@
 //! The tools AI coding tools can call. Tools that only read are always on;
-//! each action tool is off until the user allows it, and nothing here can
-//! delete a site, a database or a file.
+//! each action tool, and reading what is inside databases, is off until
+//! the user allows it. Nothing here can delete a site, a whole database or
+//! a file.
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use serde_json::{json, Map, Value};
+
+use super::sql;
 
 use crate::catalog::{self, RuntimeKind, RUNTIMES, SERVICES};
 use crate::control::{self, Request, Response};
@@ -16,14 +19,18 @@ use crate::shell::pins;
 use crate::sites::{Site, SiteRuntime, SiteStore};
 use crate::supervisor::{self, ProcessState};
 use crate::web::{self, Backend, Ports, ServedSite};
-use crate::{detect, modules, paths, ports, Error};
+use crate::{databases, detect, modules, paths, ports, Error};
 
 pub struct ToolInfo {
     pub name: &'static str,
     pub title: &'static str,
     pub description: &'static str,
-    /// Changes something, so it stays off until the user allows it.
+    /// Stays off until the user allows it.
     pub action: bool,
+    /// Changes nothing.
+    pub read_only: bool,
+    /// Can delete data.
+    pub destructive: bool,
 }
 
 const fn read(name: &'static str, title: &'static str, description: &'static str) -> ToolInfo {
@@ -32,6 +39,8 @@ const fn read(name: &'static str, title: &'static str, description: &'static str
         title,
         description,
         action: false,
+        read_only: true,
+        destructive: false,
     }
 }
 
@@ -41,6 +50,20 @@ const fn action(name: &'static str, title: &'static str, description: &'static s
         title,
         description,
         action: true,
+        read_only: false,
+        destructive: false,
+    }
+}
+
+/// Only reads, but what it reads (data in databases) is the user's to share.
+const fn private_read(
+    name: &'static str,
+    title: &'static str,
+    description: &'static str,
+) -> ToolInfo {
+    ToolInfo {
+        read_only: true,
+        ..action(name, title, description)
     }
 }
 
@@ -61,6 +84,11 @@ pub const TOOLS: &[ToolInfo] = &[
         "Lists PHP and Node.js versions: which are installed (with exact releases), which is the default, and which could be installed.",
     ),
     read(
+        "list_databases",
+        "List databases",
+        "Lists the MySQL or MariaDB databases with their table count and size, or with database set, that database's tables and views with row estimates and sizes. Reads names only, never what is in the tables.",
+    ),
+    read(
         "read_logs",
         "Read a log",
         "Returns the last lines of a log: a service (caddy, mysql, mariadb, postgres, redis, mailpit, meilisearch), PHP for one version (php-8.4), a scheduled task (task-<id>) or the background service (daemon). Use it to find out why a site or service fails.",
@@ -76,6 +104,11 @@ pub const TOOLS: &[ToolInfo] = &[
         "Stops a running service.",
     ),
     action(
+        "restart_service",
+        "Restart a service",
+        "Stops a service and starts it again, e.g. after changing its settings or when it hangs. Restarting caddy also restarts PHP for every site.",
+    ),
+    action(
         "create_site",
         "Create a site",
         "Adds a local site for a project folder, served at https://<name><ending> (e.g. https://myapp.stack). Without a runtime, Stackyard detects PHP, Node.js or plain files from the folder and uses the project's pinned or default version.",
@@ -85,6 +118,19 @@ pub const TOOLS: &[ToolInfo] = &[
         "Switch a site's version",
         "Switches the PHP or Node.js version a site runs on. For a site found in a parked folder, the version is written to the project's .stackyard file.",
     ),
+    private_read(
+        "query_database",
+        "Query a database",
+        "Runs one SELECT, SHOW, DESCRIBE or EXPLAIN statement on MySQL or MariaDB and returns the rows. It runs read-only, so it cannot change anything.",
+    ),
+    ToolInfo {
+        destructive: true,
+        ..action(
+            "change_database",
+            "Change a database",
+            "Runs SQL that changes data or tables on MySQL or MariaDB (INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, DROP TABLE...), one or more statements, and returns how many rows the last one changed. Dropping a whole database and reading or writing files are refused.",
+        )
+    },
 ];
 
 pub fn find(name: &str) -> Option<&'static ToolInfo> {
@@ -120,6 +166,43 @@ pub fn input_schema(name: &str) -> Value {
         "start_service" => (
             json!({ "service": service("The service to start") }),
             &["service"],
+        ),
+        "restart_service" => (
+            json!({ "service": service("The service to restart") }),
+            &["service"],
+        ),
+        "list_databases" => (
+            json!({
+                "database": {
+                    "type": "string",
+                    "description": "List this database's tables; leave out to list the databases",
+                },
+            }),
+            &[],
+        ),
+        "query_database" | "change_database" => (
+            json!({
+                "database": {
+                    "type": "string",
+                    "description": "The database to run it in, as list_databases shows it",
+                },
+                "sql": {
+                    "type": "string",
+                    "description": if name == "query_database" {
+                        "One SELECT, SHOW, DESCRIBE or EXPLAIN statement"
+                    } else {
+                        "One or more SQL statements, separated by ;"
+                    },
+                },
+                "max_rows": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": databases::MAX_ROWS,
+                    "default": DEFAULT_ROWS,
+                    "description": "Rows to return at most from each result",
+                },
+            }),
+            &["database", "sql"],
         ),
         "stop_service" => (
             json!({ "service": service("The service to stop") }),
@@ -182,6 +265,10 @@ pub fn input_schema(name: &str) -> Value {
 }
 
 const MAX_LOG_LINES: usize = 500;
+/// Rows a query returns unless the AI tool asks for more.
+const DEFAULT_ROWS: usize = 100;
+/// Characters of one value a query returns; the rest is cut off.
+const MAX_VALUE: usize = 2000;
 
 /// Where a call runs: the Stackyard folder, and the `stackyard` program to
 /// start in the background when a service is started.
@@ -208,6 +295,10 @@ pub(super) fn call(ctx: &Ctx, tool: &ToolInfo, args: &Args) -> Outcome {
         "read_logs" => read_logs(ctx, args),
         "start_service" => start_service(ctx, args),
         "stop_service" => stop_service(ctx, args),
+        "restart_service" => restart_service(ctx, args),
+        "list_databases" => list_databases(ctx, args),
+        "query_database" => run_sql(ctx, args, false),
+        "change_database" => run_sql(ctx, args, true),
         "create_site" => create_site(ctx, args),
         "set_site_runtime" => set_site_runtime(ctx, args),
         other => Err(format!("unknown tool {other}")),
@@ -218,7 +309,15 @@ pub(super) fn call(ctx: &Ctx, tool: &ToolInfo, args: &Args) -> Outcome {
 pub(super) fn summarize(tool: &str, args: &Args) -> String {
     let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("?");
     match tool {
-        "read_logs" | "start_service" | "stop_service" => text("service").to_string(),
+        "read_logs" | "start_service" | "stop_service" | "restart_service" => {
+            text("service").to_string()
+        }
+        "list_databases" => args
+            .get("database")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        "query_database" | "change_database" => format!("{}: {}", text("database"), text("sql")),
         "create_site" => format!("{} in {}", text("name"), text("folder")),
         "set_site_runtime" => format!("{} → {}", text("site"), text("version")),
         _ => String::new(),
@@ -505,6 +604,80 @@ fn stop_service(ctx: &Ctx, args: &Args) -> Result<Value, String> {
         })
         .map_err(fail)?;
     Ok(json!({ "service": def.id, "state": service_state(response, def.id) }))
+}
+
+fn restart_service(ctx: &Ctx, args: &Args) -> Result<Value, String> {
+    let def = startable(ctx, required(args, "service")?)?;
+    if let Some(client) = control::find(ctx.home) {
+        client
+            .send(Request::Stop {
+                ids: vec![def.id.into()],
+            })
+            .map_err(fail)?;
+    }
+    start_service(ctx, args)
+}
+
+fn database_client(ctx: &Ctx) -> Result<databases::Client, String> {
+    databases::Client::open(ctx.home).map_err(|e| {
+        format!("{e}. Database tools work with MySQL or MariaDB; the user can install one in Stackyard › Services")
+    })
+}
+
+fn list_databases(ctx: &Ctx, args: &Args) -> Result<Value, String> {
+    let client = database_client(ctx)?;
+    let server = client.server();
+    if let Some(database) = text(args, "database")? {
+        let tables = client.tables(database).map_err(fail)?;
+        return Ok(json!({ "server": server, "database": database, "tables": tables }));
+    }
+    let list = client.databases().map_err(fail)?;
+    Ok(json!({ "server": server, "databases": list }))
+}
+
+fn run_sql(ctx: &Ctx, args: &Args, change: bool) -> Result<Value, String> {
+    let database = required(args, "database")?;
+    let sql = required(args, "sql")?;
+    let max_rows = number(args, "max_rows")?
+        .unwrap_or(DEFAULT_ROWS as u64)
+        .clamp(1, databases::MAX_ROWS as u64) as usize;
+    let checked = if change {
+        sql::changes(sql)?
+    } else {
+        sql::read_only(sql)?
+    };
+    let mut sets = database_client(ctx)?
+        .query(Some(database), &checked)
+        .map_err(fail)?;
+    let changed_rows = if change {
+        sets.pop()
+            .and_then(|set| set.rows.into_iter().next())
+            .and_then(|row| row.into_iter().next().flatten())
+            .and_then(|n| n.parse::<i64>().ok())
+            .filter(|n| *n >= 0)
+    } else {
+        None
+    };
+    let results: Vec<Value> = sets
+        .into_iter()
+        .map(|mut set| {
+            if set.rows.len() > max_rows {
+                set.rows.truncate(max_rows);
+                set.truncated = true;
+            }
+            for value in set.rows.iter_mut().flatten().flatten() {
+                if value.chars().count() > MAX_VALUE {
+                    *value = value.chars().take(MAX_VALUE).collect::<String>() + "…";
+                }
+            }
+            json!({ "columns": set.columns, "rows": set.rows, "truncated": set.truncated })
+        })
+        .collect();
+    let mut answer = json!({ "database": database, "results": results });
+    if change {
+        answer["changed_rows"] = json!(changed_rows);
+    }
+    Ok(answer)
 }
 
 /// Checks a version is one Stackyard offers and its runtime is switched on.

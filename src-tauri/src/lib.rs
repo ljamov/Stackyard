@@ -942,7 +942,8 @@ struct McpToolView {
     name: &'static str,
     title: &'static str,
     description: &'static str,
-    /// Changes something, so the user decides whether AI tools may use it.
+    /// Off until the user allows it: it changes something, or reads what
+    /// is in databases.
     action: bool,
     allowed: bool,
 }

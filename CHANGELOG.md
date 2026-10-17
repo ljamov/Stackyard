@@ -4,6 +4,15 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- MCP server: AI tools such as Claude Code and Cursor can now restart services, list your MySQL
+  and MariaDB databases and their tables, run read-only queries (Query a database) and run SQL
+  that changes data (Change a database). Querying and changing stay off until you allow them.
+  Change a database never drops a whole database and never reads or writes files on your
+  computer. You choose what AI tools may do in Settings › AI tools as well as on the MCP server
+  screen.
+
 ## 0.4.0
 
 - New Videos screen: make web-ready MP4 (H.264), WebM (VP9) and GIF copies of videos and GIFs,
