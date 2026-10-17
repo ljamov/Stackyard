@@ -1,6 +1,7 @@
 //! Local sites such as `https://myapp.stack`, stored in `sites.toml`.
 
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -114,6 +115,120 @@ pub struct Site {
     /// web server runs, so the site works without a terminal.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dev_server: bool,
+    /// What the site settings panel changes; empty for most sites.
+    #[serde(default, skip_serializing_if = "SiteSettings::is_empty")]
+    pub settings: SiteSettings,
+}
+
+/// A site's own settings, beyond its runtime version: the folder served,
+/// environment variables, PHP settings and a command Stackyard runs.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SiteSettings {
+    /// The folder the web server serves, inside the project folder, e.g.
+    /// `public`. `None` lets Stackyard pick it from the framework.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
+    /// Environment variables for the site's PHP and for the servers and
+    /// command Stackyard runs for it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// `php.ini` values for this site only, e.g. `memory_limit = 1G`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub php: BTreeMap<String, String>,
+    /// A command Stackyard runs in the project folder while the web server
+    /// runs, e.g. `npm run start` or `php artisan queue:work`. For Node,
+    /// Python, Go and Java sites it replaces the usual server command and
+    /// gets the site's port in `PORT`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// The database that goes with the site in backups and exports. `None`
+    /// looks for one in the project's `.env` or `wp-config.php`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<SiteDatabase>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SiteDatabase {
+    /// `mysql` (MySQL or MariaDB) or `postgres`.
+    pub server: String,
+    pub name: String,
+}
+
+impl SiteSettings {
+    pub fn is_empty(&self) -> bool {
+        *self == SiteSettings::default()
+    }
+
+    /// Trims what was typed and refuses what would break the web server's
+    /// or PHP's settings files.
+    pub fn validated(mut self) -> Result<Self> {
+        let bad = |message: String| Err(Error::Shell(message));
+        self.root = self
+            .root
+            .map(|r| r.trim().trim_matches(['/', '\\']).replace('\\', "/"))
+            .filter(|r| !r.is_empty() && r != ".");
+        if let Some(root) = &self.root {
+            let inside = Path::new(root)
+                .components()
+                .all(|c| matches!(c, Component::Normal(_)));
+            if !inside || root.contains(['"', '\n', ':']) {
+                return bad(format!(
+                    "the site folder {root:?} must be a folder inside the project, like public"
+                ));
+            }
+        }
+        let env_name = |k: &str| {
+            k.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        };
+        for (key, value) in &self.env {
+            if !env_name(key) {
+                return bad(format!(
+                    "{key:?} is not a usable variable name: use letters, digits and _"
+                ));
+            }
+            if value.contains(['\n', '\r', '\0']) {
+                return bad(format!("the value of {key} must be one line"));
+            }
+        }
+        for (key, value) in &self.php {
+            let name_ok = !key.is_empty()
+                && key
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
+            if !name_ok {
+                return bad(format!("{key:?} is not a PHP setting name"));
+            }
+            if key.ends_with("extension") {
+                return bad(format!(
+                    "{key} can't be set per site; turn extensions on in the PHP version's php.ini"
+                ));
+            }
+            if value.contains(['\n', '\r', '\0', '"']) {
+                return bad(format!(
+                    "the value of {key} must be one line without double quotes"
+                ));
+            }
+        }
+        self.command = self
+            .command
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty());
+        if self
+            .command
+            .as_deref()
+            .is_some_and(|c| c.contains(['\n', '\r', '\0']))
+        {
+            return bad("the start command must be one line".into());
+        }
+        if let Some(db) = &self.database {
+            if !["mysql", "postgres"].contains(&db.server.as_str()) {
+                return bad(format!("unknown database server {:?}", db.server));
+            }
+            crate::databases::check_name(&db.name)?;
+        }
+        Ok(self)
+    }
 }
 
 impl Site {
@@ -191,6 +306,29 @@ impl SiteStore {
             .ok_or_else(|| Error::SiteNotFound(name_or_domain.to_string()))
     }
 
+    /// Changes a site's domain ending, HTTPS and settings. Returns the site
+    /// as it was and as it is now, so callers can tell what changed.
+    pub fn configure(
+        &mut self,
+        name_or_domain: &str,
+        tld: &str,
+        https: bool,
+        settings: SiteSettings,
+    ) -> Result<(Site, Site)> {
+        let tld = domain::normalize_tld(tld)?;
+        let settings = settings.validated()?;
+        let before = self.get_mut(name_or_domain)?.clone();
+        let new_domain = domain::site_domain(&before.name, &tld);
+        if new_domain != before.domain() && self.sites.iter().any(|s| s.domain() == new_domain) {
+            return Err(Error::SiteExists(new_domain));
+        }
+        let site = self.get_mut(name_or_domain)?;
+        site.tld = tld;
+        site.https = https;
+        site.settings = settings;
+        Ok((before, site.clone()))
+    }
+
     /// Removes a site by its domain (`myapp.stack`) or bare name (`myapp`).
     pub fn remove(&mut self, name_or_domain: &str) -> Result<Site> {
         let index = self
@@ -224,6 +362,7 @@ mod tests {
             },
             https: true,
             dev_server: false,
+            settings: SiteSettings::default(),
         }
     }
 
@@ -305,5 +444,58 @@ mod tests {
             })
             .unwrap();
         assert_eq!(test_site.domain(), "myapp.test");
+    }
+
+    #[test]
+    fn settings_are_checked_and_saved() {
+        let path = crate::testutil::tempdir().join("sites.toml");
+        let mut store = SiteStore::load_from(&path).unwrap();
+        store.add(php_site("myapp")).unwrap();
+        store.add(php_site("other")).unwrap();
+        let mut settings = SiteSettings {
+            root: Some("/web/".into()),
+            command: Some("  npm run dev  ".into()),
+            ..SiteSettings::default()
+        };
+        settings.env.insert("APP_ENV".into(), "local".into());
+        settings.php.insert("memory_limit".into(), "1G".into());
+        let (before, after) = store
+            .configure("myapp", ".test", false, settings.clone())
+            .unwrap();
+        assert_eq!(before.domain(), "myapp.stack");
+        assert_eq!(after.domain(), "myapp.test");
+        store.save().unwrap();
+
+        let reloaded = SiteStore::load_from(&path).unwrap();
+        let site = &reloaded.list()[0];
+        assert_eq!(site.url(), "http://myapp.test");
+        assert_eq!(site.settings.root.as_deref(), Some("web"));
+        assert_eq!(site.settings.command.as_deref(), Some("npm run dev"));
+        assert_eq!(site.settings.env["APP_ENV"], "local");
+        // Sites without settings keep a short entry.
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.matches("[site.settings").count(), 3, "{text}");
+
+        let mut store = reloaded;
+        let refuse = |s: SiteSettings| s.validated().is_err();
+        assert!(refuse(SiteSettings {
+            root: Some("../elsewhere".into()),
+            ..SiteSettings::default()
+        }));
+        let mut env = SiteSettings::default();
+        env.env.insert("BAD NAME".into(), "x".into());
+        assert!(refuse(env));
+        let mut php = SiteSettings::default();
+        php.php.insert("extension".into(), "gd".into());
+        assert!(refuse(php));
+        let mut quoted = SiteSettings::default();
+        quoted.php.insert("error_log".into(), "a\"b".into());
+        assert!(refuse(quoted));
+        // Two sites can't end up with one domain.
+        store.add(php_site("myapp")).unwrap();
+        assert!(matches!(
+            store.configure("myapp.stack", ".test", true, SiteSettings::default()),
+            Err(Error::SiteExists(_))
+        ));
     }
 }

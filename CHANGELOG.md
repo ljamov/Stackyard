@@ -4,6 +4,24 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- Site tools: **Manage** on a site's row on the Sites screen opens its settings, backups, public
+  link, and servers and Git. Each is a module that can be switched off in Settings › Modules.
+- Site settings: pick a site's own domain ending, the folder served (e.g. `public`), HTTPS on or
+  off, environment variables, PHP settings for that site only, its database, and a start command
+  Stackyard runs while the web server runs (e.g. `npm run dev` for Vite, or your own server
+  command for a Node, Python, Go or Java site, with its port in `PORT`).
+- Site backups: one click backs up a site's files (without `node_modules`), its database and its
+  settings into one zip. **Restore** puts them back, after backing the site up as it is now.
+- Move a site to another computer: **Export to a file…** saves the same zip anywhere, and
+  **Import site…** on the Sites screen brings it in with its settings and database.
+- Public links (off until you switch them on): share a local site at a temporary
+  `https://….trycloudflare.com` address through Cloudflare's free quick tunnels. Stackyard
+  downloads Cloudflare's `cloudflared` the first time. Meant for showing work, not hosting.
+- On the command line: `stackyard sites backup`, `backups`, `restore`, `export` and `import`.
+- WordPress sites made from the starter remember their database for backups.
+
 ## 0.5.0
 
 - Python, Go and Java: install Python 3.11 to 3.15, Go 1.25 to 1.27 and Java 11, 17, 21 and 25

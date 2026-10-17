@@ -27,6 +27,9 @@ becomes a site named after the folder. Stackyard looks at each project to decide
   Django checks the origin of form posts, so add `https://<name>.stack` to `CSRF_TRUSTED_ORIGINS`.
 - **Static files**: anything else, from `public/` or `dist/` when the page lives there.
 
+Each site's own settings (folder served, domain ending, environment variables, PHP settings, a
+start command), backups and public links are in [Site settings, backups and public links](site-tools.md).
+
 Every site answers at `https://<name><ending>` (`.stack` by default) and at `<name>.localhost`, which
 browsers send to your own computer, so sites work before setup.
 

@@ -233,6 +233,7 @@ fn lists_sites_services_and_runtimes() {
             },
             https: true,
             dev_server: false,
+            settings: Default::default(),
         })
         .unwrap();
     store.save().unwrap();

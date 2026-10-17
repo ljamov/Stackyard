@@ -57,6 +57,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 - Node dev servers proxied automatically; static sites served as is
 - **Django, FastAPI, Flask, Go, Spring Boot, Quarkus and Micronaut** apps run by Stackyard and served over HTTPS
 - **Starters**: a new WordPress, Laravel or Astro site in one click, database and config included
+- **Per-site settings**, one-click **backups** of files and database, **export and import** to move a site, and optional **public links**
 
 </td>
 <td width="50%" valign="top">
@@ -242,6 +243,7 @@ See [docs/mcp.md](docs/mcp.md).
 | [Sites, local domains and HTTPS](docs/sites.md) | Framework detection, parked folders, domain endings, what setup changes on each OS |
 | [Runtimes and the terminal](docs/runtimes.md) | Where versions come from, PATH shims, Stackyard Shell, Composer |
 | [Services](docs/services.md) | Every service in detail, the Databases and Logs screens, disk cleanup, background mode |
+| [Site settings, backups and public links](docs/site-tools.md) | Per-site settings, backup and restore, moving a site to another computer, sharing it |
 | [Scheduled tasks](docs/scheduler.md) | Schedules, how tasks run, where output goes |
 | [Servers and Git](docs/remote.md) | SFTP, FTPS and FTP connections, uploads and downloads, passwords, Git |
 | [AI coding tools](docs/ai-tools.md) | Installing and updating Claude Code, Codex, Gemini CLI and others, opening them in a site |
@@ -282,6 +284,7 @@ data folder; set `STACKYARD_HOME` to use another one.
 - [x] phpMyAdmin and an image optimizer
 - [x] Update notifications with release notes
 - [x] Python, Go and Java runtimes
+- [x] Per-site settings, site backups, import and export, public links
 - [ ] Code-signed installers for Windows and macOS
 
 ## Contributing

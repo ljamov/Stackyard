@@ -29,7 +29,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::ProcessState;
 use stackyard_core::system::{self, Elevate};
 use stackyard_core::web::{self, Backend, Ports};
-use stackyard_core::{ai, images, paths, platform, starters, Error};
+use stackyard_core::{ai, images, paths, platform, sitepack, starters, Error};
 
 #[derive(Parser)]
 #[command(name = "stackyard", version, about = "Local development stack manager")]
@@ -328,6 +328,32 @@ enum SitesCommand {
     Unpark { folder: Option<PathBuf> },
     /// List parked folders
     Parked,
+    /// Back up a site's files and database into one zip
+    Backup { site: String },
+    /// List a site's backups
+    Backups { site: String },
+    /// Put a site back as it was in a backup (the site as it is now is backed up first)
+    Restore {
+        site: String,
+        /// The backup's file name, from `stackyard sites backups <site>`
+        file: String,
+    },
+    /// Pack a site, with its database and settings, into one file for another computer
+    Export {
+        site: String,
+        /// The file to write, e.g. `blog.zip`
+        file: PathBuf,
+    },
+    /// Add a site from a file made by `sites export` or a backup
+    Import {
+        file: PathBuf,
+        /// Site name (default: the one in the file)
+        #[arg(long)]
+        name: Option<String>,
+        /// Project folder, new or empty (default: the sites folder)
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
 }
 
 #[derive(Args)]
@@ -506,6 +532,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                     runtime,
                     https: !args.no_https,
                     dev_server: false,
+                    settings: Default::default(),
                 })?
                 .url();
             store.save()?;
@@ -599,6 +626,13 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                     runtime: made.runtime,
                     https: !no_https,
                     dev_server: made.dev_server,
+                    settings: stackyard_core::sites::SiteSettings {
+                        database: made.database.clone().map(|name| stackyard_core::sites::SiteDatabase {
+                            server: "mysql".into(),
+                            name,
+                        }),
+                        ..Default::default()
+                    },
                 })?
                 .url();
             store.save()?;
@@ -649,6 +683,16 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 println!("{}", folder.display());
             }
         }
+        Command::Sites {
+            action:
+                Some(
+                    action @ (SitesCommand::Backup { .. }
+                    | SitesCommand::Backups { .. }
+                    | SitesCommand::Restore { .. }
+                    | SitesCommand::Export { .. }
+                    | SitesCommand::Import { .. }),
+                ),
+        } => site_pack_action(action)?,
         Command::Sites {
             action: Some(SitesCommand::Remove { name }),
         } => {
@@ -1901,6 +1945,93 @@ fn optimize_images(args: ImagesArgs) -> stackyard_core::Result<()> {
     }
     if failed > 0 {
         return Err(Error::Images(format!("{failed} of {total} images failed")));
+    }
+    Ok(())
+}
+
+/// A saved or parked site by its name or domain.
+fn find_site(name: &str) -> stackyard_core::Result<Site> {
+    ServiceManager::open()
+        .user_sites()?
+        .into_iter()
+        .map(|s| s.site)
+        .find(|s| s.domain() == name || s.name == name)
+        .ok_or_else(|| Error::SiteNotFound(name.to_string()))
+}
+
+fn site_pack_action(action: SitesCommand) -> stackyard_core::Result<()> {
+    let home = paths::home();
+    let settings = Settings::load()?;
+    let report = |packed: &sitepack::Packed| {
+        let database = packed
+            .database
+            .as_deref()
+            .map(|d| format!(" and the database {d}"))
+            .unwrap_or_default();
+        println!(
+            "Saved {} ({}, {} files{database})",
+            packed.path.display(),
+            size(packed.size),
+            packed.files
+        );
+        if let Some(warning) = &packed.warning {
+            println!("Note: {warning}");
+        }
+    };
+    match action {
+        SitesCommand::Backup { site } => {
+            settings.require_module("sitebackups")?;
+            report(&sitepack::backup(&home, &find_site(&site)?)?);
+        }
+        SitesCommand::Backups { site } => {
+            let site = find_site(&site)?;
+            let backups = sitepack::backups(&home, &site.domain());
+            if backups.is_empty() {
+                println!(
+                    "No backups of {}. Make one with `stackyard sites backup {}`.",
+                    site.domain(),
+                    site.name
+                );
+            }
+            for backup in backups {
+                let database = backup
+                    .database
+                    .map(|d| format!(", database {d}"))
+                    .unwrap_or_default();
+                println!("{}  {}{database}", backup.file, size(backup.size));
+            }
+        }
+        SitesCommand::Restore { site, file } => {
+            settings.require_module("sitebackups")?;
+            let site = find_site(&site)?;
+            let path = sitepack::backup_path(&home, &site.domain(), &file)?;
+            let safety = sitepack::restore(&home, &site, &path)?;
+            notify(Request::SitesChanged);
+            println!(
+                "Restored {} from {file}. How it was before is in {}",
+                site.domain(),
+                safety.path.display()
+            );
+        }
+        SitesCommand::Export { site, file } => {
+            settings.require_module("sitetransfer")?;
+            let mut file = file;
+            if file.extension().is_none() {
+                file.set_extension("zip");
+            }
+            report(&sitepack::pack(&home, &find_site(&site)?, &file)?);
+        }
+        SitesCommand::Import { file, name, path } => {
+            settings.require_module("sitetransfer")?;
+            let (site, warning) =
+                sitepack::import(&home, &file, sitepack::ImportOptions { name, path })?;
+            notify(Request::SitesChanged);
+            println!("Added {} in {}", site.url(), site.path.display());
+            if let Some(warning) = warning {
+                println!("Note: {warning}");
+            }
+        }
+        _ => unreachable!("only site file commands come here"),
     }
     Ok(())
 }

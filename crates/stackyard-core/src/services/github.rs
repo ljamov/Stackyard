@@ -11,13 +11,13 @@ use crate::{Error, Result};
 const API: &str = "https://api.github.com/repos";
 
 #[derive(Debug, Deserialize)]
-pub(super) struct Latest {
+pub(crate) struct Latest {
     pub tag_name: String,
     pub assets: Vec<Asset>,
 }
 
 #[derive(Debug, Deserialize)]
-pub(super) struct Asset {
+pub(crate) struct Asset {
     pub name: String,
     pub browser_download_url: String,
     /// `sha256:<hex>`, computed by GitHub when the file was uploaded.
@@ -46,7 +46,7 @@ impl Asset {
 
 /// The first of `names` the release has, checked against the SHA-256
 /// GitHub records for each uploaded file.
-pub(super) fn release(
+pub(crate) fn release(
     latest: &Latest,
     name: &str,
     names: &[String],
@@ -73,7 +73,7 @@ pub(super) fn release(
 }
 
 /// `repo` is `owner/name`, e.g. `axllent/mailpit`.
-pub(super) fn latest(http: &Http, repo: &str) -> Result<Latest> {
+pub(crate) fn latest(http: &Http, repo: &str) -> Result<Latest> {
     let base = std::env::var("STACKYARD_GITHUB_API").unwrap_or_else(|_| API.into());
     let token = std::env::var("STACKYARD_GITHUB_TOKEN")
         .ok()

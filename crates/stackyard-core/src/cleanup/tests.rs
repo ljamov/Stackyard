@@ -40,6 +40,7 @@ fn add_site(home: &Path, name: &str, runtime: SiteRuntime) -> PathBuf {
             runtime,
             https: true,
             dev_server: false,
+            settings: Default::default(),
         })
         .unwrap();
     store.save().unwrap();

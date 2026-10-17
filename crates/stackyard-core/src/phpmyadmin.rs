@@ -114,6 +114,7 @@ pub fn site(home: &Path, settings: &Settings, runtimes: &RuntimeManager) -> Opti
         },
         https: true,
         dev_server: false,
+        settings: Default::default(),
     })
 }
 

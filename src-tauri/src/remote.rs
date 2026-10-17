@@ -371,3 +371,13 @@ pub fn site_removed(domain: &str) {
         }
     }
 }
+
+/// Keeps a site's connections when its domain changes.
+pub fn site_renamed(old: &str, new: &str) {
+    if let Ok(mut store) = RemoteStore::load() {
+        if store.for_site(old).next().is_some() {
+            store.rename_site(old, new);
+            let _ = store.save();
+        }
+    }
+}
