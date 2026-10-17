@@ -1,8 +1,8 @@
 name: Website
 
-# Publishes site/ to GitHub Pages, with the logo and screenshots copied in.
-# The download buttons read the latest release when the page loads, so a new
-# release needs no rebuild.
+# Publishes site/ to GitHub Pages, with the logo and screenshots copied in and
+# CHANGELOG.md turned into the changelog page. The download buttons read the
+# latest release when the page loads, so a new release needs no rebuild.
 
 on:
   push:
@@ -11,6 +11,8 @@ on:
       - "site/**"
       - "docs/images/**"
       - "public/logo.svg"
+      - "CHANGELOG.md"
+      - "scripts/changelog-html.mjs"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -37,6 +39,7 @@ jobs:
           cp site/* _site/
           cp public/logo.svg _site/
           cp docs/images/*.png _site/images/
+          node scripts/changelog-html.mjs site/changelog.html _site/changelog.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

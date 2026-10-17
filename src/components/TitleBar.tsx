@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useT } from "../lib/i18n";
 
 /**
  * Stackyard draws its own title bar: the window has no system frame so it
@@ -8,6 +9,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
  * it to maximise.
  */
 export function TitleBar({ onMaximized }: { onMaximized(maximized: boolean): void }) {
+  const t = useT();
   const [maximized, setMaximized] = useState(false);
   const inApp = isTauri();
 
@@ -40,7 +42,7 @@ export function TitleBar({ onMaximized }: { onMaximized(maximized: boolean): voi
       </span>
       {inApp && (
         <div className="titlebar-buttons">
-          <button type="button" className="titlebar-btn" aria-label="Minimise" onClick={() => win().minimize()}>
+          <button type="button" className="titlebar-btn" aria-label={t("Minimise")} onClick={() => win().minimize()}>
             <svg viewBox="0 0 12 12" aria-hidden="true">
               <path d="M2 6h8" />
             </svg>
@@ -48,7 +50,7 @@ export function TitleBar({ onMaximized }: { onMaximized(maximized: boolean): voi
           <button
             type="button"
             className="titlebar-btn"
-            aria-label={maximized ? "Restore" : "Maximise"}
+            aria-label={maximized ? t("Restore") : t("Maximise")}
             onClick={() => win().toggleMaximize()}
           >
             <svg viewBox="0 0 12 12" aria-hidden="true">
@@ -59,7 +61,7 @@ export function TitleBar({ onMaximized }: { onMaximized(maximized: boolean): voi
               )}
             </svg>
           </button>
-          <button type="button" className="titlebar-btn close" aria-label="Close" onClick={() => win().close()}>
+          <button type="button" className="titlebar-btn close" aria-label={t("Close")} onClick={() => win().close()}>
             <svg viewBox="0 0 12 12" aria-hidden="true">
               <path d="M3 3l6 6M9 3l-6 6" />
             </svg>

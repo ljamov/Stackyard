@@ -21,7 +21,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 [Quick start](#quick-start) ·
 [CLI](docs/cli.md) ·
 [MCP](docs/mcp.md) ·
-[What's new](CHANGELOG.md) ·
+[What's new](https://ljamov.github.io/Stackyard/changelog.html) ·
 [Contributing](CONTRIBUTING.md)
 
 <br>
@@ -118,6 +118,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 - Lives in the tray (menu bar on macOS) with services running in the background
 - A full `stackyard` CLI that drives the same engine as the app
 - Signed auto-updates with release notes, installed when you choose
+- Dark, light or system theme, six accent colors, and six languages (add your own with one file)
 - Windows 10/11, macOS 11+ (Intel and Apple silicon), Linux x64
 
 </td>
@@ -178,7 +179,7 @@ stackyard use php 8.3                  # pin a version for the current project
 </tr>
 <tr>
 <td><img src="docs/images/ai-tools.png" alt="AI tools screen: Claude Code and Codex installed, Gemini CLI and others ready to install, each opening in a chosen site's folder"></td>
-<td><img src="docs/images/settings.png" alt="Settings screen with updates, local domains and modules you can switch off"></td>
+<td><img src="docs/images/settings.png" alt="Settings screen with updates, theme, accent color, language and modules you can switch off"></td>
 </tr>
 </table>
 
@@ -249,6 +250,7 @@ See [docs/mcp.md](docs/mcp.md).
 | [AI coding tools](docs/ai-tools.md) | Installing and updating Claude Code, Codex, Gemini CLI and others, opening them in a site |
 | [MCP server](docs/mcp.md) | What AI tools can see and do, permissions, the call log |
 | [Command line](docs/cli.md) | Every `stackyard` command, grouped by task |
+| [Look and language](docs/appearance-and-languages.md) | Themes, accent colors, languages, adding your own translation |
 | [Updates and releases](docs/updates.md) | How updates are signed and how to publish one |
 
 ## Build from source
@@ -285,6 +287,7 @@ data folder; set `STACKYARD_HOME` to use another one.
 - [x] Update notifications with release notes
 - [x] Python, Go and Java runtimes
 - [x] Per-site settings, site backups, import and export, public links
+- [x] Light and dark themes, accent colors, translations, changelog on the website
 - [ ] Code-signed installers for Windows and macOS
 
 ## Contributing

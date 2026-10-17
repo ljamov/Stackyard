@@ -4,6 +4,7 @@ import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { SiteTools } from "../components/SiteTools";
 import { SiteVersions } from "../components/SiteVersions";
+import { useT } from "../lib/i18n";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
 
@@ -30,6 +31,7 @@ function siteName(typed: string) {
 }
 
 export function Sites() {
+  const t = useT();
   const sites = useLoad(api.listSites, []);
   const runtimes = useLoad(api.listRuntimes, []);
   const parked = useLoad(api.listParked, []);
@@ -188,8 +190,8 @@ export function Sites() {
     <>
       <header className="page-header">
         <div>
-          <h1>Sites</h1>
-          <p className="muted">Local domains with HTTPS, each with its own runtime version.</p>
+          <h1>{t("Sites")}</h1>
+          <p className="muted">{t("Local domains with HTTPS, each with its own runtime version.")}</p>
         </div>
         {isOn("sitetransfer") && (
           <button type="button" className="btn" onClick={pickImport}>

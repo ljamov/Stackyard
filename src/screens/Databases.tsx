@@ -10,6 +10,7 @@ import {
   type ResultSet,
 } from "../lib/api";
 import { PhpMyAdminCard } from "../components/PhpMyAdminCard";
+import { useT } from "../lib/i18n";
 
 const PAGE = 100;
 type Tab = "Tables" | "Query" | "Backups";
@@ -17,6 +18,7 @@ type Tab = "Tables" | "Query" | "Backups";
 const KIND_NAMES: Record<DbKind, string> = { mysql: "MySQL / MariaDB", postgres: "PostgreSQL" };
 
 export function Databases() {
+  const t = useT();
   const [servers, setServers] = useState<DbKind[]>([]);
   const [kind, setKind] = useState<DbKind>("mysql");
   const [status, setStatus] = useState<DbServerStatus | null>(null);
@@ -95,11 +97,11 @@ export function Databases() {
     <>
       <header className="page-header">
         <div>
-          <h1>Databases</h1>
+          <h1>{t("Databases")}</h1>
           <p className="muted">
             {status?.server
               ? `${status.server.name}${status.server.version ? ` · running ${status.server.version}` : " · not running"}. Connect as ${kind === "postgres" ? "postgres" : "root"} with no password on 127.0.0.1.`
-              : "Browse tables, run queries, and back up and restore your MySQL, MariaDB or PostgreSQL databases."}
+              : t("Browse tables, run queries, and back up and restore your MySQL, MariaDB or PostgreSQL databases.")}
           </p>
         </div>
         {servers.length > 1 && (

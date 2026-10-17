@@ -46,6 +46,12 @@ node scripts/screenshots.mjs logs images  # only these
 
 With Python and Pillow installed, the script also cuts each PNG to 256 colours, which keeps them around 50 KB.
 
+## Translations
+
+Interface text is English inside `t("…")`, and `src/locales/<code>.json` maps it to each language.
+When you add or change text, wrap it in `t()`; `node scripts/i18n.mjs` lists what each language file
+is missing. Adding a language is described in [docs/appearance-and-languages.md](docs/appearance-and-languages.md).
+
 ## Before you open a pull request
 
 Run the same checks CI runs:

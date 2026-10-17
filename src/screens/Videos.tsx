@@ -12,6 +12,7 @@ import {
   type VideosProgress,
 } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
+import { useT } from "../lib/i18n";
 
 const FORMATS: { id: VideoFormat; label: string; hint: string }[] = [
   { id: "mp4", label: "MP4", hint: "H.264, plays everywhere" },
@@ -53,6 +54,7 @@ function folderOf(path: string) {
 type Finished = { ok: boolean; stopped: boolean; message: string | null };
 
 export function Videos() {
+  const t = useT();
   const sites = useLoad(api.listSites, []);
   const sitesFolder = useLoad(api.sitesFolder, "");
   const [ffmpeg, setFfmpeg] = useState<FfmpegStatus | null>(null);
@@ -210,10 +212,11 @@ export function Videos() {
     <>
       <header className="page-header">
         <div>
-          <h1>Videos</h1>
+          <h1>{t("Videos")}</h1>
           <p className="muted">
-            Make web-ready MP4, WebM and GIF copies of videos and GIFs, smaller and optionally narrower or without
-            sound. Your originals stay as they are.
+            {t(
+              "Make web-ready MP4, WebM and GIF copies of videos and GIFs, smaller and optionally narrower or without sound. Your originals stay as they are.",
+            )}
           </p>
         </div>
       </header>

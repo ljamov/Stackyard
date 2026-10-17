@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, errorText, type LogFile } from "../lib/api";
+import { useT } from "../lib/i18n";
 
 /** Lines kept in view; older ones scroll away. */
 const KEEP = 5000;
@@ -8,6 +9,7 @@ const FIRST_READ = 500;
 type Matcher = { test: (line: string) => boolean; mark: (line: string) => ReactNode } | null;
 
 export function Logs() {
+  const t = useT();
   const [files, setFiles] = useState<LogFile[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [lines, setLines] = useState<string[]>([]);
@@ -118,8 +120,10 @@ export function Logs() {
     <>
       <header className="page-header">
         <div>
-          <h1>Logs</h1>
-          <p className="muted">Every service's log in one place, updated live. Search with plain text or a regular expression.</p>
+          <h1>{t("Logs")}</h1>
+          <p className="muted">
+            {t("Every service's log in one place, updated live. Search with plain text or a regular expression.")}
+          </p>
         </div>
         {files.length > 0 &&
           (confirming ? (

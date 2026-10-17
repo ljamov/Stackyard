@@ -49,6 +49,14 @@ const SHOTS = {
   videos: { screen: "Videos" },
   "ai-tools": { screen: "AI tools", wait: 800 },
   settings: { screen: "Settings" },
+  // Last, as it switches the preview to the light theme.
+  light: {
+    screen: "Settings",
+    prep: async (page) => {
+      await page.getByRole("button", { name: "Light", exact: true }).click();
+      await open(page, "Dashboard");
+    },
+  },
 };
 
 const wanted = process.argv.slice(2);
@@ -122,13 +130,13 @@ async function prepare(page) {
   await sleep(2500);
 
   await open(page, "Services");
+  await page.getByRole("button", { name: "Start Caddy", exact: true }).waitFor();
   for (const name of ["Mailpit", "PostgreSQL", "Redis"]) {
     const install = page.getByRole("button", { name: `Install ${name}`, exact: true });
-    await install.waitFor();
-    await install.click();
+    // The sample data may have some installed already.
+    if (await install.isVisible()) await install.click();
   }
-  await page.getByRole("button", { name: "Install Redis", exact: true }).waitFor({ state: "detached" });
-  await sleep(1500);
+  await sleep(2500);
   for (const name of ["Caddy", "MySQL", "Mailpit", "Redis"]) {
     const start = page.getByRole("button", { name: `Start ${name}`, exact: true });
     await start.waitFor();

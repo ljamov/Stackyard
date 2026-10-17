@@ -4,7 +4,6 @@ import { Dashboard } from "./screens/Dashboard";
 import { Sites } from "./screens/Sites";
 import { Runtimes } from "./screens/Runtimes";
 import { Services } from "./screens/Services";
-import { ComingSoon } from "./screens/ComingSoon";
 import { Settings } from "./screens/Settings";
 import { McpServer } from "./screens/McpServer";
 import { Databases } from "./screens/Databases";
@@ -55,20 +54,6 @@ export function App() {
               {screen === "Images" && <Images />}
               {screen === "Videos" && <Videos />}
               {screen === "AI tools" && <AiTools />}
-              {![
-                "Dashboard",
-                "Sites",
-                "Services",
-                "Runtimes",
-                "Settings",
-                "MCP server",
-                "Scheduler",
-                "Images",
-                "Videos",
-                "AI tools",
-                "Logs",
-                "Databases",
-              ].includes(screen) && <ComingSoon screen={screen} />}
             </main>
           </div>
         )}

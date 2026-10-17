@@ -28,7 +28,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
-use stackyard_core::{domain, images, paths, phpmyadmin, starters, videos};
+use stackyard_core::{domain, images, languages, paths, phpmyadmin, starters, videos};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
 mod ai;
@@ -857,6 +857,27 @@ async fn install_update(app: AppHandle) -> CmdResult<()> {
 #[tauri::command]
 fn seen_whats_new(app: AppHandle) -> updates::UpdateView {
     updates::seen_whats_new(&app)
+}
+
+/// Translation files the user put in the languages folder.
+#[tauri::command]
+fn language_files() -> languages::LanguageFiles {
+    languages::load()
+}
+
+/// Opens the languages folder (made first) in the file manager.
+#[tauri::command]
+fn open_languages_folder() -> CmdResult<()> {
+    let dir = languages::folder();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    let mut cmd = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut cmd = std::process::Command::new("explorer");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = std::process::Command::new("xdg-open");
+    cmd.arg(&dir).spawn().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1845,6 +1866,8 @@ pub fn run() {
             service_states,
             get_tld,
             set_tld,
+            language_files,
+            open_languages_folder,
             list_sites,
             set_site_version,
             add_site,
