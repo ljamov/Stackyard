@@ -753,6 +753,21 @@ mod tests {
     #[test]
     #[ignore]
     fn live_runs_postgres() {
+        // PostgreSQL refuses to run elevated, as Windows CI runners do; an
+        // everyday (not "Run as administrator") account is fine.
+        #[cfg(windows)]
+        {
+            let groups = std::process::Command::new("whoami")
+                .arg("/groups")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                .unwrap_or_default();
+            // S-1-16-12288: the high (elevated) integrity level.
+            if groups.contains("S-1-16-12288") {
+                eprintln!("running elevated, which PostgreSQL refuses; skipping");
+                return;
+            }
+        }
         let Some((supervisor, home)) = live_start("postgres") else {
             return;
         };
