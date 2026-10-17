@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
-import { api, errorText, type RuntimeFamily, type Site } from "../lib/api";
+import { api, errorText, type RuntimeFamily, type Site, type SiteFile } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
-import { SiteRemote } from "../components/SiteRemote";
+import { SiteTools } from "../components/SiteTools";
 import { SiteVersions } from "../components/SiteVersions";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
@@ -37,8 +37,9 @@ export function Sites() {
   const sitesFolder = useLoad(api.sitesFolder, "");
   const { isOn } = useModules();
   const options = runtimeOptions(runtimes.data, isOn);
-  const canConnect = isOn("remote") || isOn("git");
-  const [connecting, setConnecting] = useState<string | null>(null);
+  const hasTools = ["sitesettings", "sitebackups", "sitetransfer", "share", "remote", "git"].some(isOn);
+  const [managing, setManaging] = useState<string | null>(null);
+  const [importing, setImporting] = useState<{ path: string; file: SiteFile } | null>(null);
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
   // What was typed, as typed; `name` is the address it makes. Rewriting the
@@ -169,6 +170,12 @@ export function Sites() {
     system.reload();
   }
 
+  async function pickImport() {
+    const [path] = await api.pickFiles("Pick a Stackyard site file or backup", undefined, false);
+    if (!path) return;
+    await attempt(async () => setImporting({ path, file: await api.inspectSiteFile(path) }));
+  }
+
   async function setUp() {
     setSettingUp(true);
     await attempt(() => api.runSystemSetup());
@@ -184,7 +191,25 @@ export function Sites() {
           <h1>Sites</h1>
           <p className="muted">Local domains with HTTPS, each with its own runtime version.</p>
         </div>
+        {isOn("sitetransfer") && (
+          <button type="button" className="btn" onClick={pickImport}>
+            Import site…
+          </button>
+        )}
       </header>
+      {importing && (
+        <ImportSite
+          path={importing.path}
+          file={importing.file}
+          onClose={() => setImporting(null)}
+          onImported={(domain) => {
+            setImporting(null);
+            setManaging(domain);
+            sites.reload();
+            system.reload();
+          }}
+        />
+      )}
 
       {system.data && system.data.needed.length > 0 && (
         <section aria-labelledby="setup-h" className="card stack">
@@ -412,13 +437,20 @@ export function Sites() {
                     runtimes.reload();
                   }}
                   onRemove={remove}
-                  connectOpen={canConnect ? connecting === site.domain : null}
-                  onConnect={() => setConnecting(connecting === site.domain ? null : site.domain)}
+                  manageOpen={hasTools ? managing === site.domain : null}
+                  onManage={() => setManaging(managing === site.domain ? null : site.domain)}
                 />
-                {canConnect && connecting === site.domain && (
+                {hasTools && managing === site.domain && (
                   <tr className="site-detail">
                     <td colSpan={4}>
-                      <SiteRemote site={site} />
+                      <SiteTools
+                        site={site}
+                        onChanged={(domain) => {
+                          if (domain) setManaging(domain);
+                          sites.reload();
+                          system.reload();
+                        }}
+                      />
                     </td>
                   </tr>
                 )}
@@ -436,16 +468,16 @@ function SiteRow({
   families,
   onVersionChanged,
   onRemove,
-  connectOpen,
-  onConnect,
+  manageOpen,
+  onManage,
 }: {
   site: Site;
   families: RuntimeFamily[];
   onVersionChanged: () => void;
   onRemove: (domain: string) => void;
-  /** Whether the servers and Git panel is open; null when both modules are off. */
-  connectOpen: boolean | null;
-  onConnect: () => void;
+  /** Whether the site's tools are open; null when every site tool is switched off. */
+  manageOpen: boolean | null;
+  onManage: () => void;
 }) {
   return (
     <tr>
@@ -470,15 +502,15 @@ function SiteRow({
       </td>
       <td className="mono muted small">{site.root}</td>
       <td className="right nowrap">
-        {connectOpen !== null && (
+        {manageOpen !== null && (
           <button
             type="button"
             className="btn ghost small"
-            aria-expanded={connectOpen}
-            aria-label={`Servers and Git for ${site.domain}`}
-            onClick={onConnect}
+            aria-expanded={manageOpen}
+            aria-label={`Manage ${site.domain}`}
+            onClick={onManage}
           >
-            {connectOpen ? "Close" : "Servers & Git"}
+            {manageOpen ? "Close" : "Manage"}
           </button>
         )}
         {!site.parked && (
@@ -493,5 +525,110 @@ function SiteRow({
         )}
       </td>
     </tr>
+  );
+}
+
+/** Asks where to put a site from a file, then brings it in. */
+function ImportSite({
+  path,
+  file,
+  onClose,
+  onImported,
+}: {
+  path: string;
+  file: SiteFile;
+  onClose: () => void;
+  onImported: (domain: string) => void;
+}) {
+  const [name, setName] = useState(file.name);
+  const [folder, setFolder] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<{ domain: string; text: string } | null>(null);
+  const ending = file.domain.slice(file.name.length);
+
+  async function browse() {
+    const picked = await api.pickFolder("Pick a new or empty folder for the site", folder || undefined);
+    if (picked) setFolder(picked);
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.importSite(path, siteName(name) || null, folder.trim() || null);
+      if (result.warning) setWarning({ domain: result.domain, text: result.warning });
+      else onImported(result.domain);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (warning) {
+    return (
+      <section className="card stack" aria-label="Site imported">
+        <p className="notice small">
+          <span className="mono">{warning.domain}</span> is added.
+        </p>
+        <p className="warn small">{warning.text}</p>
+        <div className="row">
+          <button type="button" className="btn primary" onClick={() => onImported(warning.domain)}>
+            OK
+          </button>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <form className="card stack form" aria-labelledby="import-h" onSubmit={submit}>
+      <h2 id="import-h">Import {file.domain}</h2>
+      <p className="muted small">
+        {file.runtime ?? "Static files"}
+        {file.database ? ` with the database ${file.database}` : ""}, packed{" "}
+        {new Date(file.created).toLocaleDateString()} by Stackyard {file.made_by}.
+        {file.database && " Start MySQL, MariaDB or PostgreSQL first so the database can be loaded."}
+      </p>
+      <div className="form-grid">
+        <div className="field">
+          <label htmlFor="imp-name">Name</label>
+          <div className="input-affix">
+            <input id="imp-name" className="mono" value={name} onChange={(e) => setName(e.target.value)} required />
+            <span className="mono muted">{ending}</span>
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="imp-folder">Project folder</label>
+          <div className="row folder-input">
+            <input
+              id="imp-folder"
+              className="mono grow"
+              value={folder}
+              placeholder={file.folder.replace(new RegExp(`${file.name}$`), siteName(name) || file.name)}
+              onChange={(e) => setFolder(e.target.value)}
+            />
+            <button type="button" className="btn" onClick={browse}>
+              Browse…
+            </button>
+          </div>
+          <span className="muted small">A new or empty folder.</span>
+        </div>
+      </div>
+      {error && (
+        <p className="error small" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="row between centered">
+        <button type="button" className="btn ghost" onClick={onClose}>
+          Cancel
+        </button>
+        <button type="submit" className="btn primary" disabled={busy || !siteName(name)}>
+          {busy ? "Importing…" : "Import site"}
+        </button>
+      </div>
+    </form>
   );
 }

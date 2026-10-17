@@ -7,7 +7,7 @@
 //! - `config/<id>/`: config files Stackyard writes before each start
 
 mod caddy;
-mod github;
+pub(crate) mod github;
 mod mailpit;
 mod mariadb;
 mod meilisearch;

@@ -5,7 +5,50 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+
+export type SiteDatabase = { server: "mysql" | "postgres"; name: string };
+
+/** A site's own settings, beyond its runtime version. */
+export type SiteSettings = {
+  /** Folder served, inside the project; null lets Stackyard pick it. */
+  root?: string | null;
+  env?: Record<string, string>;
+  /** php.ini values for this site only. */
+  php?: Record<string, string>;
+  command?: string | null;
+  database?: SiteDatabase | null;
+};
+
+export type SiteSettingsInfo = {
+  domain: string;
+  tld: string;
+  https: boolean;
+  settings: SiteSettings;
+  parked: boolean;
+  detected_root: string;
+  detected_database: SiteDatabase | null;
+  php: boolean;
+  port: number | null;
+};
+
+export type SiteBackup = { site: string; file: string; size: number; created: number; database: string | null };
+
+/** What a backup or export wrote. */
+export type Packed = { path: string; size: number; files: number; database: string | null; warning: string | null };
+
+export type SiteFile = {
+  name: string;
+  domain: string;
+  runtime: string | null;
+  database: string | null;
+  created: number;
+  made_by: string;
+  folder: string;
+};
+
+export type ShareLink = { site: string; url: string | null };
+export type ShareStatus = { cloudflared: string | null; links: ShareLink[]; web_running: boolean };
 
 export type PhpMyAdminStatus = {
   installed: string | null;
@@ -580,6 +623,26 @@ export interface Api {
   onRemoteProgress(handler: (p: RemoteProgress) => void): Promise<() => void>;
   /** Opens the system's file picker; empty when cancelled. */
   pickFiles(title: string, start?: string, multiple?: boolean): Promise<string[]>;
+  /** Opens the system's save dialog; null when cancelled. */
+  pickSaveFile(title: string, name: string): Promise<string | null>;
+  siteSettings(domain: string): Promise<SiteSettingsInfo>;
+  saveSiteSettings(domain: string, tld: string, https: boolean, settings: SiteSettings): Promise<{ sites: Site[]; domain: string }>;
+  siteBackups(domain: string): Promise<SiteBackup[]>;
+  backupSite(domain: string): Promise<Packed>;
+  /** Puts a backup back; the site as it is now is backed up first. */
+  restoreSite(domain: string, file: string): Promise<Packed>;
+  removeSiteBackup(domain: string, file: string): Promise<SiteBackup[]>;
+  openSiteBackups(domain: string): Promise<void>;
+  exportSite(domain: string, dest: string): Promise<Packed>;
+  inspectSiteFile(path: string): Promise<SiteFile>;
+  importSite(path: string, name: string | null, folder: string | null): Promise<{ sites: Site[]; domain: string; warning: string | null }>;
+  shareStatus(): Promise<ShareStatus>;
+  shareInstall(): Promise<ShareStatus>;
+  shareUninstall(): Promise<ShareStatus>;
+  /** Makes a public link (downloading cloudflared first if needed) and waits for its address. */
+  shareStart(domain: string): Promise<ShareLink>;
+  shareStop(domain: string): Promise<ShareStatus>;
+  openShareLink(domain: string): Promise<void>;
   gitStatus(site: string): Promise<GitStatus>;
   gitLink(site: string, url: string): Promise<GitStatus>;
   gitFetch(site: string): Promise<GitStatus>;
@@ -726,6 +789,24 @@ const tauriApi: Api = {
     if (picked === null) return [];
     return Array.isArray(picked) ? picked : [picked];
   },
+  pickSaveFile: async (title, name) =>
+    saveDialog({ title, defaultPath: name, filters: [{ name: "Stackyard site", extensions: ["zip"] }] }),
+  siteSettings: (domain) => invoke("site_settings", { domain }),
+  saveSiteSettings: (domain, tld, https, settings) => invoke("save_site_settings", { domain, tld, https, settings }),
+  siteBackups: (domain) => invoke("site_backups", { domain }),
+  backupSite: (domain) => invoke("backup_site", { domain }),
+  restoreSite: (domain, file) => invoke("restore_site", { domain, file }),
+  removeSiteBackup: (domain, file) => invoke("remove_site_backup", { domain, file }),
+  openSiteBackups: (domain) => invoke("open_site_backups", { domain }),
+  exportSite: (domain, dest) => invoke("export_site", { domain, dest }),
+  inspectSiteFile: (path) => invoke("inspect_site_file", { path }),
+  importSite: (path, name, folder) => invoke("import_site", { path, name, folder }),
+  shareStatus: () => invoke("share_status"),
+  shareInstall: () => invoke("share_install"),
+  shareUninstall: () => invoke("share_uninstall"),
+  shareStart: (domain) => invoke("share_start", { domain }),
+  shareStop: (domain) => invoke("share_stop", { domain }),
+  openShareLink: (domain) => invoke("open_share_link", { domain }),
   gitStatus: (site) => invoke("git_status", { site }),
   gitLink: (site, url) => invoke("git_link", { site, url }),
   gitFetch: (site) => invoke("git_fetch", { site }),
@@ -861,6 +942,10 @@ function browserApi(): Api {
     mod("databases", "Databases screen", "feature", "Browse tables, run queries, back up and restore MySQL, MariaDB and PostgreSQL", true, true),
     mod("remote", "Remote servers", "feature", "Upload and download site files over SFTP, FTPS or FTP (Cloudways, cPanel, any VPS)", true, true),
     mod("git", "Git", "feature", "Link sites to GitHub or any Git host, then pull, commit and push (uses Git on your computer)", true, true),
+    mod("sitesettings", "Site settings", "feature", "Per-site folder served, domain ending, HTTPS, environment variables, PHP settings and a start command", true, true),
+    mod("sitebackups", "Site backups", "feature", "Back up a site's files and database in one zip, and restore it", true, true),
+    mod("sitetransfer", "Site import and export", "feature", "Pack a site, with its database and settings, into one file to open on another computer", true, true),
+    mod("share", "Public links", "feature", "Share a local site at a temporary public address through Cloudflare's free quick tunnels (cloudflared is downloaded when you first use it)", false, true),
     mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),
     mod("images", "Image optimizer", "feature", "Make WebP and AVIF copies of JPG and PNG images, and smaller JPGs and PNGs", true, true),
     mod("videos", "Video optimizer", "feature", "Make web-ready MP4, WebM and GIF copies of videos with FFmpeg (downloaded when you first use it)", true, true),
@@ -1611,6 +1696,105 @@ function browserApi(): Api {
       return () => remoteHandlers.delete(handler);
     },
     pickFiles: async () => [],
+    pickSaveFile: async (_title, name) => `/home/you/Downloads/${name}`,
+    siteSettings: async (domain) => {
+      const site = sites.find((s) => s.domain === domain);
+      if (!site) throw `no site named ${domain}`;
+      return {
+        domain,
+        tld: "." + domain.split(".").slice(1).join("."),
+        https: site.https,
+        settings: siteSettings[domain] ?? {},
+        parked: site.parked,
+        detected_root: site.root.startsWith(site.path) ? site.root.slice(site.path.length).replace(/^[\\/]+/, "") : "",
+        detected_database: site.framework === "WordPress" ? { server: "mysql", name: site.name } : null,
+        php: site.runtime.startsWith("PHP"),
+        port: site.runtime.startsWith("PHP") || site.runtime === "Static" ? null : 3000,
+      };
+    },
+    saveSiteSettings: async (domain, tld, https, settings) => {
+      const name = domain.split(".")[0];
+      const next = `${name}${tld.startsWith(".") ? tld : "." + tld}`;
+      if (next !== domain && sites.some((s) => s.domain === next)) throw `a site named "${next}" already exists`;
+      delete siteSettings[domain];
+      siteSettings[next] = settings;
+      sites = sites.map((s) =>
+        s.domain === domain
+          ? {
+              ...s,
+              domain: next,
+              https,
+              url: `${https ? "https" : "http"}://${next}`,
+              root: settings.root ? `${s.path}/${settings.root}` : s.root,
+            }
+          : s,
+      );
+      return { sites, domain: next };
+    },
+    siteBackups: async (domain) => siteBackups.filter((b) => b.site === domain),
+    backupSite: async (domain) => {
+      await new Promise((r) => setTimeout(r, 700));
+      const backup: SiteBackup = {
+        site: domain,
+        file: `${domain}-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}.zip`,
+        size: 18_400_000,
+        created: Date.now(),
+        database: domain.startsWith("blog") ? "blog" : null,
+      };
+      siteBackups = [backup, ...siteBackups];
+      return { path: `~/stackyard/backups/sites/${domain}/${backup.file}`, size: backup.size, files: 1840, database: backup.database, warning: null };
+    },
+    restoreSite: async (domain) => {
+      await new Promise((r) => setTimeout(r, 900));
+      const backup: SiteBackup = { site: domain, file: `${domain}-before-restore.zip`, size: 18_000_000, created: Date.now(), database: null };
+      siteBackups = [backup, ...siteBackups];
+      return { path: backup.file, size: backup.size, files: 1840, database: null, warning: null };
+    },
+    removeSiteBackup: async (domain, file) => {
+      siteBackups = siteBackups.filter((b) => !(b.site === domain && b.file === file));
+      return siteBackups.filter((b) => b.site === domain);
+    },
+    openSiteBackups: async () => {},
+    exportSite: async (domain, dest) => {
+      await new Promise((r) => setTimeout(r, 700));
+      return { path: dest, size: 18_400_000, files: 1840, database: domain.startsWith("blog") ? "blog" : null, warning: null };
+    },
+    inspectSiteFile: async () => ({
+      name: "shop",
+      domain: "shop.stack",
+      runtime: "PHP 8.4",
+      database: "shop",
+      created: Date.now() - 3 * 86400_000,
+      made_by: "0.5.0",
+      folder: "/home/you/stackyard/www/shop",
+    }),
+    importSite: async (_path, name) => {
+      const site = sample(name || "shop-copy", "PHP 8.4", "Laravel", false);
+      if (sites.some((s) => s.domain === site.domain)) throw `a site named "${site.domain}" already exists`;
+      sites = [...sites, site];
+      return { sites, domain: site.domain, warning: null };
+    },
+    shareStatus: async () => share,
+    shareInstall: async () => {
+      await new Promise((r) => setTimeout(r, 900));
+      share = { ...share, cloudflared: "2026.10.1" };
+      return share;
+    },
+    shareUninstall: async () => {
+      share = { ...share, cloudflared: null, links: [] };
+      return share;
+    },
+    shareStart: async (domain) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      const link = { site: domain, url: "https://seasonal-tiger-hold-example.trycloudflare.com" };
+      share = { ...share, cloudflared: share.cloudflared ?? "2026.10.1", links: [...share.links.filter((l) => l.site !== domain), link] };
+      return link;
+    },
+    shareStop: async (domain) => {
+      share = { ...share, links: share.links.filter((l) => l.site !== domain) };
+      return share;
+    },
+    openShareLink: async () => {},
     gitStatus: async (site) => git[site] ?? { ...noGit },
     gitLink: async (site, url) => {
       git[site] = { ...noGit, repo: true, branch: "main", upstream: "origin/main", remote: url, identity: false, changes: [{ path: "index.php", kind: "modified" }] };
@@ -1636,6 +1820,14 @@ function browserApi(): Api {
   };
   return mock;
 }
+
+const siteSettings: Record<string, SiteSettings> = {
+  "blog.stack": { env: { WP_ENVIRONMENT_TYPE: "local" }, php: { memory_limit: "1G" } },
+};
+let siteBackups: SiteBackup[] = [
+  { site: "blog.stack", file: "blog.stack-20261016-180000.zip", size: 21_300_000, created: Date.now() - 20 * 3600_000, database: "blog" },
+];
+let share: ShareStatus = { cloudflared: null, links: [], web_running: true };
 
 const remoteHandlers = new Set<(p: RemoteProgress) => void>();
 let remotes: RemoteConnection[] = [
