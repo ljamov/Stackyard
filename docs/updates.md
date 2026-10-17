@@ -2,12 +2,13 @@
 
 How the app updates itself, and how maintainers publish a new version.
 
-Stackyard checks for a newer version when it starts and every four hours while it runs (switch
+Stackyard checks for a newer version when it starts, every half hour while it runs, and when its
+window comes forward (at most once every ten minutes; switch
 the **Updates** module off in Settings to stop that). When it finds one, it shows a system
 notification (unless the window is in front already), adds **Update to …** to the tray menu and
 puts a notice at the top of the window with the version's notes and an **Update now** button. A
 version that came out while Stackyard was closed is found at the next start. It never installs on
-its own: **Update now** (or **Install and restart** in Settings) downloads it, stops the running
+its own: **Check for updates** in Settings checks right away, and **Update now** (or **Install and restart** in Settings) downloads it, stops the running
 services, installs it and starts them again in the new version, which then shows what changed. Every update is signed with a
 key only the maintainer holds, and the app refuses one whose signature doesn't match the public
 key built into it.

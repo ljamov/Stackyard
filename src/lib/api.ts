@@ -935,7 +935,7 @@ function browserApi(): Api {
     mod("seaweedfs", "SeaweedFS", "service", "S3-compatible storage for uploads and buckets, like MinIO or AWS S3", false, true),
     mod("nats", "NATS", "service", "Message queue with JetStream, for jobs and events between apps", false, true),
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
-    mod("updates", "Updates", "feature", "Checks for new Stackyard versions every few hours and tells you; you choose when to install", true, true),
+    mod("updates", "Updates", "feature", "Checks for new Stackyard versions every half hour and tells you; you choose when to install", true, true),
     mod("logs", "Log viewer", "feature", "Live logs from every service, with search", true, true),
     mod("ai", "AI coding tools", "feature", "Install Claude Code, Codex, Gemini CLI and more on Stackyard's Node.js, and open them in a site's folder", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),

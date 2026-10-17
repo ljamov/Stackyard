@@ -1,8 +1,10 @@
 name: Installers
 
-# Unsigned installers for Windows, macOS and Linux. They run for version
-# tags (and then go on a draft release), by hand, and for pull requests
-# that change how the installers are made. Run by hand on master with
+# Installers for Windows, macOS and Linux. They run for version tags (and
+# then go on a draft release), by hand, for every change to master, and for
+# pull requests that change how the installers are made. Each build is
+# installed and started on its own system, and checked against the
+# performance budgets (size, start time, tray-only memory). Run by hand on master with
 # "release" ticked, they also go on a draft release, tagged with the
 # version in tauri.conf.json; the tag is made when the draft is published.
 #
@@ -12,8 +14,19 @@ name: Installers
 # people. Releases go to the STACKYARD_RELEASES_REPO variable's repository
 # (with the STACKYARD_RELEASES_TOKEN secret) when set, else to this one;
 # the app can only download updates from a public repository.
+#
+# Installers are signed when the signing secrets exist (see docs/signing.md)
+# and built unsigned otherwise:
+# - Windows, with Azure Artifact Signing: the AZURE_TENANT_ID, AZURE_CLIENT_ID
+#   and AZURE_CLIENT_SECRET secrets, and the AZURE_SIGNING_ENDPOINT,
+#   AZURE_SIGNING_ACCOUNT and AZURE_SIGNING_PROFILE variables.
+# - macOS, with an Apple Developer ID: the APPLE_CERTIFICATE (the .p12 file
+#   in base64) and APPLE_CERTIFICATE_PASSWORD secrets; with APPLE_ID,
+#   APPLE_PASSWORD (an app-specific password) and APPLE_TEAM_ID also set,
+#   the app is notarized too.
 on:
   push:
+    branches: [master]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -26,6 +39,8 @@ on:
       - .github/workflows/release.yml
       - src-tauri/tauri.conf.json
       - src-tauri/tauri.release.conf.json
+      - src-tauri/src/perf.rs
+      - .github/scripts/**
 
 concurrency:
   group: installers-${{ github.ref }}
@@ -34,8 +49,16 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RELEASES_REPO: ${{ vars.STACKYARD_RELEASES_REPO || github.repository }}
-  # Performance budget from the spec: installers stay under 15 MB.
+  # Performance budgets from the spec: installers stay under 15 MB, and with
+  # the window closed the app uses under 40 MB of memory. The spec's start
+  # budget is a second on a person's computer; see max_start_ms below for
+  # what the runners allow. Stackyard's own start-up code (everything but
+  # the system making the window and web view) gets MAX_OWN_START_MS.
   MAX_INSTALLER_MB: 15
+  MAX_TRAY_MB: 40
+  MAX_OWN_START_MS: 500
+  # The Microsoft client that lets signtool use Azure Artifact Signing.
+  ARTIFACT_SIGNING_CLIENT: 1.0.128
 
 jobs:
   bundle:
@@ -44,27 +67,40 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # max_start_ms: the start-time limit on these runners. They have no
+          # graphics card, so the system web view alone takes about a second
+          # on Windows and 1.2 s on macOS before the page shows; each limit
+          # is set above what the runner measures now, to catch regressions.
           - name: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
+            max_start_ms: 1600
           - name: macos-arm64
             os: macos-latest
             target: aarch64-apple-darwin
+            max_start_ms: 2400
+          # Runs under Rosetta on the Apple-chip runner, so it starts slower.
           - name: macos-x64
             os: macos-latest
             target: x86_64-apple-darwin
+            max_start_ms: 3200
           # The oldest supported Ubuntu, so the packages run on more systems.
           - name: linux-x64
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            max_start_ms: 1000
     runs-on: ${{ matrix.os }}
+    env:
+      WINDOWS_SIGNING: ${{ secrets.AZURE_CLIENT_SECRET != '' && vars.AZURE_SIGNING_ACCOUNT != '' }}
+      MAC_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      MAC_NOTARIZING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev patchelf file
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev patchelf file xvfb
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -84,14 +120,82 @@ jobs:
           ext=""; [ "$RUNNER_OS" = Windows ] && ext=".exe"
           mkdir -p src-tauri/binaries
           cp "target/${{ matrix.target }}/release/stackyard$ext" "src-tauri/binaries/stackyard-${{ matrix.target }}$ext"
+      - name: Prepare Windows signing
+        if: runner.os == 'Windows' && env.WINDOWS_SIGNING == 'true'
+        shell: bash
+        env:
+          ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/artifact-signing"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/client.zip" \
+            "https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/$ARTIFACT_SIGNING_CLIENT/microsoft.artifactsigning.client.$ARTIFACT_SIGNING_CLIENT.nupkg"
+          unzip -q "$dir/client.zip" -d "$dir/client"
+          jq -n --arg e "$ENDPOINT" --arg a "$ACCOUNT" --arg p "$PROFILE" \
+            '{Endpoint: $e, CodeSigningAccountName: $a, CertificateProfileName: $p}' > "$dir/metadata.json"
+          win() { cygpath -w "$1"; }
+          echo "SIGNING_DLIB=$(win "$dir/client/bin/x64/Azure.CodeSigning.Dlib.dll")" >> "$GITHUB_ENV"
+          echo "SIGNING_METADATA=$(win "$dir/metadata.json")" >> "$GITHUB_ENV"
+          jq -n --arg s "$(win "$GITHUB_WORKSPACE/.github/scripts/sign-windows.ps1")" \
+            '{bundle: {windows: {signCommand: {cmd: "powershell", args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $s, "%1"]}}}}' \
+            > "$dir/sign.conf.json"
+          echo "SIGN_CONFIG=$dir/sign.conf.json" >> "$GITHUB_ENV"
+          cat "$dir/metadata.json" "$dir/sign.conf.json"
+      - name: Prepare macOS signing
+        if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          # Tauri signs with the certificate's name, read from the certificate
+          # itself unless the APPLE_SIGNING_IDENTITY secret gives it.
+          identity="$APPLE_SIGNING_IDENTITY"
+          if [ -z "$identity" ]; then
+            p12="$RUNNER_TEMP/certificate.p12"
+            echo "$APPLE_CERTIFICATE" | base64 --decode > "$p12"
+            for legacy in "" -legacy; do
+              identity=$(openssl pkcs12 $legacy -in "$p12" -nokeys -passin env:APPLE_CERTIFICATE_PASSWORD 2>/dev/null |
+                openssl x509 -noout -subject -nameopt multiline 2>/dev/null | sed -n 's/^ *commonName *= //p' || true)
+              [ -n "$identity" ] && break
+            done
+            rm -f "$p12"
+          fi
+          [ -n "$identity" ] || { echo "::error::could not read the certificate's name; check APPLE_CERTIFICATE_PASSWORD"; exit 1; }
+          echo "Signing as: $identity"
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
       - name: Build the installers
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+          # Tauri takes a variable that is there but empty (a secret that
+          # was never added) as a request to sign; leave those out.
+          for v in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!v:-}" ] || unset "$v"
+          done
+          if [ "$MAC_NOTARIZING" != true ]; then unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; fi
           configs=(--config src-tauri/tauri.release.conf.json)
+          if [ -n "${SIGN_CONFIG:-}" ]; then
+            configs+=(--config "$SIGN_CONFIG")
+          elif [ "$RUNNER_OS" != Linux ] && [ "$MAC_SIGNING" != true ]; then
+            echo "No code signing secrets: building unsigned installers."
+          fi
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             if [ -z "$(jq -r '.plugins.updater.pubkey // ""' src-tauri/tauri.conf.json)" ]; then
               echo "::warning::Updates are signed, but tauri.conf.json has no public key, so the app can't check them"
@@ -156,9 +260,32 @@ jobs:
               "$dir/stackyard.exe" --version ;;
           esac
 
+          echo "== signatures"
+          if [ "$WINDOWS_SIGNING" = true ]; then
+            for f in out/*-setup.exe out/*.msi "$LOCALAPPDATA/Stackyard/stackyard-app.exe" "$LOCALAPPDATA/Stackyard/stackyard.exe"; do
+              status=$(powershell -NoProfile -Command "(Get-AuthenticodeSignature '$(cygpath -w "$f")').Status" | tr -d '\r')
+              echo "$(basename "$f"): $status"
+              [ "$status" = Valid ] || { echo "::error file=$(basename "$f")::$(basename "$f") is not signed ($status)"; exit 1; }
+            done
+          fi
+          if [ "$MAC_SIGNING" = true ]; then
+            codesign --verify --deep --strict --verbose=2 "$bundle/macos/Stackyard.app"
+            codesign -dv "$bundle/macos/Stackyard.app/Contents/MacOS/stackyard" 2>&1 | grep -q "Authority=Developer ID Application" ||
+              { echo "::error::the stackyard command inside the app is not signed"; exit 1; }
+            if [ "$MAC_NOTARIZING" = true ]; then
+              spctl --assess --type execute --verbose "$bundle/macos/Stackyard.app"
+              xcrun stapler validate "$bundle/macos/Stackyard.app"
+            fi
+          fi
+
           echo "== sizes"
           {
             echo "### Installers for ${{ matrix.name }}"
+            echo
+            case "$RUNNER_OS" in
+              Windows) [ "$WINDOWS_SIGNING" = true ] && echo "Signed with Azure Artifact Signing." || echo "Not signed (no Windows signing secrets)." ;;
+              macOS) if [ "$MAC_NOTARIZING" = true ]; then echo "Signed and notarized."; elif [ "$MAC_SIGNING" = true ]; then echo "Signed, not notarized (no APPLE_ID secrets)."; else echo "Not signed (no Apple signing secrets)."; fi ;;
+            esac
             echo
             echo "| File | Size |"
             echo "| --- | --- |"
@@ -169,10 +296,28 @@ jobs:
             mb=$(awk "BEGIN { printf \"%.1f\", $bytes / 1048576 }")
             echo "| $(basename "$f") | $mb MB |" >> "$GITHUB_STEP_SUMMARY"
             echo "$(basename "$f"): $mb MB"
+            # An AppImage carries its own copy of the system's web view
+            # libraries, so it is far bigger by design; it is reported only.
+            case "$f" in *.AppImage) continue ;; esac
             if [ "$bytes" -gt $((MAX_INSTALLER_MB * 1048576)) ]; then
-              echo "::warning file=$(basename "$f")::$(basename "$f") is $mb MB, over the $MAX_INSTALLER_MB MB budget"
+              echo "::error file=$(basename "$f")::$(basename "$f") is $mb MB, over the $MAX_INSTALLER_MB MB budget"
+              over=1
             fi
           done
+          [ -z "${over:-}" ]
+      - name: Start the installed app and check start time and memory
+        shell: bash
+        env:
+          MAX_START_MS: ${{ matrix.max_start_ms }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            # A desktop always has a session bus; without one, the tray and
+            # notifications wait for D-Bus to time out.
+            Linux) dbus-run-session -- xvfb-run -a .github/scripts/perf-check.sh /usr/bin/stackyard-app ;;
+            macOS) .github/scripts/perf-check.sh "target/${{ matrix.target }}/release/bundle/macos/Stackyard.app/Contents/MacOS/stackyard-app" ;;
+            Windows) .github/scripts/perf-check.sh "$LOCALAPPDATA/Stackyard/stackyard-app.exe" ;;
+          esac
       - uses: actions/upload-artifact@v4
         with:
           name: stackyard-${{ matrix.name }}
@@ -188,6 +333,8 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.STACKYARD_RELEASES_TOKEN || github.token }}
+      WINDOWS_SIGNING: ${{ secrets.AZURE_CLIENT_SECRET != '' && vars.AZURE_SIGNING_ACCOUNT != '' }}
+      MAC_NOTARIZING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -277,6 +424,10 @@ jobs:
             while read -r id; do
               gh api -X DELETE "repos/$RELEASES_REPO/releases/$id"
             done
+          # Only what is still unsigned needs the way past the system's warning.
+          hint=()
+          [ "$MAC_NOTARIZING" = true ] || hint+=("macOS: right-click the app and choose Open the first time.")
+          [ "$WINDOWS_SIGNING" = true ] || hint+=("Windows: choose More info, then Run anyway.")
           gh release create "$TAG" out/* --repo "$RELEASES_REPO" --draft "${target[@]}" \
             --title "Stackyard $TAG" \
-            --notes-file <(cat notes.md; [ -s notes.md ] && echo; echo "Unsigned prototype installers. macOS: right-click the app and choose Open the first time. Windows: choose More info, then Run anyway.")
+            --notes-file <(cat notes.md; if [ ${#hint[@]} -gt 0 ]; then [ -s notes.md ] && echo; echo "Unsigned installers. ${hint[*]}"; fi)

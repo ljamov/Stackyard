@@ -21,6 +21,18 @@ Update button, and the app shows its own version's section after it updates.
   downloads Cloudflare's `cloudflared` the first time. Meant for showing work, not hosting.
 - On the command line: `stackyard sites backup`, `backups`, `restore`, `export` and `import`.
 - WordPress sites made from the starter remember their database for backups.
+- Updates are found sooner: Stackyard now checks every half hour and whenever you bring its window
+  forward (at most once every ten minutes), instead of only at start and every four hours, so a
+  new version shows up without quitting and reopening the app. **Check for updates** in Settings
+  still checks right away.
+- Smaller, faster builds: the app and the `stackyard` command are built with link-time
+  optimization and without debug symbols, which keeps the installers under the 15 MB budget.
+- The installers can be signed: Windows with Azure Artifact Signing and macOS with an Apple
+  Developer ID (and notarized), as soon as the signing details are added to the repository. Until
+  then they build unsigned as before. See `docs/signing.md`.
+- Every change to master now builds the installers for Windows, macOS and Linux, installs them,
+  starts the app and checks it against the performance budgets (installer size, start time, and
+  memory with only the tray icon left), failing the build when one is exceeded.
 
 ## 0.5.0
 

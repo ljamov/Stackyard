@@ -3,8 +3,9 @@
 //! an update whose signature doesn't match it is never installed. A build
 //! without a public key never checks.
 //!
-//! Nothing installs on its own: a check (at start, then every few hours
-//! while the "updates" module is on) only finds a newer version. Stackyard
+//! Nothing installs on its own: a check (at start, every half hour, and
+//! when the window comes forward, while the "updates" module is on) only
+//! finds a newer version. Stackyard
 //! then says so with a system notification, a tray menu item and a notice
 //! in the window, and the person installs it from there or from Settings.
 //!
@@ -22,7 +23,9 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-const EVERY: Duration = Duration::from_secs(4 * 3600);
+const EVERY: Duration = Duration::from_secs(30 * 60);
+/// A window coming forward checks again at most this often.
+const ON_FOCUS: Duration = Duration::from_secs(10 * 60);
 const CHANGELOG: &str = include_str!("../../CHANGELOG.md");
 
 #[derive(Default)]
@@ -44,6 +47,8 @@ struct State {
     checking: bool,
     installing: bool,
     checked_at: Option<u64>,
+    /// When the last check began, successful or not.
+    started_at: Option<std::time::Instant>,
     problem: Option<String>,
     /// The version the person was last told about, so each one is
     /// announced once per run.
@@ -124,6 +129,7 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>) -> UpdateView {
             return view(app);
         }
         state.checking = true;
+        state.started_at = Some(std::time::Instant::now());
     }
     let result = match app.updater() {
         Ok(updater) => updater.check().await,
@@ -143,8 +149,9 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>) -> UpdateView {
         }
     }
     let view = view(app);
+    // The window shows when it last checked, and the update when there is one.
+    let _ = app.emit("update-available", view.clone());
     if let Some(available) = &view.available {
-        let _ = app.emit("update-available", view.clone());
         let first_time = {
             let state = app.state::<Updates>();
             let mut state = state.0.lock().unwrap();
@@ -292,7 +299,7 @@ pub fn take_resume() -> Vec<String> {
     ids
 }
 
-/// Checks right after start, then every four hours, while the "updates"
+/// Checks right after start, then every half hour, while the "updates"
 /// module is on.
 pub fn watch<R: Runtime>(app: &AppHandle<R>) {
     if !configured(app) {
@@ -308,6 +315,29 @@ pub fn watch<R: Runtime>(app: &AppHandle<R>) {
             }
             tokio_sleep(EVERY).await;
         }
+    });
+}
+
+/// The window came forward: check again unless a check began in the last
+/// ten minutes, so someone who left Stackyard open sees a new release
+/// without restarting it.
+pub fn on_focus<R: Runtime>(app: &AppHandle<R>) {
+    if !configured(app) {
+        return;
+    }
+    let due = {
+        let state = app.state::<Updates>();
+        let state = state.0.lock().unwrap();
+        !state.checking
+            && !state.installing
+            && state.started_at.is_some_and(|at| at.elapsed() >= ON_FOCUS)
+    };
+    if !due || !Settings::load().is_ok_and(|s| s.module_enabled("updates")) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        check(&app).await;
     });
 }
 
