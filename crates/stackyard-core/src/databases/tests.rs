@@ -136,6 +136,8 @@ pub(crate) fn exercise(home: &Path) {
             .unwrap();
         assert_eq!(rows[0].rows[0][0].as_deref(), Some("Ana & <Bo>"), "{db}");
     }
+    // The MCP server's database tools.
+    crate::mcp::tests::exercise_databases(home);
     assert!(client.drop("mysql").is_err());
     client.drop("stackyard_test").unwrap();
     client.drop("stackyard_copy").unwrap();

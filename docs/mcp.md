@@ -11,12 +11,52 @@ the MCP server screen and `stackyard mcp setup` show the exact line, for example
 claude mcp add --scope user stackyard -- stackyard mcp
 ```
 
-AI tools can always look: `list_sites`, `list_services`, `list_runtimes` and `read_logs`. Each
-action is off until you allow it on the MCP server screen or with `stackyard mcp allow <tool>`:
-`start_service`, `stop_service`, `create_site` and `set_site_runtime`. Deleting sites, databases
-or files is never offered. Every call is recorded with the AI tool's name; see it on the MCP
-server screen or with `stackyard mcp log`. An AI tool that is already connected sees allowed
-tools appear without reconnecting.
+With the module off, AI tools get no tools at all and nothing runs.
+
+## What AI tools may do
+
+These are always allowed, because they only look:
+
+| Tool | What it does |
+| --- | --- |
+| `list_sites` | Sites with their address, folder, PHP or Node.js version, framework and any problem |
+| `list_services` | Services, whether they are installed and running, and their ports |
+| `list_runtimes` | Installed PHP and Node.js versions and the defaults |
+| `list_databases` | MySQL or MariaDB databases with sizes, or one database's tables (names only, never the data) |
+| `read_logs` | The last lines of a service's, a PHP version's or a scheduled task's log |
+
+These are off until you allow them, in **Settings › AI tools**, on the **MCP server** screen, or
+with `stackyard mcp allow <tool>` (`stackyard mcp allow all` for every one, `deny` to turn off):
+
+| Tool | What it does |
+| --- | --- |
+| `start_service`, `stop_service`, `restart_service` | Start, stop or restart an installed service |
+| `create_site` | Add a site for a project folder |
+| `set_site_runtime` | Switch the PHP or Node.js version a site runs on |
+| `query_database` | Run one `SELECT`, `SHOW`, `DESCRIBE` or `EXPLAIN` statement and return the rows |
+| `change_database` | Run SQL that changes data or tables (`INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`...) |
+
+An AI tool that is already connected sees tools appear and disappear as you switch them, without
+reconnecting.
+
+## Databases
+
+The database tools work with MySQL or MariaDB, whichever is installed and switched on (the running
+one when both are). `query_database` runs in a read-only transaction, so even a query that tries
+to write is refused by the server. Results return 100 rows by default, up to 1000 with `max_rows`,
+and long values are cut off.
+
+`change_database` can change and delete rows and tables, so allow it only for databases holding
+nothing you can't lose; make a backup on the Databases screen first. It never drops a whole
+database. Both tools refuse SQL that reads or writes files on your computer (`INTO OUTFILE`,
+`LOAD DATA INFILE`, `LOAD_FILE`) and the `mysql` client's own commands, such as `\!` or `system`.
+
+## The activity log
+
+Every call is recorded with the AI tool's name, what it asked for and whether it worked. See it on
+the MCP server screen or with `stackyard mcp log`.
+
+Deleting sites, whole databases or files is never offered.
 
 ---
 

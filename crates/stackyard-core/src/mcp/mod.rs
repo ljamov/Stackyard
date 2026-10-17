@@ -1,10 +1,12 @@
 //! The MCP server behind `stackyard mcp`: AI coding tools such as Claude
 //! Code or Cursor start it and talk the Model Context Protocol to it,
 //! JSON-RPC 2.0 messages one per line on stdin and stdout. It offers tools
-//! that read sites, services, runtimes and logs, and, once the user allows
-//! each one, tools that start and stop services and add or change sites.
+//! that read sites, services, runtimes, database names and logs, and, once
+//! the user allows each one, tools that start, stop and restart services,
+//! add or change sites, and query or change MySQL and MariaDB databases.
 
 pub mod activity;
+mod sql;
 mod tools;
 
 use std::io::{BufRead, Write};
@@ -41,8 +43,8 @@ const INVALID_PARAMS: i64 = -32602;
 const INSTRUCTIONS: &str = "Stackyard runs this computer's local development stack: \
 sites at addresses such as https://myapp.stack, PHP and Node.js versions, and services \
 such as the Caddy web server, MySQL, MariaDB and Mailpit. Use the list tools to see what \
-is set up and read_logs to find out why something fails. Tools that change things appear \
-only after the user allows them in Stackyard.";
+is set up and read_logs to find out why something fails. Tools that change things, and \
+querying databases, appear only after the user allows them in Stackyard.";
 
 /// One connection with an AI tool.
 pub struct Server {
@@ -157,9 +159,9 @@ impl Server {
                     "inputSchema": input_schema(tool.name),
                     "annotations": {
                         "title": tool.title,
-                        "readOnlyHint": !tool.action,
-                        "destructiveHint": false,
-                        "idempotentHint": tool.name != "create_site",
+                        "readOnlyHint": tool.read_only,
+                        "destructiveHint": tool.destructive,
+                        "idempotentHint": !matches!(tool.name, "create_site" | "change_database"),
                         "openWorldHint": false,
                     },
                 })
@@ -240,14 +242,14 @@ fn blocked(home: &Path, tool: &ToolInfo) -> Option<String> {
     }
     (tool.action && !settings.mcp.allow.contains(tool.name)).then(|| {
         format!(
-            "{} is turned off. The user can allow it in Stackyard › MCP server, or with `stackyard mcp allow {}`.",
+            "{} is turned off. The user can allow it in Stackyard › Settings › AI tools, or with `stackyard mcp allow {}`.",
             tool.title, tool.name
         )
     })
 }
 
 /// The tools an AI tool sees: none while the module is off, otherwise the
-/// tools that read plus the action tools the user allowed.
+/// tools that are always on plus the ones the user allowed.
 pub fn visible_tools(home: &Path) -> Vec<&'static ToolInfo> {
     TOOLS
         .iter()
@@ -377,4 +379,4 @@ fn write_line<W: Write>(output: &Mutex<W>, line: &str) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

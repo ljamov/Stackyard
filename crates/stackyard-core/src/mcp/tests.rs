@@ -153,8 +153,20 @@ fn speaks_json_rpc() {
 fn action_tools_stay_off_until_allowed() {
     let home = home();
     let mut server = server(&home);
-    let reads = ["list_sites", "list_services", "list_runtimes", "read_logs"];
+    let reads = [
+        "list_sites",
+        "list_services",
+        "list_runtimes",
+        "list_databases",
+        "read_logs",
+    ];
     assert_eq!(tool_names(&mut server), reads);
+    let message = failed(
+        &mut server,
+        "query_database",
+        json!({ "database": "shop", "sql": "SELECT 1" }),
+    );
+    assert!(message.contains("Settings › AI tools"), "{message}");
     let message = failed(&mut server, "stop_service", json!({ "service": "caddy" }));
     assert!(
         message.contains("stackyard mcp allow stop_service"),
@@ -162,7 +174,7 @@ fn action_tools_stay_off_until_allowed() {
     );
 
     change_settings(&home, |s| set_allowed(s, "stop_service", true).unwrap());
-    assert_eq!(tool_names(&mut server).len(), 5);
+    assert_eq!(tool_names(&mut server).len(), reads.len() + 1);
     let stopped = ok(&mut server, "stop_service", json!({ "service": "caddy" }));
     assert_eq!(stopped["state"], "stopped");
 
@@ -302,6 +314,108 @@ fn explains_what_it_cannot_start() {
     assert!(message.contains("caddy, mysql"), "{message}");
     let message = failed(&mut server, "start_service", json!({}));
     assert!(message.contains("service is required"), "{message}");
+    let message = failed(
+        &mut server,
+        "restart_service",
+        json!({ "service": "caddy" }),
+    );
+    assert!(message.contains("not installed"), "{message}");
+}
+
+#[test]
+fn tells_ai_tools_what_each_tool_does_to_data() {
+    let home = home();
+    change_settings(&home, |s| set_allowed(s, "all", true).unwrap());
+    let mut server = server(&home);
+    let answer = ask(&mut server, "tools/list", json!({}));
+    let hints = |name: &str| {
+        answer["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap()["annotations"]
+            .clone()
+    };
+    assert_eq!(hints("query_database")["readOnlyHint"], true);
+    assert_eq!(hints("change_database")["readOnlyHint"], false);
+    assert_eq!(hints("change_database")["destructiveHint"], true);
+    assert_eq!(hints("restart_service")["destructiveHint"], false);
+}
+
+#[test]
+fn checks_sql_before_any_database_is_asked() {
+    let home = home();
+    change_settings(&home, |s| set_allowed(s, "all", true).unwrap());
+    let mut server = server(&home);
+    let message = failed(
+        &mut server,
+        "query_database",
+        json!({ "database": "shop", "sql": "DELETE FROM users" }),
+    );
+    assert!(message.contains("change_database"), "{message}");
+    let message = failed(
+        &mut server,
+        "change_database",
+        json!({ "database": "shop", "sql": "DROP DATABASE shop" }),
+    );
+    assert!(message.contains("never allowed"), "{message}");
+    let message = failed(&mut server, "query_database", json!({ "database": "shop" }));
+    assert!(message.contains("sql is required"), "{message}");
+    // Fine SQL, but no database server is installed.
+    let message = failed(&mut server, "list_databases", json!({}));
+    assert!(message.contains("MySQL or MariaDB"), "{message}");
+}
+
+/// The database tools against a real server that `home` knows, with a
+/// `stackyard_test` database holding a `people` table.
+pub(crate) fn exercise_databases(home: &Path) {
+    change_settings(home, |s| {
+        s.set_module("mcp", true).unwrap();
+        set_allowed(s, "all", true).unwrap();
+    });
+    let mut server = server(home);
+    let listed = ok(&mut server, "list_databases", json!({}));
+    assert!(listed["databases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|d| d["name"] == "stackyard_test"));
+    let tables = ok(
+        &mut server,
+        "list_databases",
+        json!({ "database": "stackyard_test" }),
+    );
+    assert_eq!(tables["tables"][0]["name"], "people");
+
+    let rows = ok(
+        &mut server,
+        "query_database",
+        json!({ "database": "stackyard_test", "sql": "SELECT id, name FROM people ORDER BY id", "max_rows": 1 }),
+    );
+    assert_eq!(rows["results"][0]["columns"], json!(["id", "name"]));
+    assert_eq!(rows["results"][0]["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(rows["results"][0]["truncated"], true);
+    // Read-only, even when a function would write.
+    let message = failed(
+        &mut server,
+        "query_database",
+        json!({ "database": "stackyard_test", "sql": "WITH x AS (SELECT 1) DELETE FROM people" }),
+    );
+    assert!(!message.is_empty());
+
+    let changed = ok(
+        &mut server,
+        "change_database",
+        json!({ "database": "stackyard_test", "sql": "UPDATE people SET note = 'seen';\nUPDATE people SET note = 'x' WHERE id = 1" }),
+    );
+    assert_eq!(changed["changed_rows"], 1, "{changed}");
+    let rows = ok(
+        &mut server,
+        "query_database",
+        json!({ "database": "stackyard_test", "sql": "SELECT note FROM people ORDER BY id" }),
+    );
+    assert_eq!(rows["results"][0]["rows"], json!([["x"], ["seen"]]));
 }
 
 #[test]

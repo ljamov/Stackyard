@@ -195,7 +195,7 @@ export type McpTool = {
   name: string;
   title: string;
   description: string;
-  /** Changes something, so the user decides whether AI tools may use it. */
+  /** Off until the user allows it: it changes something, or reads what is in databases. */
   action: boolean;
   allowed: boolean;
 };
@@ -907,11 +907,15 @@ function browserApi(): Api {
       tool("list_sites", "List sites", "Lists the local sites Stackyard serves.", false),
       tool("list_services", "List services", "Lists the services and whether they run.", false),
       tool("list_runtimes", "List runtimes", "Lists installed PHP and Node.js versions.", false),
+      tool("list_databases", "List databases", "Lists MySQL or MariaDB databases and their tables.", false),
       tool("read_logs", "Read a log", "Returns the last lines of a service's log.", false),
       tool("start_service", "Start a service", "Starts an installed service in the background.", true),
       tool("stop_service", "Stop a service", "Stops a running service.", true),
+      tool("restart_service", "Restart a service", "Stops a service and starts it again.", true),
       tool("create_site", "Create a site", "Adds a local site for a project folder.", true),
       tool("set_site_runtime", "Switch a site's version", "Switches the PHP or Node.js version a site runs on.", true),
+      tool("query_database", "Query a database", "Runs one read-only SELECT on MySQL or MariaDB.", true),
+      tool("change_database", "Change a database", "Runs SQL that changes data or tables; never drops a database.", true),
     ],
     activity: [
       { at: Date.now() - 60_000, client: "claude-code", tool: "list_sites", summary: "", ok: true },

@@ -99,8 +99,9 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 
 ### 🤖 AI coding tools (MCP)
 - `stackyard mcp` works with Claude Code, Cursor, Claude Desktop, Windsurf
-- Read-only by default; you allow each action
-- Never offers to delete sites, databases or files
+- Lists sites, services and databases, reads logs, starts, stops and restarts services, runs SQL
+- Read-only by default; you allow each action in Settings
+- Never offers to delete sites, whole databases or files
 - Every call is logged with the tool's name
 
 </td>
@@ -214,8 +215,9 @@ Switch on the **MCP server** module in Settings, then add Stackyard to your tool
 claude mcp add --scope user stackyard -- stackyard mcp
 ```
 
-AI tools can always list sites, services and runtimes and read logs. Starting and stopping
-services, creating sites and changing runtimes stay off until you allow them.
+AI tools can always list sites, services, runtimes and databases and read logs. Starting, stopping
+and restarting services, creating sites, changing runtimes and querying or changing MySQL and
+MariaDB databases stay off until you allow them in Settings › AI tools.
 See [docs/mcp.md](docs/mcp.md).
 
 ## Documentation

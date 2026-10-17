@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { McpPermissions } from "../components/McpPermissions";
 import { api, errorText, type McpActivity, type McpStatus, type McpTool } from "../lib/api";
 
 export function McpServer() {
@@ -31,8 +32,6 @@ export function McpServer() {
     }
   }
 
-  const reads = status?.tools.filter((t) => !t.action) ?? [];
-  const actions = status?.tools.filter((t) => t.action) ?? [];
   const titles = Object.fromEntries((status?.tools ?? []).map((t) => [t.name, t.title]));
 
   return (
@@ -41,8 +40,8 @@ export function McpServer() {
         <div>
           <h1>MCP server</h1>
           <p className="muted">
-            AI coding tools such as Claude Code and Cursor can see your sites, services and logs. They change something only
-            with the actions you allow here.
+            AI coding tools such as Claude Code and Cursor can see your sites, services and logs. They change something, or
+            read what is in your databases, only with the tools you allow here or in Settings.
           </p>
         </div>
       </header>
@@ -74,29 +73,7 @@ export function McpServer() {
 
       <section aria-labelledby="mcp-tools" className="card">
         <h2 id="mcp-tools">What AI tools may do</h2>
-        <h3 className="subhead">Always allowed: looking</h3>
-        {reads.map((t) => (
-          <div key={t.name} className="version-row">
-            <div className="stack tight">
-              <div className="strong">{t.title}</div>
-              <div className="muted small">{t.description}</div>
-            </div>
-          </div>
-        ))}
-        <h3 className="subhead">Actions: off until you allow them</h3>
-        {actions.map((t) => (
-          <div key={t.name} className="version-row">
-            <div className="stack tight">
-              <div className="strong">{t.title}</div>
-              <div className="muted small">{t.description}</div>
-            </div>
-            <label className="switch">
-              <input type="checkbox" checked={t.allowed} onChange={() => toggle(t)} aria-label={`Allow ${t.title}`} />
-              <span>{t.allowed ? "On" : "Off"}</span>
-            </label>
-          </div>
-        ))}
-        <p className="muted small">Deleting sites, databases or files is never offered to AI tools.</p>
+        <McpPermissions tools={status?.tools ?? []} onToggle={toggle} />
       </section>
 
       <section aria-labelledby="mcp-activity" className="card">
