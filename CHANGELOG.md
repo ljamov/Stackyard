@@ -4,6 +4,21 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- Updates are found sooner: Stackyard now checks every half hour and whenever you bring its window
+  forward (at most once every ten minutes), instead of only at start and every four hours, so a
+  new version shows up without quitting and reopening the app. **Check for updates** in Settings
+  still checks right away.
+- Smaller, faster builds: the app and the `stackyard` command are built with link-time
+  optimization and without debug symbols, which keeps the installers under the 15 MB budget.
+- The installers can be signed: Windows with Azure Artifact Signing and macOS with an Apple
+  Developer ID (and notarized), as soon as the signing details are added to the repository. Until
+  then they build unsigned as before. See `docs/signing.md`.
+- Every change to master now builds the installers for Windows, macOS and Linux, installs them,
+  starts the app and checks it against the performance budgets (installer size, start time, and
+  memory with only the tray icon left), failing the build when one is exceeded.
+
 ## 0.5.0
 
 - Python, Go and Java: install Python 3.11 to 3.15, Go 1.25 to 1.27 and Java 11, 17, 21 and 25

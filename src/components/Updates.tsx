@@ -22,7 +22,7 @@ export function Updates() {
                 : status.checked_at
                   ? `Up to date, checked ${new Date(status.checked_at).toLocaleString()}.`
                   : isOn("updates")
-                    ? "Checks for updates every few hours and tells you when one is out. Nothing installs until you say so."
+                    ? "Checks for updates every half hour and when you open the window, and tells you when one is out. Nothing installs until you say so."
                     : "Automatic checks are off (Updates, under Features)."}
           </p>
         </div>

@@ -32,6 +32,7 @@ use stackyard_core::{domain, images, paths, phpmyadmin, starters, videos};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
 mod ai;
+mod perf;
 mod remote;
 mod updates;
 
@@ -1725,6 +1726,7 @@ struct Tray(bool);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    perf::started();
     let mut home = paths::home();
     // Held until this process ends.
     let Some(_first) = first_copy(&home) else {
@@ -1777,6 +1779,16 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                perf::page_loaded(webview);
+            }
+        })
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Focused(true) => updates::on_focus(window.app_handle()),
+            tauri::WindowEvent::Destroyed => release_memory(),
+            _ => {}
+        })
         .invoke_handler(tauri::generate_handler![
             list_runtimes,
             install_runtime,
@@ -1924,6 +1936,23 @@ pub fn run() {
             handle.state::<Arc<Engine>>().shutdown();
         }
         _ => {}
+    });
+}
+
+/// Hands memory the closed window freed back to the system. glibc keeps
+/// freed memory for reuse, which would leave the tray-only app holding most
+/// of what the web view used.
+fn release_memory() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    std::thread::spawn(|| {
+        // The web view lets go of some of it a moment after the window goes.
+        for wait in [0, 3] {
+            std::thread::sleep(std::time::Duration::from_secs(wait));
+            // SAFETY: malloc_trim only returns unused heap pages to the system.
+            unsafe {
+                libc::malloc_trim(0);
+            }
+        }
     });
 }
 

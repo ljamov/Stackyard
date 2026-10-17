@@ -15,6 +15,14 @@ serde_json = "1"
 toml = "0.8"
 thiserror = "2"
 
+# Smaller programs (the installers' budget is 15 MB) that start a little
+# faster: whole-program optimization, and no debug symbols.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "s"
+
 # Image encoders are far too slow unoptimized, even in tests.
 [profile.dev.package.rav1e]
 opt-level = 3
@@ -35,4 +43,26 @@ opt-level = 3
 [profile.dev.package.png]
 opt-level = 3
 [profile.dev.package.fdeflate]
+opt-level = 3
+
+# The encoders stay fully optimized for speed in release builds too.
+[profile.release.package.rav1e]
+opt-level = 3
+[profile.release.package.ravif]
+opt-level = 3
+[profile.release.package.libwebp-sys]
+opt-level = 3
+[profile.release.package.oxipng]
+opt-level = 3
+[profile.release.package.libdeflater]
+opt-level = 3
+[profile.release.package.libdeflate-sys]
+opt-level = 3
+[profile.release.package.zune-jpeg]
+opt-level = 3
+[profile.release.package.image]
+opt-level = 3
+[profile.release.package.png]
+opt-level = 3
+[profile.release.package.fdeflate]
 opt-level = 3
