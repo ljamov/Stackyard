@@ -8,6 +8,7 @@ import {
   type ImagesFound,
 } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
+import { useT } from "../lib/i18n";
 
 const FORMATS: { id: ImageFormat; label: string; hint: string }[] = [
   { id: "webp", label: "WebP", hint: "Works in every browser" },
@@ -45,6 +46,7 @@ function folderOf(path: string) {
 type Finished = { ok: boolean; message: string | null };
 
 export function Images() {
+  const t = useT();
   const sites = useLoad(api.listSites, []);
   const sitesFolder = useLoad(api.sitesFolder, "");
   const [paths, setPaths] = useState<string[]>([]);
@@ -162,9 +164,9 @@ export function Images() {
     <>
       <header className="page-header">
         <div>
-          <h1>Images</h1>
+          <h1>{t("Images")}</h1>
           <p className="muted">
-            Make WebP and AVIF copies of JPG and PNG images, or smaller JPGs and PNGs. Your originals stay as they are.
+            {t("Make WebP and AVIF copies of JPG and PNG images, or smaller JPGs and PNGs. Your originals stay as they are.")}
           </p>
         </div>
       </header>

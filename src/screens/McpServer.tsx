@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { McpPermissions } from "../components/McpPermissions";
 import { api, errorText, type McpActivity, type McpStatus, type McpTool } from "../lib/api";
+import { useT } from "../lib/i18n";
 
 export function McpServer() {
+  const t = useT();
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,10 +40,11 @@ export function McpServer() {
     <>
       <header className="page-header">
         <div>
-          <h1>MCP server</h1>
+          <h1>{t("MCP server")}</h1>
           <p className="muted">
-            AI coding tools such as Claude Code and Cursor can see your sites, services and logs. They change something, or
-            read what is in your databases, only with the tools you allow here or in Settings.
+            {t(
+              "AI coding tools such as Claude Code and Cursor can see your sites, services and logs. They change something, or read what is in your databases, only with the tools you allow here or in Settings.",
+            )}
           </p>
         </div>
       </header>

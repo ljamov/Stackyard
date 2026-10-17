@@ -1,5 +1,6 @@
 import { api, type Service, type ServiceProgress } from "../lib/api";
 import type { ServicesHook } from "../lib/useServices";
+import { useT } from "../lib/i18n";
 
 const STATUS: Record<Service["state"], string> = {
   stopped: "Stopped",
@@ -19,10 +20,11 @@ export function ServiceCard({
   onShowLog?: (id: string) => void;
   compact?: boolean;
 }) {
+  const t = useT();
   const running = s.state === "running" || s.state === "restarting";
   const busy = hook.busy[s.id] || s.installing;
   const error = hook.errors[s.id];
-  const status = s.installing ? "Installing" : s.installed ? STATUS[s.state] : "Not installed";
+  const status = t(s.installing ? "Installing" : s.installed ? STATUS[s.state] : "Not installed");
   const tone = s.state === "running" ? "ok" : s.state === "crashed" ? "error" : s.state === "restarting" ? "warn" : "";
 
   return (
@@ -31,7 +33,7 @@ export function ServiceCard({
         <div>
           <div className="strong">{s.name}</div>
           <div className="mono muted small">
-            {s.installed ?? s.version} · port {s.ports.join(", ")}
+            {s.installed ?? s.version} · {t("port {ports}", { ports: s.ports.join(", ") })}
           </div>
         </div>
         <span className={`status ${tone}`}>
@@ -39,9 +41,9 @@ export function ServiceCard({
           {status}
         </span>
       </div>
-      <div className="muted small">{s.role}</div>
+      <div className="muted small">{t(s.role)}</div>
       {!compact && s.connect && (
-        <div className="mono small connect" title="How apps connect">
+        <div className="mono small connect" title={t("How apps connect")}>
           {s.connect}
         </div>
       )}
@@ -58,9 +60,9 @@ export function ServiceCard({
             className="btn primary small"
             disabled={busy}
             onClick={() => hook.install(s.id)}
-            aria-label={`Install ${s.name}`}
+            aria-label={t("Install {name}", { name: s.name })}
           >
-            {s.installing ? "Installing…" : "Install"}
+            {s.installing ? t("Installing…") : t("Install")}
           </button>
         )}
         {s.installed && !running && (
@@ -69,9 +71,9 @@ export function ServiceCard({
             className="btn primary small"
             disabled={busy}
             onClick={() => hook.start(s.id)}
-            aria-label={`Start ${s.name}`}
+            aria-label={t("Start {name}", { name: s.name })}
           >
-            {busy ? "Starting…" : "Start"}
+            {busy ? t("Starting…") : t("Start")}
           </button>
         )}
         {s.installed && running && (
@@ -80,9 +82,9 @@ export function ServiceCard({
             className="btn small"
             disabled={busy}
             onClick={() => hook.stop(s.id)}
-            aria-label={`Stop ${s.name}`}
+            aria-label={t("Stop {name}", { name: s.name })}
           >
-            Stop
+            {t("Stop")}
           </button>
         )}
         {s.web && s.state === "running" && (
@@ -90,14 +92,14 @@ export function ServiceCard({
             type="button"
             className="btn ghost small"
             onClick={() => api.openLocalPage(s.web!)}
-            aria-label={`Open ${s.name} in your browser`}
+            aria-label={t("Open {name} in your browser", { name: s.name })}
           >
-            Open
+            {t("Open")}
           </button>
         )}
         {!compact && s.installed && onShowLog && (
-          <button type="button" className="btn ghost small" onClick={() => onShowLog(s.id)} aria-label={`${s.name} log`}>
-            Log
+          <button type="button" className="btn ghost small" onClick={() => onShowLog(s.id)} aria-label={t("{name} log", { name: s.name })}>
+            {t("Log")}
           </button>
         )}
         {!compact && s.installed && !running && (
@@ -106,9 +108,9 @@ export function ServiceCard({
             className="btn ghost small"
             disabled={busy}
             onClick={() => hook.uninstall(s.id)}
-            aria-label={`Remove ${s.name}`}
+            aria-label={t("Remove {name}", { name: s.name })}
           >
-            Remove
+            {t("Remove")}
           </button>
         )}
       </div>
@@ -117,6 +119,7 @@ export function ServiceCard({
 }
 
 function InstallProgressBar({ name, progress }: { name: string; progress?: ServiceProgress }) {
+  const t = useT();
   const pct =
     progress?.step === "unpacking"
       ? 100
@@ -127,7 +130,7 @@ function InstallProgressBar({ name, progress }: { name: string; progress?: Servi
     <div
       className="progress"
       role="progressbar"
-      aria-label={`Installing ${name}`}
+      aria-label={t("Installing {name}", { name })}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={pct ?? undefined}

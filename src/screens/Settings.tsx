@@ -5,6 +5,8 @@ import { Updates } from "../components/Updates";
 import { api, errorText, type McpStatus, type McpTool, type Module } from "../lib/api";
 import { useModules } from "../lib/modules";
 import { useLoad } from "../lib/useLoad";
+import { useT } from "../lib/i18n";
+import { AppearanceSettings } from "../components/AppearanceSettings";
 
 const GROUPS: { group: Module["group"]; title: string }[] = [
   { group: "runtime", title: "Runtimes" },
@@ -13,6 +15,7 @@ const GROUPS: { group: Module["group"]; title: string }[] = [
 ];
 
 export function Settings() {
+  const t = useT();
   const { modules, setModule } = useModules();
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
@@ -63,8 +66,8 @@ export function Settings() {
     <>
       <header className="page-header">
         <div>
-          <h1>Settings</h1>
-          <p className="muted">Switch off anything you don't use. Modules that are off download and run nothing.</p>
+          <h1>{t("Settings")}</h1>
+          <p className="muted">{t("Switch off anything you don't use. Modules that are off download and run nothing.")}</p>
         </div>
       </header>
 
@@ -76,10 +79,12 @@ export function Settings() {
 
       <Updates />
 
+      <AppearanceSettings />
+
       <section aria-labelledby="dom-h" className="card stack">
-        <h2 id="dom-h">Local domains</h2>
+        <h2 id="dom-h">{t("Local domains")}</h2>
         <div className="field narrow">
-          <label htmlFor="s-tld">Domain ending for new sites</label>
+          <label htmlFor="s-tld">{t("Domain ending for new sites")}</label>
           <input
             id="s-tld"
             className="mono"
@@ -87,21 +92,21 @@ export function Settings() {
             onChange={(e) => setTldDraft(e.target.value)}
             onBlur={saveTld}
           />
-          <span className="muted small">Default is .stack. If .stack ever becomes a public domain, use .test.</span>
+          <span className="muted small">{t("Default is .stack. If .stack ever becomes a public domain, use .test.")}</span>
           {tldInfo.data.warning && <span className="warn small">{tldInfo.data.warning}</span>}
         </div>
       </section>
 
       {GROUPS.map(({ group, title }) => (
         <section key={group} aria-labelledby={`mod-${group}`} className="card">
-          <h2 id={`mod-${group}`}>{title}</h2>
+          <h2 id={`mod-${group}`}>{t(title)}</h2>
           {modules
             .filter((m) => m.group === group)
             .map((m) => (
               <div key={m.id} className="version-row">
                 <div>
-                  <div className="strong">{m.name}</div>
-                  <div className="muted small">{m.description}</div>
+                  <div className="strong">{t(m.name)}</div>
+                  <div className="muted small">{t(m.description)}</div>
                 </div>
                 {m.available ? (
                   <label className="switch">
@@ -110,12 +115,12 @@ export function Settings() {
                       role="switch"
                       checked={m.enabled}
                       onChange={() => toggle(m)}
-                      aria-label={`${m.name} module`}
+                      aria-label={t("{name} module", { name: t(m.name) })}
                     />
-                    <span>{m.enabled ? "On" : "Off"}</span>
+                    <span>{m.enabled ? t("On") : t("Off")}</span>
                   </label>
                 ) : (
-                  <span className="muted small">Coming soon</span>
+                  <span className="muted small">{t("Coming soon")}</span>
                 )}
               </div>
             ))}
@@ -124,10 +129,11 @@ export function Settings() {
 
       {mcpOn && mcp && (
         <section aria-labelledby="ai-h" className="card">
-          <h2 id="ai-h">AI tools</h2>
+          <h2 id="ai-h">{t("AI tools")}</h2>
           <p className="muted small">
-            What Claude Code, Cursor and other AI tools may do through the MCP server. See how to connect one, and what
-            they did, on the MCP server screen.
+            {t(
+              "What Claude Code, Cursor and other AI tools may do through the MCP server. See how to connect one, and what they did, on the MCP server screen.",
+            )}
           </p>
           <McpPermissions tools={mcp.tools} onToggle={toggleMcpTool} />
         </section>

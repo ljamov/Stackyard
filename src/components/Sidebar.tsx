@@ -1,6 +1,7 @@
 import { Logo } from "./Logo";
 import { useModules } from "../lib/modules";
 import { useUpdate } from "../lib/updates";
+import { useT } from "../lib/i18n";
 
 export const SCREENS = [
   "Dashboard",
@@ -31,11 +32,12 @@ const SCREEN_MODULE: Partial<Record<Screen, string>> = {
 };
 
 export function Sidebar({ current, onSelect }: { current: Screen; onSelect: (s: Screen) => void }) {
+  const t = useT();
   const { isOn } = useModules();
   const { status: update } = useUpdate();
   const visible = SCREENS.filter((s) => !SCREEN_MODULE[s] || isOn(SCREEN_MODULE[s]!));
   return (
-    <nav className="sidebar" aria-label="Main">
+    <nav className="sidebar" aria-label={t("Main")}>
       <div className="brand">
         <Logo />
         <span>Stackyard</span>
@@ -48,10 +50,10 @@ export function Sidebar({ current, onSelect }: { current: Screen; onSelect: (s: 
           aria-current={screen === current ? "page" : undefined}
           onClick={() => onSelect(screen)}
         >
-          {screen}
+          {t(screen)}
           {screen === "Settings" && update?.available && (
-            <span className="badge" title={`Stackyard ${update.available.version} is available`}>
-              Update
+            <span className="badge" title={t("Stackyard {version} is available", { version: update.available.version })}>
+              {t("Update")}
             </span>
           )}
         </button>

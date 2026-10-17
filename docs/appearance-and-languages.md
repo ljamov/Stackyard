@@ -1,0 +1,80 @@
+# Look and language
+
+Both are in **Settings › Appearance**. They change only how the app looks; nothing is downloaded and
+nothing runs in the background, and the defaults (dark, amber, English) are how Stackyard has always
+looked.
+
+## Theme and accent color
+
+- **Theme**: Dark, Light, or **Match my computer**, which follows the light or dark setting of
+  Windows, macOS or Linux and switches along with it.
+- **Accent color**: amber (the default), blue, green, violet, rose or teal. It colors buttons,
+  switches, links and highlights.
+
+The choice is kept with the app's window settings on this computer and is applied before the
+window first draws, so the app never flashes the other theme.
+
+## Language
+
+Pick a language from the list, or **Match my computer** to use your computer's language when
+Stackyard has it (English otherwise). Stackyard comes with:
+
+| Language | File |
+| --- | --- |
+| English | built in |
+| Deutsch | `src/locales/de.json` |
+| Español | `src/locales/es.json` |
+| Français | `src/locales/fr.json` |
+| Italiano | `src/locales/it.json` |
+| Português (Brasil) | `src/locales/pt-BR.json` |
+
+The menus, the main screens' titles, the Dashboard, the Services screen, Settings and update
+notices are translated. The rest of the app, the tray menu and the `stackyard` command stay in
+English for now; anything not translated shows in English rather than as a blank.
+
+### Add a language or change a word
+
+You don't need to build Stackyard for this.
+
+1. Open **Settings**, and under **Appearance** click **Add a language…**. A folder named
+   `languages` opens (inside Stackyard's folder, e.g. `C:\stackyard\languages`).
+2. Make a text file in it named after the language's code with `.json` at the end, for example
+   `nl.json` for Dutch or `pt-PT.json` for Portuguese (Portugal). On Windows, turn on
+   **View › File name extensions** in File Explorer first so the file doesn't end up as
+   `nl.json.txt`.
+3. Open it in Notepad and write the English text on the left and your translation on the right.
+   `_name` is the language's own name, shown in the list:
+
+   ```json
+   {
+     "_name": "Nederlands",
+     "Settings": "Instellingen",
+     "Sites": "Sites",
+     "New site": "Nieuwe site",
+     "Install {version} and restart": "{version} installeren en opnieuw starten"
+   }
+   ```
+
+   Words in `{curly brackets}` are filled in by the app (a version, a name, a number); keep them
+   as they are. The easiest start is to copy one of the files listed above and replace the
+   right-hand side of each line.
+4. Save the file as UTF-8 (Notepad does this by default), go back to Stackyard and click
+   **Reload language files**. Your language appears in the list.
+
+A file with the same code as a built-in language (say `de.json`) doesn't replace it; it only
+changes the words it contains, so you can fix one word without copying the whole file. Files that
+aren't valid JSON, aren't named after a language code, or are larger than 1 MB are skipped.
+
+### For contributors
+
+Text in the interface is written in English inside `t("…")`; see `src/lib/i18n.tsx`. To see what a
+language file is missing, or to get every text as an empty template for a new language:
+
+```sh
+node scripts/i18n.mjs        # how complete each file in src/locales is
+node scripts/i18n.mjs keys   # every text, as JSON with empty translations
+```
+
+A new built-in language is one file in `src/locales` plus a line in `BUILT_IN` in
+`src/lib/i18n.tsx`. Each language loads only when it is picked, so more languages don't make the
+app slower to start.

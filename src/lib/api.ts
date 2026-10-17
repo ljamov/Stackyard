@@ -7,6 +7,13 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 
+export type LanguageFile = { code: string; name: string; strings: Record<string, string> };
+export type LanguageFiles = {
+  folder: string;
+  languages: LanguageFile[];
+  problems: { file: string; problem: string }[];
+};
+
 export type SiteDatabase = { server: "mysql" | "postgres"; name: string };
 
 /** A site's own settings, beyond its runtime version. */
@@ -494,6 +501,9 @@ export interface Api {
   onServiceProgress(handler: (p: ServiceProgress) => void): Promise<() => void>;
   getTld(): Promise<TldInfo>;
   setTld(value: string): Promise<TldInfo>;
+  /** Translation files added to the languages folder in Stackyard's home. */
+  languageFiles(): Promise<LanguageFiles>;
+  openLanguagesFolder(): Promise<void>;
   listModules(): Promise<Module[]>;
   setModule(id: string, enabled: boolean): Promise<Module[]>;
   listSites(): Promise<Site[]>;
@@ -667,6 +677,8 @@ const tauriApi: Api = {
   onServiceProgress: (handler) => listen<ServiceProgress>("service-progress", (e) => handler(e.payload)),
   getTld: () => invoke("get_tld"),
   setTld: (value) => invoke("set_tld", { value }),
+  languageFiles: () => invoke("language_files"),
+  openLanguagesFolder: () => invoke("open_languages_folder"),
   listModules: () => invoke("list_modules"),
   setModule: (id, enabled) => invoke("set_module", { id, enabled }),
   listSites: () => invoke("list_sites"),
@@ -1166,6 +1178,8 @@ function browserApi(): Api {
       tld = `.${clean}`;
       return { tld, warning: warn(tld) };
     },
+    languageFiles: async () => ({ folder: "C:\\stackyard\\languages", languages: [], problems: [] }),
+    openLanguagesFolder: async () => {},
     listModules: async () => modules,
     setModule: async (id, enabled) => {
       modules = modules.map((m) => (m.id === id && m.available ? { ...m, enabled } : m));

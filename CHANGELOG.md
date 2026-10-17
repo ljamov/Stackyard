@@ -33,6 +33,15 @@ Update button, and the app shows its own version's section after it updates.
 - Every change to master now builds the installers for Windows, macOS and Linux, installs them,
   starts the app and checks it against the performance budgets (installer size, start time, and
   memory with only the tray icon left), failing the build when one is exceeded.
+- Light theme: **Settings › Appearance** has Dark, Light and **Match my computer**, which follows
+  your computer's light or dark setting. Pick an accent color too: amber, blue, green, violet,
+  rose or teal.
+- Languages: Stackyard can now be used in Deutsch, Español, Français, Italiano and Português
+  (Brasil) besides English (**Settings › Appearance › Language**). The menus, main screens,
+  Settings and update notices are translated so far; the rest stays in English for now. Add your
+  own language, or change a word, by putting one file in the `languages` folder: see
+  `docs/appearance-and-languages.md`.
+- The website has a **What's new** page with every release's notes, made from this changelog.
 
 ## 0.5.0
 

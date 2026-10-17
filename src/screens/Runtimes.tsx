@@ -9,10 +9,12 @@ import {
 } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
+import { useT } from "../lib/i18n";
 
 const key = (kind: string, version: string) => `${kind}/${version}`;
 
 export function Runtimes() {
+  const t = useT();
   const runtimes = useLoad(api.listRuntimes, []);
   const { isOn } = useModules();
   const [data, setData] = useState<RuntimeFamily[]>([]);
@@ -70,8 +72,8 @@ export function Runtimes() {
     <>
       <header className="page-header">
         <div>
-          <h1>Runtimes</h1>
-          <p className="muted">Install several versions side by side. Each site can pin its own version.</p>
+          <h1>{t("Runtimes")}</h1>
+          <p className="muted">{t("Install several versions side by side. Each site can pin its own version.")}</p>
         </div>
       </header>
 

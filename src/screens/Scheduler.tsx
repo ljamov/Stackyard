@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, errorText, type SchedulePreview, type Site, type Task, type TaskInput, type TaskRun } from "../lib/api";
+import { useT } from "../lib/i18n";
 
 const PRESETS: { label: string; schedule: string }[] = [
   { label: "Every minute", schedule: "* * * * *" },
@@ -13,6 +14,7 @@ const PRESETS: { label: string; schedule: string }[] = [
 const EMPTY: TaskInput = { name: "", command: "", folder: "", schedule: "* * * * *", enabled: true };
 
 export function Scheduler() {
+  const t = useT();
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -114,10 +116,11 @@ export function Scheduler() {
     <>
       <header className="page-header">
         <div>
-          <h1>Scheduler</h1>
+          <h1>{t("Scheduler")}</h1>
           <p className="muted">
-            Run commands on a schedule in a project folder, with the PHP and Node.js versions that project uses. Tasks run
-            while Stackyard is running, including from the tray.
+            {t(
+              "Run commands on a schedule in a project folder, with the PHP and Node.js versions that project uses. Tasks run while Stackyard is running, including from the tray.",
+            )}
           </p>
         </div>
       </header>

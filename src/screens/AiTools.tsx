@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, errorText, type AiTool, type Site } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
+import { useT } from "../lib/i18n";
 
 const FOLDER_KEY = "stackyard.ai.folder";
 
@@ -14,6 +15,7 @@ function savedFolder(): string {
 }
 
 export function AiTools() {
+  const t = useT();
   const { isOn } = useModules();
   const sites = useLoad<Site[]>(api.listSites, []);
   const [tools, setTools] = useState<AiTool[]>([]);
@@ -115,10 +117,11 @@ export function AiTools() {
     <>
       <header className="page-header">
         <div>
-          <h1>AI tools</h1>
+          <h1>{t("AI tools")}</h1>
           <p className="muted">
-            Install AI coding assistants on Stackyard&apos;s own Node.js, keep them up to date, and start one in a
-            site&apos;s folder with one click.
+            {t(
+              "Install AI coding assistants on Stackyard's own Node.js, keep them up to date, and start one in a site's folder with one click.",
+            )}
           </p>
         </div>
         <button type="button" className="btn small" disabled={checking} onClick={() => void check()}>

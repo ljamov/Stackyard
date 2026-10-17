@@ -24,6 +24,7 @@
       <a href="#features">Features</a>
       <a href="#tour">Tour</a>
       <a href="#ai">AI tools</a>
+      <a href="changelog.html">What's new</a>
       <a href="#download">Download</a>
       <a href="https://github.com/ljamov/Stackyard" class="gh">GitHub</a>
     </nav>
@@ -88,18 +89,18 @@
         <div class="icon">⚙️</div>
         <h3>Runtimes</h3>
         <ul>
-          <li>PHP 8.1 to 8.5 (plus 7.4 and 8.0 on Windows)</li>
-          <li>Node.js 20 to 26, side by side</li>
-          <li>Pin a version per project with a <code>.stackyard</code> file</li>
-          <li><code>php</code>, <code>composer</code>, <code>node</code>, <code>npm</code> pick the right version in any terminal</li>
+          <li>PHP 8.1 to 8.5 (plus 7.4 and 8.0 on Windows) and Node.js 20 to 26</li>
+          <li>Python, Go and Java when you want them, with Django, FastAPI, Go and Spring Boot sites</li>
+          <li>Pick a version per site, or keep it in <code>.stackyard</code>, <code>.nvmrc</code> or <code>.tool-versions</code></li>
+          <li><code>php</code>, <code>node</code>, <code>python</code>, <code>go</code> pick the right version in any terminal</li>
         </ul>
       </article>
       <article class="card">
         <div class="icon">🗄️</div>
         <h3>Databases and services</h3>
         <ul>
-          <li>MySQL 8.4, MariaDB 11.8, PostgreSQL 18, Redis 8</li>
-          <li>Meilisearch for search, Mailpit to catch outgoing mail</li>
+          <li>MySQL 8.4, MariaDB 11.8, PostgreSQL 18, Redis 8, MongoDB 9</li>
+          <li>Meilisearch, Mailpit, SeaweedFS for S3 storage, NATS for queues</li>
           <li>phpMyAdmin in one click, already logged in</li>
           <li>Port taken by another app? It moves to the next free one</li>
         </ul>
@@ -111,7 +112,7 @@
           <li>Databases screen: browse, run SQL, back up and restore</li>
           <li>Live logs with text and regex search</li>
           <li>Task scheduler with crontab syntax</li>
-          <li>Image optimizer: WebP, AVIF, smaller JPG and PNG</li>
+          <li>Image and video optimizers: WebP, AVIF, MP4, WebM and GIF</li>
         </ul>
       </article>
       <article class="card">
@@ -122,6 +123,36 @@
           <li>Passwords kept in your system keychain</li>
           <li>Link a site to GitHub: pull, commit and push</li>
           <li>Signed auto-updates with release notes</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🧳</div>
+        <h3>Site tools</h3>
+        <ul>
+          <li>Per-site settings: folder served, HTTPS, environment, PHP settings</li>
+          <li>Back up a site's files and database in one click, and restore</li>
+          <li>Move a site to another computer as one file</li>
+          <li>Share a local site at a temporary public link</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🤖</div>
+        <h3>AI coding tools</h3>
+        <ul>
+          <li>Claude Code, Codex, Gemini CLI and more in one click</li>
+          <li>Kept up to date, no separate Node.js needed</li>
+          <li>Open one in any site's folder</li>
+          <li>Built-in MCP server so they can see your stack</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🎨</div>
+        <h3>Make it yours</h3>
+        <ul>
+          <li>Dark, light or matching your computer, with six accent colors</li>
+          <li>English, Deutsch, Español, Français, Italiano and Português</li>
+          <li>Add your own language with one file</li>
+          <li>Switch off any module you don't use: it downloads and runs nothing</li>
         </ul>
       </article>
     </div>
@@ -144,6 +175,7 @@
       <button role="tab" aria-selected="false" data-shot="videos">Videos</button>
       <button role="tab" aria-selected="false" data-shot="ai-tools">AI tools</button>
       <button role="tab" aria-selected="false" data-shot="settings">Settings</button>
+      <button role="tab" aria-selected="false" data-shot="light">Light theme</button>
     </div>
     <figure class="shot">
       <img id="tour-img" src="images/dashboard.png" alt="Dashboard with running services, sites, runtimes and the MCP server" width="1920" height="1200" loading="lazy">
@@ -256,7 +288,7 @@
     <nav aria-label="Footer">
       <a href="https://github.com/ljamov/Stackyard">GitHub</a>
       <a href="https://github.com/ljamov/Stackyard#documentation">Docs</a>
-      <a href="https://github.com/ljamov/Stackyard/blob/master/CHANGELOG.md">What's new</a>
+      <a href="changelog.html">What's new</a>
       <a href="https://github.com/ljamov/Stackyard/issues">Report a bug</a>
       <a href="https://github.com/ljamov/Stackyard/blob/master/LICENSE">MIT license</a>
     </nav>
