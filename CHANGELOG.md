@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.6.0
 
 - Site tools: **Manage** on a site's row on the Sites screen opens its settings, backups, public
   link, and servers and Git. Each is a module that can be switched off in Settings › Modules.
