@@ -40,7 +40,9 @@ live in `data/meilisearch` and are carried over when Stackyard updates it to a n
 
 PostgreSQL keeps its databases in `data/postgres/db`, created the first time it starts with the C
 locale and UTF-8, so sorting is the same on every system. It only accepts connections over TCP
-(`127.0.0.1:5432`), never a socket file, so every client connects the same way everywhere. Redis
+(`127.0.0.1:5432`), never a socket file, so every client connects the same way everywhere. On
+Windows, PostgreSQL won't start while Stackyard runs with "Run as administrator"; open it the
+usual way. Redis
 saves to `data/redis/dump.rdb` every few minutes while keys change, so queued jobs survive a
 restart. Redis publishes no Windows version, so it is not offered there.
 
