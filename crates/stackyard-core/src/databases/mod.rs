@@ -622,7 +622,7 @@ fn backup_info(database: &str, path: &Path) -> Option<Backup> {
 }
 
 /// `20261014-235959` in local time, for backup file names: sortable and unique enough.
-fn stamp() -> String {
+pub(crate) fn stamp() -> String {
     let at = crate::scheduler::clock::now();
     let m = crate::scheduler::clock::local(at);
     format!(
@@ -637,7 +637,7 @@ fn stamp() -> String {
 }
 
 /// Names for new databases: letters, digits, `_` and `-`, up to 64.
-fn check_name(name: &str) -> Result<()> {
+pub(crate) fn check_name(name: &str) -> Result<()> {
     let ok = !name.is_empty()
         && name.len() <= 64
         && name

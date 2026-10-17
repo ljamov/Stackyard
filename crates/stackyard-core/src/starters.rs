@@ -570,6 +570,7 @@ mod tests {
                 },
                 https: true,
                 dev_server: true,
+                settings: Default::default(),
             })
             .unwrap();
         store.save().unwrap();

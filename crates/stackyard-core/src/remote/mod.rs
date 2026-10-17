@@ -201,6 +201,14 @@ impl RemoteStore {
         Ok(())
     }
 
+    /// Moves a site's connections to its new domain, e.g. after its domain
+    /// ending changed.
+    pub fn rename_site(&mut self, old: &str, new: &str) {
+        for connection in self.connections.iter_mut().filter(|c| c.site == old) {
+            connection.site = new.to_string();
+        }
+    }
+
     /// Removes every connection of a site, e.g. when the site is removed.
     pub fn forget_site(&mut self, site: &str) {
         let ids: Vec<String> = self.for_site(site).map(|c| c.id.clone()).collect();

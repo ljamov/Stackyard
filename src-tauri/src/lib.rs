@@ -33,12 +33,13 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
 mod ai;
 mod remote;
+mod sitetools;
 mod updates;
 
-type CmdResult<T> = Result<T, String>;
+pub(crate) type CmdResult<T> = Result<T, String>;
 
 #[derive(Serialize)]
-struct SiteView {
+pub(crate) struct SiteView {
     name: String,
     domain: String,
     url: String,
@@ -155,7 +156,7 @@ impl SiteView {
     }
 }
 
-fn site_views() -> CmdResult<Vec<SiteView>> {
+pub(crate) fn site_views() -> CmdResult<Vec<SiteView>> {
     let manager = ServiceManager::open();
     let ports = Ports::current(manager.home());
     let sites = manager.user_sites().map_err(err)?;
@@ -173,7 +174,7 @@ struct TldView {
     warning: Option<&'static str>,
 }
 
-fn err(e: stackyard_core::Error) -> String {
+pub(crate) fn err(e: stackyard_core::Error) -> String {
     e.to_string()
 }
 
@@ -1209,6 +1210,7 @@ fn add_site(
             runtime,
             https,
             dev_server: false,
+            settings: Default::default(),
         })
         .map_err(err)?;
     store.save().map_err(err)?;
@@ -1511,6 +1513,15 @@ async fn add_starter_site(
                 runtime: made.runtime,
                 https,
                 dev_server: made.dev_server,
+                settings: stackyard_core::sites::SiteSettings {
+                    database: made.database.clone().map(|name| {
+                        stackyard_core::sites::SiteDatabase {
+                            server: "mysql".into(),
+                            name,
+                        }
+                    }),
+                    ..Default::default()
+                },
             })
             .map_err(err)?;
         store.save().map_err(err)?;
@@ -1558,6 +1569,7 @@ fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
     let removed = store.remove(&name).map_err(err)?;
     store.save().map_err(err)?;
     remote::site_removed(&removed.domain());
+    let _ = stackyard_core::share::stop(app.state::<Arc<Engine>>().supervisor(), &removed);
     sites_changed(&app);
     site_views()
 }
@@ -1593,7 +1605,7 @@ fn unpark_folder(app: AppHandle, path: String) -> CmdResult<Vec<String>> {
 /// After sites or domain endings change: answer the new endings, and
 /// restart a running web server so it serves the new list. Runs in the
 /// background so the interface stays responsive.
-fn sites_changed(app: &AppHandle) {
+pub(crate) fn sites_changed(app: &AppHandle) {
     let engine = app.state::<Arc<Engine>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         if let Err(e) = engine.sites_changed() {
@@ -1778,6 +1790,22 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            sitetools::site_settings,
+            sitetools::save_site_settings,
+            sitetools::site_backups,
+            sitetools::backup_site,
+            sitetools::restore_site,
+            sitetools::remove_site_backup,
+            sitetools::open_site_backups,
+            sitetools::export_site,
+            sitetools::inspect_site_file,
+            sitetools::import_site,
+            sitetools::share_status,
+            sitetools::share_install,
+            sitetools::share_uninstall,
+            sitetools::share_start,
+            sitetools::share_stop,
+            sitetools::open_share_link,
             list_runtimes,
             install_runtime,
             uninstall_runtime,

@@ -200,6 +200,7 @@ pub fn sites(
             }
         }
     }
+    give_own_php_ports(&mut served);
     Ok(served)
 }
 
@@ -248,9 +249,11 @@ fn from_site(site: Site, parked: bool, runtimes: &RuntimeManager) -> ServedSite 
         }
         SiteRuntime::Static => Backend::Static,
     };
-    // A framework's public folder applies to PHP and plain files alike.
-    let root = match detected.needs {
-        Needs::Node { .. } | Needs::App { .. } => site.path.clone(),
+    // A framework's public folder applies to PHP and plain files alike;
+    // a folder picked in the site's settings wins.
+    let root = match (&backend, &site.settings.root, detected.needs) {
+        (Backend::Php { .. } | Backend::Static, Some(root), _) => site.path.join(root),
+        (_, _, Needs::Node { .. } | Needs::App { .. }) => site.path.clone(),
         _ => site.path.join(&detected.root),
     };
     ServedSite {
@@ -312,6 +315,7 @@ fn parked_site(
         path,
         https: true,
         dev_server: false,
+        settings: Default::default(),
     }
 }
 
@@ -375,7 +379,17 @@ pub fn caddy_sites(sites: &[ServedSite]) -> String {
                 out.push_str(&format!("\troot * {}\n", quote(&slash(&served.root))));
                 out.push_str(&empty_folder_page(served));
                 out.push_str("\tencode zstd gzip\n");
-                out.push_str(&format!("\tphp_fastcgi 127.0.0.1:{port}\n"));
+                out.push_str(&format!("\tphp_fastcgi 127.0.0.1:{port}"));
+                // The site's variables reach PHP as `getenv()` and `$_SERVER`.
+                if served.site.settings.env.is_empty() {
+                    out.push('\n');
+                } else {
+                    out.push_str(" {\n");
+                    for (key, value) in &served.site.settings.env {
+                        out.push_str(&format!("\t\tenv {key} {}\n", quote(value)));
+                    }
+                    out.push_str("\t}\n");
+                }
                 out.push_str("\tfile_server\n");
             }
             Backend::Node { port, .. } | Backend::App { port, .. } => {
@@ -429,7 +443,12 @@ pub fn dev_server_id(site: &str) -> String {
 pub fn dev_servers(home: &Path, sites: &[ServedSite]) -> Vec<ProcessSpec> {
     let wanted: Vec<&ServedSite> = sites
         .iter()
-        .filter(|s| (s.site.dev_server || s.site.runtime.runs_own_server()) && !s.parked)
+        .filter(|s| {
+            let runs = s.site.dev_server
+                || s.site.runtime.runs_own_server()
+                || s.site.settings.command.is_some();
+            runs && !s.parked
+        })
         .collect();
     if wanted.is_empty() {
         return Vec::new();
@@ -444,6 +463,11 @@ pub fn dev_servers(home: &Path, sites: &[ServedSite]) -> Vec<ProcessSpec> {
     wanted
         .into_iter()
         .filter_map(|served| {
+            if let Some(command) = &served.site.settings.command {
+                return command_server(&context, served, command)
+                    .map_err(|e| eprintln!("could not run the command of {}: {e}", served.domain()))
+                    .ok();
+            }
             let launch = match served.backend {
                 Backend::Node { port, .. } => {
                     let args = ["run", "dev", "--", "--port", &port.to_string()]
@@ -470,6 +494,7 @@ pub fn dev_servers(home: &Path, sites: &[ServedSite]) -> Vec<ProcessSpec> {
                     .iter()
                     .map(|(k, v)| (k.clone(), v.to_string_lossy().into_owned())),
             );
+            env.extend(served.site.settings.env.clone());
             Some(ProcessSpec {
                 id: dev_server_id(&served.site.name),
                 name: format!("{} dev server", served.domain()),
@@ -488,7 +513,78 @@ pub fn dev_servers(home: &Path, sites: &[ServedSite]) -> Vec<ProcessSpec> {
         .collect()
 }
 
-/// One process per installed PHP version that a site uses.
+/// A site's own start command, run by the system shell in the project
+/// folder with the site's runtime versions first on `PATH`, its variables,
+/// and its port in `PORT` when it has one.
+fn command_server(
+    context: &crate::shell::Context,
+    served: &ServedSite,
+    command: &str,
+) -> Result<ProcessSpec> {
+    use crate::shell::Tool;
+    let site = &served.site;
+    let mut path_first = Vec::new();
+    let mut env: Vec<(String, String)> = Vec::new();
+    for kind in crate::shell::site_runtimes(site) {
+        let tool = match kind {
+            RuntimeKind::Php => Tool::Php,
+            RuntimeKind::Node => Tool::Node,
+            RuntimeKind::Python => Tool::Python,
+            RuntimeKind::Go => Tool::Go,
+            RuntimeKind::Java => Tool::Java,
+        };
+        // A runtime that is not installed is left out; the command says
+        // what it is missing in its log.
+        if let Ok(launch) = context.launch(tool, &site.path, Vec::new()) {
+            path_first.push(launch.path_first.clone());
+            env.extend(
+                launch
+                    .env
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_string_lossy().into_owned())),
+            );
+        }
+    }
+    let rest = std::env::var_os("PATH").unwrap_or_default();
+    path_first.extend(std::env::split_paths(&rest));
+    let path = std::env::join_paths(path_first).unwrap_or(rest);
+    env.insert(0, ("PATH".into(), path.to_string_lossy().into_owned()));
+    let port = site.runtime.port();
+    if let Some(port) = port {
+        env.push(("PORT".into(), port.to_string()));
+    }
+    env.extend(site.settings.env.clone());
+    let (program, args) = if context.os == Os::Windows {
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        (
+            PathBuf::from(system).join("System32").join("cmd.exe"),
+            vec![
+                "/D".to_string(),
+                "/S".to_string(),
+                "/C".to_string(),
+                command.to_string(),
+            ],
+        )
+    } else {
+        (
+            PathBuf::from("/bin/sh"),
+            vec!["-c".to_string(), command.to_string()],
+        )
+    };
+    Ok(ProcessSpec {
+        id: dev_server_id(&site.name),
+        name: format!("{} command", served.domain()),
+        program,
+        args,
+        env,
+        cwd: Some(site.path.clone()),
+        ports: port.into_iter().collect(),
+        restart_on_crash: true,
+    })
+}
+
+/// One process per installed PHP version that a site uses, plus one for
+/// each site with PHP settings of its own (see [`own_php_port`]).
 pub fn php_processes(
     home: &Path,
     sites: &[ServedSite],
@@ -501,16 +597,89 @@ pub fn php_processes(
                 version,
                 installed: true,
                 ..
-            } => Some(version.as_str()),
+            } if own_php_port(s).is_none() => Some(version.as_str()),
             _ => None,
         })
         .collect();
     let os = runtimes.platform().os;
-    versions
+    let mut specs: Vec<ProcessSpec> = versions
         .into_iter()
         .filter_map(|v| runtimes.get(RuntimeKind::Php, v))
-        .map(|installed| php_process(home, &installed.version, &installed.path, os))
-        .collect()
+        .map(|installed| php_process(home, &installed.version, &installed.path, os, None))
+        .collect::<Result<_>>()?;
+    for served in sites {
+        if let Backend::Php {
+            version,
+            installed: true,
+            ..
+        } = &served.backend
+        {
+            if own_php_port(served).is_some() {
+                if let Some(installed) = runtimes.get(RuntimeKind::Php, version) {
+                    specs.push(php_process(
+                        home,
+                        version,
+                        &installed.path,
+                        os,
+                        Some(served),
+                    )?);
+                }
+            }
+        }
+    }
+    Ok(specs)
+}
+
+/// The first port of PHP processes that serve one site each.
+const SITE_PHP_PORTS: u16 = 9200;
+
+/// php-fpm and php-cgi keep a setting made for one request (by `[HOST=]`
+/// sections or `PHP_VALUE`) for the next requests the same worker serves,
+/// whatever site they are for. So a site with PHP settings of its own gets
+/// a PHP process of its own, on one of these ports, numbered by domain.
+fn give_own_php_ports(served: &mut [ServedSite]) {
+    let mut own: Vec<(String, usize)> = served
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| {
+            !s.parked && !s.site.settings.php.is_empty() && matches!(s.backend, Backend::Php { .. })
+        })
+        .map(|(i, s)| (s.domain(), i))
+        .collect();
+    own.sort();
+    for (n, (_, i)) in own.into_iter().take(100).enumerate() {
+        if let Backend::Php { port, .. } = &mut served[i].backend {
+            *port = SITE_PHP_PORTS + n as u16;
+        }
+    }
+}
+
+/// The port of a site's own PHP process, when it has one.
+pub fn own_php_port(served: &ServedSite) -> Option<u16> {
+    match &served.backend {
+        Backend::Php { port, .. } if (SITE_PHP_PORTS..SITE_PHP_PORTS + 100).contains(port) => {
+            Some(*port)
+        }
+        _ => None,
+    }
+}
+
+/// The process id of a site's own PHP process, e.g. `php-8.4-shop.stack`.
+pub fn site_php_process_id(version: &str, domain: &str) -> String {
+    format!("php-{version}-{domain}")
+}
+
+/// A `php.ini` line, quoted only when the value needs it: unquoted, values
+/// like `E_ALL & ~E_DEPRECATED` and `On` keep their meaning.
+fn ini_line(key: &str, value: &str) -> String {
+    let plain = !value.is_empty()
+        && value.trim() == value
+        && !value.contains([';', '=', '{', '}', '$', '[', ']', '#']);
+    if plain {
+        format!("{key} = {value}\n")
+    } else {
+        format!("{key} = \"{value}\"\n")
+    }
 }
 
 /// The process id for a PHP version, e.g. `php-8.4`.
@@ -534,10 +703,46 @@ pub fn php_ini_file(home: &Path, version: &str, install: &Path, os: Os) -> Resul
     Ok(ini)
 }
 
-fn php_process(home: &Path, version: &str, install: &Path, os: Os) -> Result<ProcessSpec> {
-    let ini = php_ini_file(home, version, install, os)?;
-    let config = ini.parent().expect("in a folder").to_path_buf();
-    let port = php_port(version);
+/// The PHP process for a version, or for one site with PHP settings of
+/// its own: that one reads the version's `php.ini` with the site's lines
+/// added at the end, copied before each start.
+fn php_process(
+    home: &Path,
+    version: &str,
+    install: &Path,
+    os: Os,
+    own: Option<&ServedSite>,
+) -> Result<ProcessSpec> {
+    let mut ini = php_ini_file(home, version, install, os)?;
+    let mut config = ini.parent().expect("in a folder").to_path_buf();
+    let mut port = php_port(version);
+    let mut id = php_process_id(version);
+    let mut name = format!("PHP {version}");
+    if let Some(served) = own {
+        let domain = served.domain();
+        let base = std::fs::read_to_string(&ini).map_err(|source| Error::Io {
+            path: ini.clone(),
+            source,
+        })?;
+        let mut text = format!(
+            "; Written by Stackyard before each start: PHP {version}'s php.ini, then the\n\
+             ; settings of {domain} from the Sites screen. Edits here are replaced.\n\n{}\n\n",
+            base.trim_end()
+        );
+        for (key, value) in &served.site.settings.php {
+            text.push_str(&ini_line(key, value));
+        }
+        config = config.join("sites").join(&domain);
+        std::fs::create_dir_all(&config).map_err(|source| Error::Io {
+            path: config.clone(),
+            source,
+        })?;
+        ini = config.join("php.ini");
+        write_config(&ini, &text)?;
+        port = own_php_port(served).unwrap_or(port);
+        id = site_php_process_id(version, &domain);
+        name = format!("PHP {version} for {domain}");
+    }
     let (program, args, env) = if os == Os::Windows {
         (
             install.join("php-cgi.exe"),
@@ -567,8 +772,8 @@ fn php_process(home: &Path, version: &str, install: &Path, os: Os) -> Result<Pro
         (install.join("bin/php-fpm"), args, Vec::new())
     };
     Ok(ProcessSpec {
-        id: php_process_id(version),
-        name: format!("PHP {version}"),
+        id,
+        name,
         program,
         args,
         env,
@@ -732,6 +937,7 @@ mod tests {
                 runtime: SiteRuntime::Static,
                 https: false,
                 dev_server: false,
+                settings: Default::default(),
             })
             .unwrap();
         store.save().unwrap();
@@ -774,6 +980,7 @@ mod tests {
                 runtime,
                 https,
                 dev_server: false,
+                settings: Default::default(),
             },
             parked: false,
             framework: None,
@@ -830,10 +1037,113 @@ mod tests {
     }
 
     #[test]
+    fn site_settings_reach_the_web_server_and_php() {
+        let home = crate::testutil::tempdir();
+        let project = home.join("app");
+        touch(&project.join("web/index.php"));
+        let mut site = Site {
+            name: "app".into(),
+            tld: ".stack".into(),
+            path: project.clone(),
+            runtime: SiteRuntime::Php {
+                version: "8.4".into(),
+            },
+            https: true,
+            dev_server: false,
+            settings: Default::default(),
+        };
+        site.settings.root = Some("web".into());
+        site.settings
+            .env
+            .insert("APP_ENV".into(), "local \"dev\"".into());
+        site.settings.php.insert("memory_limit".into(), "1G".into());
+        let served = from_site(site, false, &RuntimeManager::new(&home));
+        assert_eq!(served.root, project.join("web"));
+        let mut served = served;
+        served.backend = Backend::Php {
+            version: "8.4".into(),
+            port: 9084,
+            installed: true,
+        };
+        let text = caddy_sites(std::slice::from_ref(&served));
+        assert!(
+            text.contains(
+                "php_fastcgi 127.0.0.1:9084 {\n\t\tenv APP_ENV \"local \\\"dev\\\"\"\n\t}"
+            ),
+            "{text}"
+        );
+
+        // PHP settings of its own give the site a PHP process of its own.
+        let mut served = served;
+        let mut others = served.clone();
+        others.site.name = "other".into();
+        others.site.settings.php.clear();
+        let mut list = [others, served.clone()];
+        give_own_php_ports(&mut list);
+        assert_eq!(own_php_port(&list[0]), None);
+        assert_eq!(own_php_port(&list[1]), Some(9200));
+        served = list[1].clone();
+        let install = home.join("runtimes/php/8.4");
+        let base = php_ini_file(&home, "8.4", &install, Os::Linux).unwrap();
+        std::fs::write(&base, "memory_limit = 512M\nerror_reporting = E_ALL\n").unwrap();
+        served
+            .site
+            .settings
+            .php
+            .insert("error_reporting".into(), "E_ALL & ~E_DEPRECATED".into());
+        served
+            .site
+            .settings
+            .php
+            .insert("error_log".into(), "C:/logs/a;b.log".into());
+        let spec = php_process(&home, "8.4", &install, Os::Linux, Some(&served)).unwrap();
+        assert_eq!(spec.id, "php-8.4-app.stack");
+        assert_eq!(spec.ports, vec![9200]);
+        let own =
+            std::fs::read_to_string(home.join("config/php/8.4/sites/app.stack/php.ini")).unwrap();
+        assert!(own.contains("memory_limit = 512M\n"), "{own}");
+        assert!(own.ends_with(
+            "error_log = \"C:/logs/a;b.log\"\nerror_reporting = E_ALL & ~E_DEPRECATED\nmemory_limit = 1G\n"
+        ), "{own}");
+        let text = caddy_sites(std::slice::from_ref(&served));
+        assert!(text.contains("php_fastcgi 127.0.0.1:9200"), "{text}");
+    }
+
+    #[test]
+    fn runs_a_sites_own_command() {
+        let home = crate::testutil::tempdir();
+        let mut site = Site {
+            name: "api".into(),
+            tld: ".stack".into(),
+            path: home.join("api"),
+            runtime: SiteRuntime::Node {
+                version: "22".into(),
+                port: 4000,
+            },
+            https: true,
+            dev_server: false,
+            settings: Default::default(),
+        };
+        site.settings.command = Some("npm run start".into());
+        site.settings.env.insert("API_KEY".into(), "local".into());
+        let served = from_site(site, false, &RuntimeManager::new(&home));
+        let specs = dev_servers(&home, &[served]);
+        assert_eq!(specs.len(), 1);
+        let spec = &specs[0];
+        assert_eq!(spec.id, "dev-api");
+        assert_eq!(spec.ports, vec![4000]);
+        assert_eq!(spec.args.last().map(String::as_str), Some("npm run start"));
+        let env: std::collections::HashMap<_, _> = spec.env.iter().cloned().collect();
+        assert_eq!(env["PORT"], "4000");
+        assert_eq!(env["API_KEY"], "local");
+        assert!(env.contains_key("PATH"));
+    }
+
+    #[test]
     fn writes_php_settings_once() {
         let home = crate::testutil::tempdir();
         let install = home.join("runtimes/php/8.4");
-        let spec = php_process(&home, "8.4", &install, Os::Linux).unwrap();
+        let spec = php_process(&home, "8.4", &install, Os::Linux, None).unwrap();
         assert_eq!(spec.id, "php-8.4");
         assert_eq!(spec.ports, vec![9084]);
         assert!(spec.program.ends_with("bin/php-fpm"));
@@ -842,14 +1152,14 @@ mod tests {
 
         let ini = home.join("config/php/8.4/php.ini");
         std::fs::write(&ini, "memory_limit = 1G\n").unwrap();
-        php_process(&home, "8.4", &install, Os::Linux).unwrap();
+        php_process(&home, "8.4", &install, Os::Linux, None).unwrap();
         assert_eq!(
             std::fs::read_to_string(&ini).unwrap(),
             "memory_limit = 1G\n"
         );
 
         touch(&install.join("ext/php_mbstring.dll"));
-        let windows = php_process(&home, "8.3", &install, Os::Windows).unwrap();
+        let windows = php_process(&home, "8.3", &install, Os::Windows, None).unwrap();
         assert!(windows.program.ends_with("php-cgi.exe"));
         let ini = std::fs::read_to_string(home.join("config/php/8.3/php.ini")).unwrap();
         assert!(ini.contains("extension=mbstring"), "{ini}");

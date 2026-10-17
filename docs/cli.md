@@ -15,6 +15,9 @@ stackyard sites add api --python 3.13 --path ~/Code/api   # also --go 1.26, --ja
 stackyard sites park ~/Code           # every project folder in ~/Code becomes a site
 stackyard sites list
 stackyard sites remove shop
+stackyard sites backup blog           # files, database and settings in one zip (also backups, restore)
+stackyard sites export blog ~/blog.zip   # one file for another computer
+stackyard sites import ~/blog.zip     # add it there (--name, --path)
 stackyard system setup                # local domains and HTTPS, asks for your password once
 stackyard tld                         # show the domain ending
 stackyard tld .test                   # change it

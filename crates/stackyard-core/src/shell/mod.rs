@@ -624,6 +624,7 @@ mod tests {
             },
             https: true,
             dev_server: false,
+            settings: Default::default(),
         }
     }
 
