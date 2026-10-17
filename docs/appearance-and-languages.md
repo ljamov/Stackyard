@@ -26,6 +26,7 @@ Stackyard has it (English otherwise). Stackyard comes with:
 | Español | `src/locales/es.json` |
 | Français | `src/locales/fr.json` |
 | Italiano | `src/locales/it.json` |
+| Македонски (Macedonian) | `src/locales/mk.json` |
 | Português (Brasil) | `src/locales/pt-BR.json` |
 
 The menus, the main screens' titles, the Dashboard, the Services screen, Settings and update
