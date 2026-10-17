@@ -444,6 +444,12 @@ jobs:
           printf 'module goapp\n\ngo 1.26\n' > go.mod
           printf 'package main\n\nimport (\n\t"fmt"\n\t"net/http"\n\t"os"\n)\n\nfunc main() {\n\thttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "hello from go") })\n\thttp.ListenAndServe("127.0.0.1:"+os.Getenv("PORT"), nil)\n}\n' > main.go
 
+          if [ "$RUNNER_OS" = Linux ]; then
+            # The stand-in PHP above has no php-fpm, so the web server could
+            # not start with the PHP sites made from starters.
+            stackyard sites remove shop
+            stackyard sites remove blog
+          fi
           stackyard sites add flaskapp --path "$apps/flaskapp"
           stackyard sites add goapp --path "$apps/goapp"
           stackyard sites | tee "$RUNNER_TEMP/sites.txt"
