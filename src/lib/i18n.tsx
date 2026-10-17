@@ -16,6 +16,7 @@ export const BUILT_IN: { code: string; name: string }[] = [
   { code: "es", name: "Español" },
   { code: "fr", name: "Français" },
   { code: "it", name: "Italiano" },
+  { code: "mk", name: "Македонски" },
   { code: "pt-BR", name: "Português (Brasil)" },
 ];
 
