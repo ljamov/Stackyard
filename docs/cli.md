@@ -72,7 +72,16 @@ stackyard tasks off "Laravel scheduler"   # `on` switches it back on; `remove` d
 stackyard tasks check "0 9 * * mon-fri"   # when a schedule would run
 ```
 
-## AI coding tools (MCP)
+## AI coding tools
+
+```sh
+stackyard ai                          # Claude Code, Codex, Gemini CLI and more: versions, updates
+stackyard ai install claude           # install with npm on Stackyard's Node.js (`update` for a newer one)
+stackyard ai open claude shop.stack   # a new terminal window in a site's folder, running the tool
+stackyard ai remove claude
+```
+
+## MCP server
 
 ```sh
 stackyard mcp setup                   # how to add Stackyard to Claude Code, Cursor and others

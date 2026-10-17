@@ -26,7 +26,7 @@ const SCREEN_MODULE: Partial<Record<Screen, string>> = {
   Scheduler: "scheduler",
   Images: "images",
   Videos: "videos",
-  "AI tools": "mcp",
+  "AI tools": "ai",
   "MCP server": "mcp",
 };
 

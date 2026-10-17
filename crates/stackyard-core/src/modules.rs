@@ -180,6 +180,14 @@ pub const MODULES: &[ModuleDef] = &[
         true,
     ),
     module(
+        "ai",
+        "AI coding tools",
+        Feature,
+        "Install Claude Code, Codex, Gemini CLI and more on Stackyard's Node.js, and open them in a site's folder",
+        true,
+        true,
+    ),
+    module(
         "phpmyadmin",
         "phpMyAdmin",
         Feature,
