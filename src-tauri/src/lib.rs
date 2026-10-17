@@ -23,7 +23,7 @@ use stackyard_core::scheduler::{self, TaskInput, TaskView};
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::setup;
-use stackyard_core::shell::{path as user_path, shims};
+use stackyard_core::shell::{self, path as user_path, shims};
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
@@ -52,10 +52,65 @@ struct SiteView {
     parked: bool,
     /// Why the site cannot work yet, if it cannot.
     problem: Option<String>,
+    /// The runtime versions the project uses, for the version pickers.
+    versions: Vec<SiteVersionView>,
+}
+
+#[derive(Serialize)]
+struct SiteVersionView {
+    kind: RuntimeKind,
+    version: String,
+    installed: bool,
+    /// `site` (saved with the site), `pinned`, `default` or `newest`.
+    from: &'static str,
+    /// The version file that decides, e.g. `.nvmrc`, when one does.
+    file: Option<String>,
+    /// Whether "Default" is a choice: not for the runtime a saved site is
+    /// served with, which always names its version.
+    can_unset: bool,
+}
+
+impl SiteVersionView {
+    fn list(
+        site: &Site,
+        parked: bool,
+        settings: &Settings,
+        runtimes: &RuntimeManager,
+    ) -> Vec<Self> {
+        shell::site_runtimes(site)
+            .into_iter()
+            .filter(|kind| settings.module_enabled(kind.id()))
+            .map(|kind| {
+                let choice = shell::site_choice(site, kind, settings, runtimes);
+                let (from, file) = match &choice.reason {
+                    shell::Reason::Pinned { file } => (
+                        "pinned",
+                        file.file_name().map(|n| n.to_string_lossy().into_owned()),
+                    ),
+                    shell::Reason::Site { .. } => ("site", None),
+                    shell::Reason::Default => ("default", None),
+                    shell::Reason::Newest => ("newest", None),
+                };
+                Self {
+                    kind,
+                    installed: runtimes.get(kind, &choice.version).is_some(),
+                    version: choice.version,
+                    from,
+                    file,
+                    can_unset: parked || site.runtime.kind() != Some(kind),
+                }
+            })
+            .collect()
+    }
 }
 
 impl SiteView {
-    fn new(served: &ServedSite, ports: Ports) -> Self {
+    fn new(
+        served: &ServedSite,
+        ports: Ports,
+        settings: &Settings,
+        runtimes: &RuntimeManager,
+    ) -> Self {
         let site = &served.site;
         let (runtime, problem) = match &served.backend {
             Backend::Php {
@@ -84,6 +139,7 @@ impl SiteView {
             https: site.https,
             parked: served.parked,
             problem,
+            versions: SiteVersionView::list(site, served.parked, settings, runtimes),
         }
     }
 }
@@ -92,7 +148,12 @@ fn site_views() -> CmdResult<Vec<SiteView>> {
     let manager = ServiceManager::open();
     let ports = Ports::current(manager.home());
     let sites = manager.user_sites().map_err(err)?;
-    Ok(sites.iter().map(|s| SiteView::new(s, ports)).collect())
+    let settings = Settings::load().map_err(err)?;
+    let runtimes = RuntimeManager::new(manager.home());
+    Ok(sites
+        .iter()
+        .map(|s| SiteView::new(s, ports, &settings, &runtimes))
+        .collect())
 }
 
 #[derive(Serialize)]
@@ -555,11 +616,13 @@ fn phpmyadmin_view(installs: &Installs) -> PhpMyAdminView {
     let dir = phpmyadmin::dir(&home).display().to_string();
     let manager = ServiceManager::new(&home);
     let ports = Ports::current(&home);
+    let settings = Settings::load().unwrap_or_default();
+    let runtimes = RuntimeManager::new(&home);
     let site = manager
         .sites()
         .unwrap_or_default()
         .iter()
-        .map(|s| SiteView::new(s, ports))
+        .map(|s| SiteView::new(s, ports, &settings, &runtimes))
         .find(|s| s.name == phpmyadmin::SITE && s.path == dir);
     PhpMyAdminView {
         installed: phpmyadmin::installed(&home),
@@ -1438,6 +1501,28 @@ async fn add_starter_site(
     site_views()
 }
 
+/// Picks the version of a runtime for a site, or `None` for the default,
+/// and restarts the web server and dev server with it.
+#[tauri::command]
+fn set_site_version(
+    app: AppHandle,
+    domain: String,
+    kind: String,
+    version: Option<String>,
+) -> CmdResult<Vec<SiteView>> {
+    let kind = parse_kind(&kind)?;
+    let served = ServiceManager::open()
+        .user_sites()
+        .map_err(err)?
+        .into_iter()
+        .find(|s| s.domain() == domain)
+        .ok_or_else(|| format!("no site named {domain}"))?;
+    let mut store = SiteStore::load().map_err(err)?;
+    shell::set_site_version(&mut store, &served.site, kind, version.as_deref()).map_err(err)?;
+    sites_changed(&app);
+    site_views()
+}
+
 #[tauri::command]
 fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
     let mut store = SiteStore::load().map_err(err)?;
@@ -1677,6 +1762,7 @@ pub fn run() {
             get_tld,
             set_tld,
             list_sites,
+            set_site_version,
             add_site,
             remove_site,
             list_parked,
