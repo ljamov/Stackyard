@@ -15,7 +15,6 @@ use crate::runtimes::RuntimeManager;
 use crate::services::ServiceManager;
 use crate::settings::Settings;
 use crate::shell::pins;
-use crate::sites::SiteRuntime;
 use crate::{web, Error, Result};
 
 /// Downloads and half-finished installs touched more recently than this
@@ -302,10 +301,8 @@ fn used_versions(home: &Path) -> Option<Vec<(RuntimeKind, String)>> {
         }
         for site in &sites {
             if site.site.runtime.kind() == Some(kind) {
-                if let SiteRuntime::Php { version } | SiteRuntime::Node { version, .. } =
-                    &site.site.runtime
-                {
-                    used.push((kind, version.clone()));
+                if let Some(version) = site.site.runtime.version() {
+                    used.push((kind, version.to_string()));
                 }
             }
             if let Ok(Some(pin)) = pins::pinned(&site.site.path, kind) {

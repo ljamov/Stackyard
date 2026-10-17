@@ -1,5 +1,6 @@
-//! Stackyard Shell: `php`, `node`, `npm`, `composer` and `mysql` commands
-//! that run the version each project asks for.
+//! Stackyard Shell: `php`, `node`, `npm`, `composer`, `python`, `go`,
+//! `java`, `mysql` and other commands that run the version each project asks
+//! for.
 //!
 //! The commands are small "shims" in `<home>/bin` that all lead back to the
 //! `stackyard` program. It sees which name it was started as, works out the
@@ -43,10 +44,19 @@ pub enum Tool {
     Psql,
     PgDump,
     RedisCli,
+    Python,
+    Python3,
+    Pip,
+    Pip3,
+    Go,
+    Gofmt,
+    Java,
+    Javac,
+    Jar,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 10] = [
+    pub const ALL: [Tool; 19] = [
         Tool::Php,
         Tool::Composer,
         Tool::Node,
@@ -57,6 +67,15 @@ impl Tool {
         Tool::Psql,
         Tool::PgDump,
         Tool::RedisCli,
+        Tool::Python,
+        Tool::Python3,
+        Tool::Pip,
+        Tool::Pip3,
+        Tool::Go,
+        Tool::Gofmt,
+        Tool::Java,
+        Tool::Javac,
+        Tool::Jar,
     ];
 
     pub fn name(self) -> &'static str {
@@ -71,6 +90,15 @@ impl Tool {
             Tool::Psql => "psql",
             Tool::PgDump => "pg_dump",
             Tool::RedisCli => "redis-cli",
+            Tool::Python => "python",
+            Tool::Python3 => "python3",
+            Tool::Pip => "pip",
+            Tool::Pip3 => "pip3",
+            Tool::Go => "go",
+            Tool::Gofmt => "gofmt",
+            Tool::Java => "java",
+            Tool::Javac => "javac",
+            Tool::Jar => "jar",
         }
     }
 
@@ -86,6 +114,9 @@ impl Tool {
         match self {
             Tool::Php | Tool::Composer => Some(RuntimeKind::Php),
             Tool::Node | Tool::Npm | Tool::Npx => Some(RuntimeKind::Node),
+            Tool::Python | Tool::Python3 | Tool::Pip | Tool::Pip3 => Some(RuntimeKind::Python),
+            Tool::Go | Tool::Gofmt => Some(RuntimeKind::Go),
+            Tool::Java | Tool::Javac | Tool::Jar => Some(RuntimeKind::Java),
             Tool::Mysql | Tool::Mysqldump | Tool::Psql | Tool::PgDump | Tool::RedisCli => None,
         }
     }
@@ -163,11 +194,7 @@ pub fn choose(
 }
 
 fn site_version(site: &Site) -> Option<&str> {
-    match &site.runtime {
-        crate::sites::SiteRuntime::Php { version } => Some(version),
-        crate::sites::SiteRuntime::Node { version, .. } => Some(version),
-        crate::sites::SiteRuntime::Static => None,
-    }
+    site.runtime.version()
 }
 
 /// The runtimes a site's project uses: the one it is served with, Node.js
@@ -259,11 +286,7 @@ pub fn set_site_version(
     let pinned = pins::pinned(&site.path, kind).map_or(true, |p| p.is_some());
     match saved {
         Some(saved) => {
-            match &mut saved.runtime {
-                crate::sites::SiteRuntime::Php { version: v }
-                | crate::sites::SiteRuntime::Node { version: v, .. } => *v = version.to_string(),
-                crate::sites::SiteRuntime::Static => {}
-            }
+            saved.runtime.set_version(version);
             store.save()?;
             if pinned {
                 pins::pin(&site.path, kind, version)?;
@@ -333,8 +356,31 @@ impl Context {
         dir: &Path,
         args: Vec<OsString>,
     ) -> Result<Launch> {
-        self.settings.require_module(kind.id())?;
         let runtimes = RuntimeManager::new(&self.home);
+        // Python, Go and Java are often installed already. Until Stackyard
+        // has a version of its own (or with the module off), the commands
+        // run that one, so putting the shims on PATH never hides it.
+        let falls_through = matches!(
+            kind,
+            RuntimeKind::Python | RuntimeKind::Go | RuntimeKind::Java
+        );
+        let has_own = self.settings.module_enabled(kind.id())
+            && catalog::runtime(kind)
+                .versions
+                .iter()
+                .any(|v| runtimes.get(kind, v).is_some());
+        if falls_through && !has_own && pins::pinned(dir, kind).ok().flatten().is_none() {
+            if let Some(program) = self.elsewhere_on_path(tool.name()) {
+                return Ok(Launch {
+                    path_first: program.parent().map(Path::to_path_buf).unwrap_or_default(),
+                    summary: format!("{} from your computer", tool.name()),
+                    program,
+                    args,
+                    env: Vec::new(),
+                });
+            }
+        }
+        self.settings.require_module(kind.id())?;
         let choice = choose(kind, dir, &self.settings, &self.sites, &runtimes)?;
         let name = catalog::runtime(kind).name;
         let installed = runtimes.get(kind, &choice.version).ok_or_else(|| {
@@ -350,8 +396,15 @@ impl Context {
             .binary
             .parent()
             .map_or_else(|| installed.path.clone(), Path::to_path_buf);
+        let exe = if self.os == Os::Windows { ".exe" } else { "" };
+        let mut program = installed.binary.clone();
         let mut full = Vec::new();
         match tool {
+            // A sibling of the main program, e.g. `bin/gofmt` next to `bin/go`.
+            Tool::Gofmt | Tool::Javac | Tool::Jar => {
+                program = bin.join(format!("{}{exe}", tool.name()));
+            }
+            Tool::Pip | Tool::Pip3 => full.extend(["-m".into(), "pip".into()]),
             Tool::Composer => full.push(composer_phar(&self.home).into_os_string()),
             Tool::Npm | Tool::Npx => {
                 let modules = match self.os {
@@ -375,13 +428,37 @@ impl Context {
                 env.push(("PHPRC".to_string(), dir.as_os_str().to_owned()));
             }
         }
+        if kind == RuntimeKind::Java {
+            env.push((
+                "JAVA_HOME".to_string(),
+                crate::runtimes::java_home(&installed.path, self.os).into_os_string(),
+            ));
+        }
         Ok(Launch {
-            program: installed.binary,
+            program,
             args: full,
             path_first: bin,
             env,
             summary: format!("{name} {} ({})", choice.version, choice.reason),
         })
+    }
+
+    /// `name` in a folder on PATH other than Stackyard's own commands.
+    pub fn elsewhere_on_path(&self, name: &str) -> Option<PathBuf> {
+        let own = shims::bin_dir(&self.home);
+        let own = own.canonicalize().unwrap_or(own);
+        let path = std::env::var_os("PATH")?;
+        let names: Vec<String> = match self.os {
+            Os::Windows => [".exe", ".cmd", ".bat"]
+                .iter()
+                .map(|ext| format!("{name}{ext}"))
+                .collect(),
+            _ => vec![name.to_string()],
+        };
+        std::env::split_paths(&path)
+            .filter(|dir| dir.canonicalize().unwrap_or_else(|_| dir.clone()) != own)
+            .flat_map(|dir| names.iter().map(move |n| dir.join(n)))
+            .find(|p| p.is_file())
     }
 
     /// The port a service listens on, which moves when another program has
@@ -667,6 +744,67 @@ mod tests {
                 .version,
             "8.5"
         );
+    }
+
+    #[test]
+    fn launches_python_go_and_java() {
+        let home = crate::testutil::tempdir();
+        let project = crate::testutil::tempdir();
+        let mut settings = Settings::default();
+        for id in ["python", "go", "java"] {
+            settings.set_module(id, true).unwrap();
+        }
+        settings.save_to(&home.join("settings.toml")).unwrap();
+        let python = fake_install(&home, RuntimeKind::Python, "3.13");
+        fake_install(&home, RuntimeKind::Go, "1.26");
+        let java = fake_install(&home, RuntimeKind::Java, "21");
+        let context = Context::load(&home).unwrap();
+
+        let pip = context
+            .launch(Tool::Pip3, &project, vec!["install".into()])
+            .unwrap();
+        assert_eq!(pip.program, python);
+        assert_eq!(
+            pip.args,
+            vec![OsString::from("-m"), "pip".into(), "install".into()]
+        );
+
+        let exe = std::env::consts::EXE_SUFFIX;
+        let gofmt = context.launch(Tool::Gofmt, &project, vec![]).unwrap();
+        assert!(gofmt.program.ends_with(format!("bin/gofmt{exe}")));
+        assert!(gofmt.summary.starts_with("Go 1.26"), "{}", gofmt.summary);
+
+        let javac = context.launch(Tool::Javac, &project, vec![]).unwrap();
+        assert_eq!(javac.program, java.with_file_name(format!("javac{exe}")));
+        let java_home = javac.env.iter().find(|(k, _)| k == "JAVA_HOME").unwrap();
+        assert_eq!(
+            PathBuf::from(&java_home.1),
+            crate::runtimes::java_home(
+                &RuntimeManager::new(&home).dir(RuntimeKind::Java, "21"),
+                Platform::current().os
+            )
+        );
+    }
+
+    #[test]
+    fn python_go_and_java_fall_back_to_the_computers_own() {
+        let home = crate::testutil::tempdir();
+        let project = crate::testutil::tempdir();
+        let mut context = Context::load(&home).unwrap();
+        context.os = Platform::current().os;
+        // Nothing installed by Stackyard: whatever else is on PATH runs, or
+        // the usual "not installed" message when there is none.
+        match context.elsewhere_on_path("go") {
+            Some(system) => {
+                let go = context.launch(Tool::Go, &project, vec![]).unwrap();
+                assert_eq!(go.program, system);
+                assert!(go.summary.contains("from your computer"));
+            }
+            None => assert!(context.launch(Tool::Go, &project, vec![]).is_err()),
+        }
+        // A pinned version never falls back.
+        pins::pin(&project, RuntimeKind::Go, "1.26").unwrap();
+        assert!(context.launch(Tool::Go, &project, vec![]).is_err());
     }
 
     #[test]

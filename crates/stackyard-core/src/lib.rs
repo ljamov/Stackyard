@@ -1,6 +1,7 @@
 //! Core logic shared by the Stackyard desktop app, the `stackyard` CLI and
 //! the MCP server. Nothing in here knows about windows or terminals.
 
+pub mod apps;
 pub mod archive;
 pub mod catalog;
 pub mod cleanup;
