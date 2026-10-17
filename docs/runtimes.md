@@ -18,21 +18,44 @@ x86_64 and ARM64, and publishes them with their checksums and licenses on the `p
 Download sources can be pointed at a mirror with `STACKYARD_NODE_MIRROR`,
 `STACKYARD_PHP_WINDOWS_MIRROR` and `STACKYARD_PHP_MANIFEST`.
 
-## Per-project versions in the terminal
+## Per-project versions
 
-`php`, `composer`, `node`, `npm`, `npx`, `mysql` and `mysqldump` run the version each project asks
-for. In order, Stackyard uses:
+Each site, and each project folder in a terminal, runs the PHP and Node.js version it asks for. In
+order, Stackyard uses:
 
-1. the nearest `.stackyard` file in the folder or above it (`stackyard use php 8.3` writes one):
-   ```toml
-   php = "8.3"
-   node = "22"
-   ```
-2. the version of a site added for that folder,
+1. the nearest version file in the folder or above it:
+   - a `.stackyard` file (`stackyard use php 8.3` writes one):
+     ```toml
+     php = "8.3"
+     node = "22"
+     ```
+   - or a file another tool already uses: `.nvmrc` or `.node-version` (`v22.11.0` means Node 22),
+     `.php-version`, or asdf's and mise's `.tool-versions` (`nodejs 22.11.0`, `php 8.3.12`).
+     `.python-version`, `.go-version`, `.java-version` and `.sdkmanrc` are read the same way, for
+     when those runtimes arrive.
+
+   In one folder `.stackyard` wins over the others. A version Stackyard does not offer (such as
+   `lts/*`) in another tool's file is skipped, since the file is written for that tool.
+2. the version saved with the site added for that folder,
 3. the default version (Runtimes screen, or `stackyard runtimes default php 8.4`),
 4. the newest installed version.
 
-Parked sites follow `.stackyard` files too, so the browser and the terminal agree.
+The web server, the dev server Stackyard runs for Node sites, and the terminal all follow this
+order, so the browser and the terminal always agree.
+
+### Picking versions on the Sites screen
+
+Each site in the list has a picker for every runtime its project uses: the one it is served with,
+Node.js (for build tools such as Vite and Tailwind), and any other its folder pins. Pick a version
+and the site switches to it; the web server restarts by itself. A version marked **(install)** is
+downloaded first. **Default** follows the default version from the Runtimes screen.
+
+The version a site is served with is saved with the site. Any other runtime, and every runtime of a
+parked site, is written to a `.stackyard` file in the project folder, so `npm` in a terminal there
+uses it too. When a version file already decides, the picker updates `.stackyard` in the project
+folder to match, so the file and the site never disagree.
+
+## The terminal
 
 `stackyard shims on` (or **Add to PATH** on the Runtimes screen) creates the commands in `bin/`
 inside Stackyard's folder and puts that folder on your PATH: a marked block in `.zshrc`, `.bashrc`,

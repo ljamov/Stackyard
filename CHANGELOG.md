@@ -4,6 +4,17 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- Sites: each site has version pickers for PHP and Node.js (Node.js for build tools such as Vite),
+  parked sites included. Picking a version that is not installed downloads it first, then the site
+  switches to it.
+- Projects that already name a version for other tools need nothing new: `.nvmrc`,
+  `.node-version`, `.php-version` and `.tool-versions` are read like a `.stackyard` file, by the web
+  server and the terminal alike.
+- Fixed the web server ignoring a project's `.stackyard` file for sites added by hand: the browser
+  and the terminal now always use the same version.
+
 ## 0.4.0
 
 - New Videos screen: make web-ready MP4 (H.264), WebM (VP9) and GIF copies of videos and GIFs,

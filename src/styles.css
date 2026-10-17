@@ -275,3 +275,10 @@ details summary { cursor: pointer; color: var(--text-2); }
 }
 .compare-field { max-width: 420px; }
 .tip .mono { font-size: 12px; }
+
+/* Version pickers in the Sites list. */
+.site-versions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 6px; }
+.site-version { display: inline-flex; align-items: center; gap: 6px; }
+.site-version select {
+  height: 32px; background: var(--sidebar); border: 1px solid var(--border-strong); border-radius: 8px; padding: 0 8px; font-size: 13px;
+}

@@ -5,7 +5,8 @@
 //! `stackyard` program. It sees which name it was started as, works out the
 //! version for the current folder and runs the real program from there:
 //!
-//! 1. the nearest `.stackyard` file that pins one ([`pins`]),
+//! 1. the nearest `.stackyard` file, or version file of another tool such as
+//!    `.nvmrc`, that pins one ([`pins`]),
 //! 2. else a site added for this folder with its own version,
 //! 3. else the default version from Settings,
 //! 4. else the newest installed version.
@@ -167,6 +168,112 @@ fn site_version(site: &Site) -> Option<&str> {
         crate::sites::SiteRuntime::Node { version, .. } => Some(version),
         crate::sites::SiteRuntime::Static => None,
     }
+}
+
+/// The runtimes a site's project uses: the one it is served with, Node.js
+/// for the build tools most projects have (Vite, Tailwind), and any other
+/// the folder pins. Only runtimes Stackyard can install.
+pub fn site_runtimes(site: &Site) -> Vec<RuntimeKind> {
+    let mut kinds: Vec<RuntimeKind> = site.runtime.kind().into_iter().collect();
+    for kind in RuntimeKind::ALL {
+        let wanted =
+            kind == RuntimeKind::Node || pins::pinned(&site.path, kind).is_ok_and(|p| p.is_some());
+        if wanted && !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+    }
+    kinds.retain(|k| catalog::runtime(*k).available);
+    kinds
+}
+
+/// The version of `kind` a site runs, in the web server and in a terminal
+/// in its folder alike: a version file in the project, else the version
+/// saved with the site, else the default.
+pub fn site_choice(
+    site: &Site,
+    kind: RuntimeKind,
+    settings: &Settings,
+    runtimes: &RuntimeManager,
+) -> Choice {
+    let choice = |version: String, reason| Choice {
+        kind,
+        version,
+        reason,
+    };
+    if let Ok(Some(pin)) = pins::pinned(&site.path, kind) {
+        return choice(pin.version, Reason::Pinned { file: pin.file });
+    }
+    if site.runtime.kind() == Some(kind) {
+        if let Some(version) = site_version(site) {
+            let domain = site.domain();
+            return choice(version.to_string(), Reason::Site { domain });
+        }
+    }
+    let reason = match settings.default_runtime(kind) {
+        Some(_) => Reason::Default,
+        None => Reason::Newest,
+    };
+    choice(
+        crate::web::default_version(settings, runtimes, kind),
+        reason,
+    )
+}
+
+/// Picks the version of `kind` for a site; `None` goes back to the default.
+///
+/// The version a site is served with is saved with the site. Any other
+/// runtime, and every runtime of a parked site, goes in the project's
+/// `.stackyard` file, which also serves a terminal there. When a version
+/// file already decides, `.stackyard` in the site's folder is updated so
+/// it keeps deciding and the two never disagree.
+pub fn set_site_version(
+    store: &mut SiteStore,
+    site: &Site,
+    kind: RuntimeKind,
+    version: Option<&str>,
+) -> Result<()> {
+    let family = catalog::runtime(kind);
+    if let Some(version) = version {
+        if !family.offers(version) {
+            return Err(Error::UnknownVersion {
+                name: family.name.into(),
+                version: version.into(),
+            });
+        }
+    }
+    let saved = store
+        .get_mut(&site.domain())
+        .ok()
+        .filter(|s| s.path == site.path && s.runtime.kind() == Some(kind));
+    let Some(version) = version else {
+        if saved.is_some() {
+            return Err(Error::Shell(format!(
+                "{} {} is served with {}; pick a version",
+                site.domain(),
+                family.name,
+                family.name
+            )));
+        }
+        return pins::unpin(&site.path, kind);
+    };
+    let pinned = pins::pinned(&site.path, kind).map_or(true, |p| p.is_some());
+    match saved {
+        Some(saved) => {
+            match &mut saved.runtime {
+                crate::sites::SiteRuntime::Php { version: v }
+                | crate::sites::SiteRuntime::Node { version: v, .. } => *v = version.to_string(),
+                crate::sites::SiteRuntime::Static => {}
+            }
+            store.save()?;
+            if pinned {
+                pins::pin(&site.path, kind, version)?;
+            }
+        }
+        None => {
+            pins::pin(&site.path, kind, version)?;
+        }
+    }
+    Ok(())
 }
 
 /// How to run a tool: the real program, its arguments and the environment to add.
@@ -507,6 +614,59 @@ mod tests {
         let pinned = choose(php, &deep, &settings, &sites, &runtimes).unwrap();
         assert_eq!(pinned.version, "8.4");
         assert!(matches!(pinned.reason, Reason::Pinned { .. }));
+    }
+
+    #[test]
+    fn sites_pick_their_versions() {
+        let home = crate::testutil::tempdir();
+        let code = crate::testutil::tempdir();
+        let runtimes = RuntimeManager::new(&home);
+        let settings = Settings::default();
+        let mut store = SiteStore::load_from(&home.join("sites.toml")).unwrap();
+        let shop = store.add(site("shop", &code, "8.2")).unwrap().clone();
+        let php = RuntimeKind::Php;
+        let node = RuntimeKind::Node;
+        assert_eq!(site_runtimes(&shop), [php, node]);
+
+        // The served runtime is saved with the site, no file in the project.
+        set_site_version(&mut store, &shop, php, Some("8.4")).unwrap();
+        let saved = SiteStore::load_from(&home.join("sites.toml")).unwrap();
+        let shop = saved.list()[0].clone();
+        let choice = site_choice(&shop, php, &settings, &runtimes);
+        assert_eq!(choice.version, "8.4");
+        assert!(matches!(choice.reason, Reason::Site { .. }));
+        assert!(!code.join(pins::PIN_FILE).exists());
+        assert!(set_site_version(&mut store, &shop, php, None).is_err());
+        assert!(set_site_version(&mut store, &shop, php, Some("5.6")).is_err());
+
+        // Node.js for the build tools goes in `.stackyard`, so `npm` in a
+        // terminal there uses it too.
+        set_site_version(&mut store, &shop, node, Some("22")).unwrap();
+        let choice = site_choice(&shop, node, &settings, &runtimes);
+        assert_eq!(choice.version, "22");
+        assert!(matches!(choice.reason, Reason::Pinned { .. }));
+        let sites = store.list().to_vec();
+        assert_eq!(
+            choose(node, &code, &settings, &sites, &runtimes)
+                .unwrap()
+                .version,
+            "22"
+        );
+        set_site_version(&mut store, &shop, node, None).unwrap();
+        assert!(!code.join(pins::PIN_FILE).exists());
+
+        // A version file already decides: it is kept in step with the pick.
+        std::fs::write(code.join(".php-version"), "8.3\n").unwrap();
+        assert_eq!(site_choice(&shop, php, &settings, &runtimes).version, "8.3");
+        set_site_version(&mut store, &shop, php, Some("8.5")).unwrap();
+        let shop = store.list()[0].clone();
+        assert_eq!(site_choice(&shop, php, &settings, &runtimes).version, "8.5");
+        assert_eq!(
+            choose(php, &code, &settings, &sites, &runtimes)
+                .unwrap()
+                .version,
+            "8.5"
+        );
     }
 
     #[test]

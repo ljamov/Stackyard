@@ -104,6 +104,20 @@ export type Site = {
   parked: boolean;
   /** Why the site cannot work yet, if it cannot. */
   problem: string | null;
+  /** The runtime versions the project uses, for the version pickers. */
+  versions: SiteVersion[];
+};
+
+export type SiteVersion = {
+  kind: RuntimeKind;
+  version: string;
+  installed: boolean;
+  /** Saved with the site, pinned in a version file, or the default. */
+  from: "site" | "pinned" | "default" | "newest";
+  /** The version file that decides, e.g. `.nvmrc`, when one does. */
+  file: string | null;
+  /** Whether "Default" can be picked. */
+  can_unset: boolean;
 };
 
 export type SystemStatus = {
@@ -416,6 +430,8 @@ export interface Api {
   listModules(): Promise<Module[]>;
   setModule(id: string, enabled: boolean): Promise<Module[]>;
   listSites(): Promise<Site[]>;
+  /** Picks a runtime version for a site; null goes back to the default. */
+  setSiteVersion(domain: string, kind: RuntimeKind, version: string | null): Promise<Site[]>;
   addSite(site: NewSite): Promise<Site[]>;
   listStarters(): Promise<Starter[]>;
   /** Opens the system's file picker for images; empty when cancelled. */
@@ -554,6 +570,7 @@ const tauriApi: Api = {
   listModules: () => invoke("list_modules"),
   setModule: (id, enabled) => invoke("set_module", { id, enabled }),
   listSites: () => invoke("list_sites"),
+  setSiteVersion: (domain, kind, version) => invoke("set_site_version", { domain, kind, version }),
   addSite: (site) => invoke("add_site", site),
   listStarters: () => invoke("list_starters"),
   pickImages: async (start) => {
@@ -827,7 +844,30 @@ function browserApi(): Api {
     https: true,
     parked,
     problem,
+    versions: [],
   });
+  const isInstalled = (kind: RuntimeKind, version: string) =>
+    runtimes.some((f) => f.kind === kind && f.versions.some((v) => v.version === version && v.installed));
+  /** What the app reports for a site: its own runtime, then Node.js. */
+  const withVersions = (site: Site): Site => {
+    const [label, version] = site.runtime.split(" ");
+    const main: RuntimeKind | null = label === "PHP" ? "php" : label === "Node" ? "node" : null;
+    const own = main && {
+      kind: main,
+      version,
+      installed: isInstalled(main, version),
+      from: site.parked ? ("default" as const) : ("site" as const),
+      file: null,
+      can_unset: site.parked,
+    };
+    const node = site.versions.find((v) => v.kind === "node" && v.from === "pinned");
+    const versions: SiteVersion[] = own ? [own] : [];
+    if (main !== "node")
+      versions.push(
+        node ?? { kind: "node", version: "22", installed: isInstalled("node", "22"), from: "default", file: null, can_unset: true },
+      );
+    return { ...site, versions };
+  };
   let sites: Site[] = [
     sample("blog", "PHP 8.4", "Laravel", true),
     sample("shop", "Node 22 · dev server on port 5173", "Vite", true),
@@ -956,7 +996,22 @@ function browserApi(): Api {
       modules = modules.map((m) => (m.id === id && m.available ? { ...m, enabled } : m));
       return modules;
     },
-    listSites: async () => sites,
+    listSites: async () => (sites = sites.map(withVersions)),
+    setSiteVersion: async (domain, kind, version) => {
+      sites = sites.map((site) => {
+        if (site.domain !== domain) return site;
+        const own = site.runtime.toLowerCase().startsWith(kind);
+        if (own && version) {
+          const rest = site.runtime.split(" ").slice(2).join(" ");
+          return withVersions({ ...site, runtime: [kind === "php" ? "PHP" : "Node", version, rest].filter(Boolean).join(" "), problem: null });
+        }
+        const pinned: SiteVersion[] = version
+          ? [{ kind, version, installed: isInstalled(kind, version), from: "pinned", file: ".stackyard", can_unset: true }]
+          : [];
+        return withVersions({ ...site, versions: pinned });
+      });
+      return sites;
+    },
     addSite: async ({ name, path, runtime, https }) => {
       if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) throw `invalid site name "${name}"`;
       const domain = name + tld;

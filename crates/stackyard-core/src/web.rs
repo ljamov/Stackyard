@@ -197,14 +197,26 @@ pub fn sites(
 
 fn from_site(site: Site, parked: bool, runtimes: &RuntimeManager) -> ServedSite {
     let detected = detect::detect(&site.path);
+    // A version file in the project wins over the version saved with the
+    // site, as it does in a terminal there.
+    let version = |kind, saved: &String| match pins::pinned(&site.path, kind) {
+        Ok(Some(pin)) => pin.version,
+        _ => saved.clone(),
+    };
     let backend = match &site.runtime {
-        SiteRuntime::Php { version } => Backend::Php {
-            version: version.clone(),
-            port: php_port(version),
-            installed: runtimes.get(RuntimeKind::Php, version).is_some(),
-        },
-        SiteRuntime::Node { version, port } => Backend::Node {
-            version: version.clone(),
+        SiteRuntime::Php { version: saved } => {
+            let version = version(RuntimeKind::Php, saved);
+            Backend::Php {
+                port: php_port(&version),
+                installed: runtimes.get(RuntimeKind::Php, &version).is_some(),
+                version,
+            }
+        }
+        SiteRuntime::Node {
+            version: saved,
+            port,
+        } => Backend::Node {
+            version: version(RuntimeKind::Node, saved),
             port: *port,
         },
         SiteRuntime::Static => Backend::Static,
