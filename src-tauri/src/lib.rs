@@ -1781,6 +1781,7 @@ pub fn run() {
             }
         });
     }
+    perf::mark("engine");
     let app = tauri::Builder::default()
         .manage(engine.clone())
         .manage(Installs::default())
@@ -1921,6 +1922,7 @@ pub fn run() {
             remote::git_commit
         ])
         .setup(move |app| {
+            perf::mark("setup");
             let tray = match build_tray(app.handle()) {
                 Ok(()) => true,
                 Err(e) => {
@@ -1945,10 +1947,12 @@ pub fn run() {
             Engine::watch_parked(&app.state::<Arc<Engine>>(), &paths::home(), move || {
                 let _ = handle.emit("sites-changed", ());
             });
+            perf::mark("setup_done");
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building Stackyard");
+    perf::mark("built");
     app.run(|handle, event| match event {
         // Closing the window drops it (and its web view) to save memory;
         // Stackyard keeps running in the tray until Quit.

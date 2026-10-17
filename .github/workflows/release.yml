@@ -299,7 +299,9 @@ jobs:
         run: |
           set -euo pipefail
           case "$RUNNER_OS" in
-            Linux) xvfb-run -a .github/scripts/perf-check.sh /usr/bin/stackyard-app ;;
+            # A desktop always has a session bus; without one, the tray and
+            # notifications wait for D-Bus to time out.
+            Linux) dbus-run-session -- xvfb-run -a .github/scripts/perf-check.sh /usr/bin/stackyard-app ;;
             macOS) .github/scripts/perf-check.sh "target/${{ matrix.target }}/release/bundle/macos/Stackyard.app/Contents/MacOS/stackyard-app" ;;
             Windows) .github/scripts/perf-check.sh "$LOCALAPPDATA/Stackyard/stackyard-app.exe" ;;
           esac

@@ -92,6 +92,7 @@ for run in $(seq "$runs"); do
   kb=$(tree_kb "$pid")
   tray=$(awk "BEGIN { printf \"%.1f\", $kb / 1024 }")
   echo "run $run: window loaded in $start ms ($inside ms after main), tray only $tray MB"
+  echo "  steps after main: $(grep -v '^tray=' "$report" | tr '\n' ' ')"
   stop_app "$pid"
   starts+=("$start"); insides+=("$inside"); trays+=("$tray")
 done
@@ -113,6 +114,8 @@ mid_tray=$(median "${trays[@]}")
 
 failed=0
 if [ "$mid_start" -gt "$max_start_ms" ]; then
+  echo "== what the app printed on its last start"
+  tail -n 30 "$work/app.log" 2>/dev/null || true
   echo "::error::Start took $mid_start ms, over the $max_start_ms ms budget"
   failed=1
 fi

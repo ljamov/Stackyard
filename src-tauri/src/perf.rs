@@ -37,6 +37,14 @@ fn append(file: &std::path::Path, line: &str) {
     }
 }
 
+/// Records how far start-up has got (`<what>_ms=`), to show where the
+/// time goes.
+pub fn mark(what: &str) {
+    if let (Some(file), Some(at)) = (report_file(), STARTED.get()) {
+        append(&file, &format!("{what}_ms={}", at.elapsed().as_millis()));
+    }
+}
+
 /// The main window's page finished loading.
 pub fn page_loaded<R: Runtime>(webview: &Webview<R>) {
     let Some(file) = report_file() else {
