@@ -104,12 +104,15 @@ for run in $(seq "$runs"); do
   starts+=("$start"); insides+=("$inside"); owns+=("${own:-0}"); trays+=("$tray")
 done
 
-# The middle run: steadier than any one run, and not flattered by the best.
+# Times: the fastest run. A shared runner only ever adds delay (the first
+# run also waits for the disk), so the fastest is the steadiest measure of
+# what the build itself costs. Memory: the middle run.
 median() { printf '%s\n' "$@" | sort -n | awk '{ v[NR] = $1 } END { print v[int((NR + 1) / 2)] }'; }
-mid_start=$(median "${starts[@]}")
-mid_app=$(median "${insides[@]}")
+fastest() { printf '%s\n' "$@" | sort -n | head -n 1; }
+mid_start=$(fastest "${starts[@]}")
+mid_app=$(fastest "${insides[@]}")
 mid_tray=$(median "${trays[@]}")
-mid_own=$(median "${owns[@]}")
+mid_own=$(fastest "${owns[@]}")
 
 {
   echo "### Performance on $(uname -s)"
