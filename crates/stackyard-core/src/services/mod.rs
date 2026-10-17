@@ -814,12 +814,20 @@ mod tests {
         let Some((supervisor, home)) = live_start("mongodb") else {
             return;
         };
-        // MongoDB answers plain HTTP on its port with a fixed message.
-        let answer = Http::new()
-            .get_text("http://127.0.0.1:27017/")
-            .unwrap_or_else(|e| e.to_string());
-        assert!(answer.contains("MongoDB"), "{answer}");
-        assert!(home.join("data/mongodb/db").is_dir());
+        // Listening, and its storage engine made its files.
+        let engine = home.join("data/mongodb/db/WiredTiger");
+        for _ in 0..60 {
+            if engine.is_file() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let log = supervisor.tail_log("mongodb", 40).unwrap_or_default();
+        assert!(engine.is_file(), "{}", log.join("\n"));
+        assert!(matches!(
+            supervisor.state("mongodb"),
+            crate::supervisor::ProcessState::Running { .. }
+        ));
         live_stop("mongodb", supervisor, home);
     }
 
