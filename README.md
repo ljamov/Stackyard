@@ -118,7 +118,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 - Lives in the tray (menu bar on macOS) with services running in the background
 - A full `stackyard` CLI that drives the same engine as the app
 - Signed auto-updates with release notes, installed when you choose
-- Dark, light or system theme, six accent colors, and six languages (add your own with one file)
+- Dark, light or system theme, six accent colors, and seven languages (add your own with one file)
 - Windows 10/11, macOS 11+ (Intel and Apple silicon), Linux x64
 
 </td>
