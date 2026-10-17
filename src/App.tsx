@@ -12,6 +12,7 @@ import { Logs } from "./screens/Logs";
 import { Scheduler } from "./screens/Scheduler";
 import { Images } from "./screens/Images";
 import { Videos } from "./screens/Videos";
+import { AiTools } from "./screens/AiTools";
 import { ModulesProvider } from "./lib/modules";
 import { TitleBar } from "./components/TitleBar";
 import { Setup } from "./screens/Setup";
@@ -53,6 +54,7 @@ export function App() {
               {screen === "Logs" && <Logs />}
               {screen === "Images" && <Images />}
               {screen === "Videos" && <Videos />}
+              {screen === "AI tools" && <AiTools />}
               {![
                 "Dashboard",
                 "Sites",
@@ -63,6 +65,7 @@ export function App() {
                 "Scheduler",
                 "Images",
                 "Videos",
+                "AI tools",
                 "Logs",
                 "Databases",
               ].includes(screen) && <ComingSoon screen={screen} />}

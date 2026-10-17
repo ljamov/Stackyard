@@ -408,6 +408,26 @@ export type FfmpegStatus = {
   version: string | null;
   installing: boolean;
 };
+export type AiTool = {
+  id: string;
+  name: string;
+  maker: string;
+  about: string;
+  package: string;
+  /** What you type to start it, e.g. "claude". */
+  command: string;
+  min_node: number;
+  docs: string;
+  /** Installed version; null when not installed. */
+  installed: string | null;
+  /** The Node.js version it runs on. */
+  node: string | null;
+  /** Newest version on npm, once checked. */
+  latest: string | null;
+  update: boolean;
+  installing: boolean;
+};
+export type AiProgress = { id: string; text: string };
 export type FfmpegProgress = { step: "resolving" | "downloading" | "unpacking"; done?: number; total?: number | null };
 
 export interface Api {
@@ -441,6 +461,17 @@ export interface Api {
   onImagesProgress(handler: (p: ImagesProgress) => void): Promise<() => void>;
   /** Opens the system's file picker for videos; empty when cancelled. */
   pickVideos(start?: string): Promise<string[]>;
+  aiTools(): Promise<AiTool[]>;
+  /** Like aiTools, with the newest version of each from npm. */
+  checkAiTools(): Promise<AiTool[]>;
+  /** Installs a tool, or updates it to the newest version. */
+  installAiTool(id: string): Promise<AiTool[]>;
+  removeAiTool(id: string): Promise<AiTool[]>;
+  /** Opens a terminal window in `folder` running the tool. */
+  openAiTool(id: string, folder: string): Promise<void>;
+  /** Opens the tool's install and sign-in guide in the browser. */
+  openAiToolDocs(id: string): Promise<void>;
+  onAiProgress(handler: (p: AiProgress) => void): Promise<() => void>;
   ffmpegStatus(): Promise<FfmpegStatus>;
   installFfmpeg(): Promise<FfmpegStatus>;
   removeFfmpeg(): Promise<FfmpegStatus>;
@@ -594,6 +625,13 @@ const tauriApi: Api = {
     });
     return Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
   },
+  aiTools: () => invoke("ai_tools"),
+  checkAiTools: () => invoke("ai_tools_check"),
+  installAiTool: (id) => invoke("ai_tool_install", { id }),
+  removeAiTool: (id) => invoke("ai_tool_remove", { id }),
+  openAiTool: (id, folder) => invoke("ai_tool_open", { id, folder }),
+  openAiToolDocs: (id) => invoke("ai_tool_docs", { id }),
+  onAiProgress: (handler) => listen<AiProgress>("ai-progress", (e) => handler(e.payload)),
   ffmpegStatus: () => invoke("videos_status"),
   installFfmpeg: () => invoke("videos_install_ffmpeg"),
   removeFfmpeg: () => invoke("videos_remove_ffmpeg"),
@@ -743,6 +781,26 @@ function browserApi(): Api {
   const imageHandlers = new Set<(p: ImagesProgress) => void>();
   const videoHandlers = new Set<(p: VideosProgress) => void>();
   const ffmpegHandlers = new Set<(p: FfmpegProgress) => void>();
+  const aiHandlers = new Set<(p: AiProgress) => void>();
+  const aiTool = (
+    id: string,
+    name: string,
+    maker: string,
+    about: string,
+    pkg: string,
+    command: string,
+    min_node: number,
+    docs: string,
+  ): AiTool => ({ id, name, maker, about, package: pkg, command, min_node, docs, installed: null, node: null, latest: null, update: false, installing: false });
+  let aiTools: AiTool[] = [
+    { ...aiTool("claude", "Claude Code", "Anthropic", "Anthropic's coding agent. Sign in with a Claude account or an API key.", "@anthropic-ai/claude-code", "claude", 22, "https://code.claude.com/docs/en/setup"), installed: "2.1.296", node: "24" },
+    { ...aiTool("codex", "Codex CLI", "OpenAI", "OpenAI's coding agent. Sign in with ChatGPT or an API key.", "@openai/codex", "codex", 18, "https://github.com/openai/codex"), installed: "0.163.0", node: "24" },
+    aiTool("gemini", "Gemini CLI", "Google", "Google's coding agent. Sign in with a Google account or an API key.", "@google/gemini-cli", "gemini", 20, "https://github.com/google-gemini/gemini-cli"),
+    aiTool("copilot", "GitHub Copilot CLI", "GitHub", "GitHub's coding agent. Needs a Copilot plan.", "@github/copilot", "copilot", 22, "https://github.com/github/copilot-cli"),
+    aiTool("qwen", "Qwen Code", "Qwen (Alibaba)", "Coding agent for Qwen models. Sign in with Qwen or use an API key.", "@qwen-code/qwen-code", "qwen", 22, "https://github.com/QwenLM/qwen-code"),
+    aiTool("opencode", "OpenCode", "SST", "Open-source coding agent that works with many model providers.", "@opencode/cli", "opencode", 20, "https://github.com/sst/opencode"),
+  ];
+  const aiLatest: Record<string, string> = { claude: "2.1.302", codex: "0.163.0", gemini: "0.64.0", copilot: "1.0.98", qwen: "0.25.2", opencode: "2.0.32" };
   let ffmpeg: FfmpegStatus = { path: null, downloaded: false, version: null, installing: false };
   let videosStopped = false;
   const logs: Record<string, string[]> = {};
@@ -773,6 +831,7 @@ function browserApi(): Api {
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
     mod("updates", "Updates", "feature", "Checks for new Stackyard versions every few hours and tells you; you choose when to install", true, true),
     mod("logs", "Log viewer", "feature", "Live logs from every service, with search", true, true),
+    mod("ai", "AI coding tools", "feature", "Install Claude Code, Codex, Gemini CLI and more on Stackyard's Node.js, and open them in a site's folder", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
     mod("databases", "Databases screen", "feature", "Browse tables, run queries, back up and restore MySQL and MariaDB", true, true),
     mod("remote", "Remote servers", "feature", "Upload and download site files over SFTP, FTPS or FTP (Cloudways, cPanel, any VPS)", true, true),
@@ -1086,6 +1145,32 @@ function browserApi(): Api {
     pickVideos: async () => {
       const typed = window.prompt("Video paths, separated by commas", "C:\\stackyard\\www\\blog\\intro.mp4");
       return typed ? typed.split(",").map((p) => p.trim()).filter(Boolean) : [];
+    },
+    aiTools: async () => aiTools,
+    checkAiTools: async () => {
+      await new Promise((r) => setTimeout(r, 300));
+      return (aiTools = aiTools.map((t) => {
+        const latest = aiLatest[t.id] ?? null;
+        return { ...t, latest, update: !!t.installed && !!latest && t.installed !== latest };
+      }));
+    },
+    installAiTool: async (id) => {
+      const tool = aiTools.find((t) => t.id === id);
+      if (!tool) throw new Error(`no AI tool "${id}"`);
+      aiHandlers.forEach((h) => h({ id, text: `Installing ${tool.name} with npm…` }));
+      await new Promise((r) => setTimeout(r, 1500));
+      const latest = aiLatest[id] ?? "1.0.0";
+      return (aiTools = aiTools.map((t) => (t.id === id ? { ...t, installed: latest, latest, update: false, node: "24" } : t)));
+    },
+    removeAiTool: async (id) => (aiTools = aiTools.map((t) => (t.id === id ? { ...t, installed: null, node: null, update: false } : t))),
+    openAiTool: async () => {},
+    openAiToolDocs: async (id) => {
+      const docs = aiTools.find((t) => t.id === id)?.docs;
+      if (docs) window.open(docs, "_blank");
+    },
+    onAiProgress: async (handler) => {
+      aiHandlers.add(handler);
+      return () => aiHandlers.delete(handler);
     },
     ffmpegStatus: async () => ffmpeg,
     installFfmpeg: async () => {
