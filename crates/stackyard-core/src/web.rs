@@ -1074,7 +1074,6 @@ mod tests {
         );
 
         // PHP settings of its own give the site a PHP process of its own.
-        let mut served = served;
         let mut others = served.clone();
         others.site.name = "other".into();
         others.site.settings.php.clear();
