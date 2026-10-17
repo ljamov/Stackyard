@@ -68,6 +68,7 @@
     logs: "Logs screen with warnings and errors highlighted",
     images: "Image optimizer making WebP and AVIF copies of images",
     videos: "Video optimizer making MP4, WebM and GIF copies of videos",
+    "ai-tools": "AI tools screen: Claude Code, Codex, Gemini CLI and others, installed and opened in a site's folder",
     settings: "Settings screen with updates, local domains and modules you can switch off"
   };
   document.querySelectorAll(".tabs button").forEach(function (b) {
