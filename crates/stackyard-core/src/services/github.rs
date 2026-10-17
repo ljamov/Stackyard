@@ -44,6 +44,34 @@ impl Asset {
     }
 }
 
+/// The first of `names` the release has, checked against the SHA-256
+/// GitHub records for each uploaded file.
+pub(super) fn release(
+    latest: &Latest,
+    name: &str,
+    names: &[String],
+    platform: crate::platform::Platform,
+) -> Result<crate::install::Release> {
+    let asset = names
+        .iter()
+        .find_map(|n| latest.asset(n))
+        .ok_or_else(|| Error::NoBuild {
+            name: name.into(),
+            version: latest.version().into(),
+            platform: platform.to_string(),
+        })?;
+    let checksum = asset.sha256().ok_or_else(|| Error::Download {
+        url: asset.browser_download_url.clone(),
+        message: "GitHub lists no checksum for this file".into(),
+    })?;
+    Ok(crate::install::Release {
+        version: latest.version().to_string(),
+        url: asset.browser_download_url.clone(),
+        file_name: asset.name.clone(),
+        checksum,
+    })
+}
+
 /// `repo` is `owner/name`, e.g. `axllent/mailpit`.
 pub(super) fn latest(http: &Http, repo: &str) -> Result<Latest> {
     let base = std::env::var("STACKYARD_GITHUB_API").unwrap_or_else(|_| API.into());

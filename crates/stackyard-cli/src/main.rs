@@ -126,8 +126,11 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
-    /// List MySQL or MariaDB databases, or create, back up and restore them
+    /// List MySQL or MariaDB databases (PostgreSQL with --postgres), or create, back up and restore them
     Db {
+        /// Work with PostgreSQL instead of MySQL or MariaDB
+        #[arg(long, global = true)]
+        postgres: bool,
         #[command(subcommand)]
         action: Option<DbAction>,
     },
@@ -998,7 +1001,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 );
             }
         }
-        Command::Db { action } => db(action)?,
+        Command::Db { postgres, action } => db(postgres, action)?,
         Command::Images(args) => optimize_images(args)?,
         Command::Tasks { action } => tasks(action)?,
         Command::Mcp { action } => mcp(action)?,
@@ -1018,7 +1021,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
     Ok(())
 }
 
-fn db(action: Option<DbAction>) -> stackyard_core::Result<()> {
+fn db(postgres: bool, action: Option<DbAction>) -> stackyard_core::Result<()> {
     let home = paths::home();
     Settings::load()?.require_module("databases")?;
     let size = |bytes: u64| match bytes {
@@ -1040,7 +1043,8 @@ fn db(action: Option<DbAction>) -> stackyard_core::Result<()> {
         println!("Folder: {}", databases::backups_dir(&home).display());
         return Ok(());
     }
-    let client = DbClient::open(&home)?;
+    let client = DbClient::open_server(&home, postgres.then_some("postgres"))?;
+    let kind = if postgres { "postgres" } else { "mysql" };
     match action {
         None => {
             let server = client.server();
@@ -1123,7 +1127,7 @@ fn db(action: Option<DbAction>) -> stackyard_core::Result<()> {
                 Some(f) => f,
                 None => databases::backups(&home)
                     .into_iter()
-                    .find(|b| b.database == name)
+                    .find(|b| b.database == name && b.server == kind)
                     .map(|b| b.file)
                     .ok_or_else(|| Error::Database(format!("{name} has no backups yet")))?,
             };

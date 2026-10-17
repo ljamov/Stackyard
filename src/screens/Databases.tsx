@@ -4,6 +4,7 @@ import {
   errorText,
   type Database,
   type DbBackup,
+  type DbKind,
   type DbServerStatus,
   type DbTable,
   type ResultSet,
@@ -13,7 +14,11 @@ import { PhpMyAdminCard } from "../components/PhpMyAdminCard";
 const PAGE = 100;
 type Tab = "Tables" | "Query" | "Backups";
 
+const KIND_NAMES: Record<DbKind, string> = { mysql: "MySQL / MariaDB", postgres: "PostgreSQL" };
+
 export function Databases() {
+  const [servers, setServers] = useState<DbKind[]>([]);
+  const [kind, setKind] = useState<DbKind>("mysql");
   const [status, setStatus] = useState<DbServerStatus | null>(null);
   const [dbs, setDbs] = useState<Database[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
@@ -24,19 +29,39 @@ export function Databases() {
 
   const running = !!status?.server?.version;
 
+  useEffect(() => {
+    api
+      .dbServers()
+      .then((found) => {
+        setServers(found);
+        // Only PostgreSQL is set up: show it rather than a MySQL notice.
+        if (found.length === 1) setKind(found[0]);
+      })
+      .catch(() => {});
+  }, []);
+
   const load = useCallback(async () => {
     try {
-      const s = await api.dbServer();
+      const s = await api.dbServer(kind);
       setStatus(s);
-      if (s.server?.version) setDbs(await api.dbList());
+      setDbs(s.server?.version ? await api.dbList(kind) : []);
     } catch (e) {
       setError(errorText(e));
     }
-  }, []);
+  }, [kind]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  function switchTo(next: DbKind) {
+    if (next === kind) return;
+    setStatus(null);
+    setDbs([]);
+    setCurrent(null);
+    setError(null);
+    setKind(next);
+  }
 
   const selected = dbs.find((d) => d.name === current)?.name ?? dbs[0]?.name ?? null;
 
@@ -57,7 +82,7 @@ export function Databases() {
   async function create(e: FormEvent) {
     e.preventDefault();
     try {
-      setDbs(await api.dbCreate(newName.trim()));
+      setDbs(await api.dbCreate(newName.trim(), kind));
       setCurrent(newName.trim());
       setNewName("");
       setError(null);
@@ -73,10 +98,19 @@ export function Databases() {
           <h1>Databases</h1>
           <p className="muted">
             {status?.server
-              ? `${status.server.name}${status.server.version ? ` · running ${status.server.version}` : " · not running"}. Connect as root with no password on 127.0.0.1.`
-              : "Browse tables, run queries, and back up and restore your MySQL or MariaDB databases."}
+              ? `${status.server.name}${status.server.version ? ` · running ${status.server.version}` : " · not running"}. Connect as ${kind === "postgres" ? "postgres" : "root"} with no password on 127.0.0.1.`
+              : "Browse tables, run queries, and back up and restore your MySQL, MariaDB or PostgreSQL databases."}
           </p>
         </div>
+        {servers.length > 1 && (
+          <div className="row" role="group" aria-label="Database server">
+            {servers.map((k) => (
+              <button key={k} type="button" className="tab" aria-pressed={kind === k} onClick={() => switchTo(k)}>
+                {KIND_NAMES[k]}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       {error && (
@@ -85,7 +119,7 @@ export function Databases() {
         </p>
       )}
 
-      <PhpMyAdminCard />
+      {kind === "mysql" && <PhpMyAdminCard />}
 
       {status?.problem && <p className="notice">{status.problem}</p>}
       {status?.server && !running && (
@@ -148,11 +182,12 @@ export function Databases() {
                   ))}
                 </div>
               </div>
-              {tab === "Tables" && <Tables key={selected} database={selected} />}
-              {tab === "Query" && <Query key={selected} database={selected} onChange={load} />}
+              {tab === "Tables" && <Tables key={`${kind}/${selected}`} kind={kind} database={selected} />}
+              {tab === "Query" && <Query key={`${kind}/${selected}`} kind={kind} database={selected} onChange={load} />}
               {tab === "Backups" && (
                 <Backups
-                  key={selected}
+                  key={`${kind}/${selected}`}
+                  kind={kind}
                   database={selected}
                   onChange={(next) => {
                     setDbs(next);
@@ -169,7 +204,7 @@ export function Databases() {
   );
 }
 
-function Tables({ database }: { database: string }) {
+function Tables({ kind, database }: { kind: DbKind; database: string }) {
   const [tables, setTables] = useState<DbTable[] | null>(null);
   const [table, setTable] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
@@ -177,20 +212,20 @@ function Tables({ database }: { database: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.dbTables(database).then(setTables).catch((e) => setError(errorText(e)));
-  }, [database]);
+    api.dbTables(database, kind).then(setTables).catch((e) => setError(errorText(e)));
+  }, [kind, database]);
 
   useEffect(() => {
     if (!table) return;
     setPage(null);
     api
-      .dbBrowse(database, table, offset, PAGE)
+      .dbBrowse(database, table, offset, PAGE, kind)
       .then((p) => {
         setPage(p);
         setError(null);
       })
       .catch((e) => setError(errorText(e)));
-  }, [database, table, offset]);
+  }, [kind, database, table, offset]);
 
   if (error) return <p className="error small">{error}</p>;
   if (!tables) return <p className="muted small">Loading…</p>;
@@ -269,7 +304,7 @@ function Tables({ database }: { database: string }) {
   );
 }
 
-function Query({ database, onChange }: { database: string; onChange: () => void }) {
+function Query({ kind, database, onChange }: { kind: DbKind; database: string; onChange: () => void }) {
   const [sql, setSql] = useState("");
   const [results, setResults] = useState<ResultSet[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -279,7 +314,7 @@ function Query({ database, onChange }: { database: string; onChange: () => void 
     if (!sql.trim() || busy) return;
     setBusy(true);
     try {
-      setResults(await api.dbQuery(database, sql));
+      setResults(await api.dbQuery(database, sql, kind));
       setError(null);
       onChange();
     } catch (e) {
@@ -332,10 +367,12 @@ function Query({ database, onChange }: { database: string; onChange: () => void 
 }
 
 function Backups({
+  kind,
   database,
   onChange,
   onCopied,
 }: {
+  kind: DbKind;
   database: string;
   onChange: (dbs: Database[]) => void;
   onCopied: (name: string) => void;
@@ -352,7 +389,7 @@ function Backups({
     api.dbBackups().then(setAll).catch(() => {});
   }, []);
 
-  const mine = all.filter((b) => b.database === database);
+  const mine = all.filter((b) => b.database === database && b.server === kind);
 
   async function attempt(label: string, action: () => Promise<void>, message: string) {
     setBusy(label);
@@ -374,13 +411,15 @@ function Backups({
       <div className="row wrap between centered">
         <p className="muted small">
           Backups are gzipped SQL files in Stackyard's backups folder. Schedule one with the Scheduler:{" "}
-          <code className="mono">stackyard db backup {database}</code>
+          <code className="mono">
+            stackyard db {kind === "postgres" ? "--postgres " : ""}backup {database}
+          </code>
         </p>
         <button
           type="button"
           className="btn primary"
           disabled={busy !== null}
-          onClick={() => attempt("backup", async () => setAll(await api.dbBackup(database)), "Backup saved.")}
+          onClick={() => attempt("backup", async () => setAll(await api.dbBackup(database, kind)), "Backup saved.")}
         >
           {busy === "backup" ? "Backing up…" : "Back up now"}
         </button>
@@ -412,7 +451,7 @@ function Backups({
                   onClick={() =>
                     attempt(
                       b.file,
-                      async () => onChange(await api.dbRestore(database, b.file, null)),
+                      async () => onChange(await api.dbRestore(database, b.file, null, kind)),
                       `Restored ${b.file} into ${database}.`,
                     )
                   }
@@ -434,7 +473,7 @@ function Backups({
                       attempt(
                         b.file,
                         async () => {
-                          onChange(await api.dbRestore(database, b.file, copyName.trim()));
+                          onChange(await api.dbRestore(database, b.file, copyName.trim(), kind));
                           onCopied(copyName.trim());
                         },
                         `Restored ${b.file} into ${copyName.trim()}.`,
@@ -483,7 +522,7 @@ function Backups({
             type="button"
             className="btn small danger"
             disabled={dropText !== database || busy !== null}
-            onClick={() => attempt("drop", async () => onChange(await api.dbDrop(database)), `Dropped ${database}.`)}
+            onClick={() => attempt("drop", async () => onChange(await api.dbDrop(database, kind)), `Dropped ${database}.`)}
           >
             Drop database
           </button>

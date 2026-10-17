@@ -76,6 +76,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 
 ### 🗄️ Databases and services
 - **MySQL 8.4**, **MariaDB 11.8**, **PostgreSQL 18**, **Redis 8**
+- **MongoDB 9.0**, **SeaweedFS** (S3-compatible storage), **NATS** (message queue)
 - **Meilisearch** for search, **Mailpit** to catch outgoing mail
 - Everything listens on `127.0.0.1` only
 - A port another app holds? The service moves to the next free one and keeps it
@@ -191,6 +192,9 @@ stackyard use php 8.3                  # pin a version for the current project
 | Redis 8 | 6379 | macOS, Linux | Off |
 | Meilisearch 1 | 7700 | All | Off |
 | Mailpit | 1025 (SMTP), 8025 (web) | All | Off |
+| MongoDB 9.0 | 27017 | All | Off |
+| SeaweedFS 4 (S3 storage) | 8333 (S3), 23646 (web) | All | Off |
+| NATS 2 (queue) | 4222, 8222 (web) | All | Off |
 
 When a port is taken by another app, the service uses the next free port and keeps it.
 MySQL and MariaDB start with user `root` and PostgreSQL with user `postgres`, all without a
@@ -269,6 +273,7 @@ data folder; set `STACKYARD_HOME` to use another one.
 - [x] PHP and Node.js, per project
 - [x] Caddy with local HTTPS, parked folders, framework detection
 - [x] MySQL, MariaDB, PostgreSQL, Redis, Meilisearch, Mailpit
+- [x] MongoDB, S3-compatible storage (SeaweedFS), NATS queue, PostgreSQL on the Databases screen
 - [x] Databases screen, logs, task scheduler, disk cleanup
 - [x] MCP server for AI coding tools
 - [x] Signed auto-updates

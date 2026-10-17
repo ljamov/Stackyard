@@ -81,6 +81,8 @@ export type Service = {
   role: string;
   /** Page to open while it runs, if any. */
   web: string | null;
+  /** How apps connect, e.g. "mongodb://127.0.0.1:27017". */
+  connect: string | null;
   /** Exact installed release, or null. */
   installed: string | null;
   installing: boolean;
@@ -234,7 +236,9 @@ export type DbServerStatus = { server: DbServer | null; problem: string | null }
 export type Database = { name: string; tables: number; size: number };
 export type DbTable = { name: string; rows: number; size: number; kind: string };
 export type ResultSet = { columns: string[]; rows: (string | null)[][]; truncated: boolean };
-export type DbBackup = { database: string; file: string; size: number; created: number };
+/** "postgres" for PostgreSQL; MySQL and MariaDB are "mysql". */
+export type DbKind = "mysql" | "postgres";
+export type DbBackup = { server: DbKind; database: string; file: string; size: number; created: number };
 
 export type TaskInput = {
   name: string;
@@ -527,16 +531,18 @@ export interface Api {
   clearLogs(): Promise<number>;
   /** Empties one log; false when it had nothing in it yet. */
   clearLog(id: string): Promise<boolean>;
-  dbServer(): Promise<DbServerStatus>;
-  dbList(): Promise<Database[]>;
-  dbCreate(name: string): Promise<Database[]>;
-  dbDrop(name: string): Promise<Database[]>;
-  dbTables(database: string): Promise<DbTable[]>;
-  dbBrowse(database: string, table: string, offset: number, limit: number): Promise<ResultSet>;
-  dbQuery(database: string | null, sql: string): Promise<ResultSet[]>;
-  dbBackup(database: string): Promise<DbBackup[]>;
+  /** The servers the Databases screen can switch between. */
+  dbServers(): Promise<DbKind[]>;
+  dbServer(server?: DbKind): Promise<DbServerStatus>;
+  dbList(server?: DbKind): Promise<Database[]>;
+  dbCreate(name: string, server?: DbKind): Promise<Database[]>;
+  dbDrop(name: string, server?: DbKind): Promise<Database[]>;
+  dbTables(database: string, server?: DbKind): Promise<DbTable[]>;
+  dbBrowse(database: string, table: string, offset: number, limit: number, server?: DbKind): Promise<ResultSet>;
+  dbQuery(database: string | null, sql: string, server?: DbKind): Promise<ResultSet[]>;
+  dbBackup(database: string, server?: DbKind): Promise<DbBackup[]>;
   dbBackups(): Promise<DbBackup[]>;
-  dbRestore(database: string, file: string, into: string | null): Promise<Database[]>;
+  dbRestore(database: string, file: string, into: string | null, server?: DbKind): Promise<Database[]>;
   dbRemoveBackup(database: string, file: string): Promise<DbBackup[]>;
   mcpStatus(): Promise<McpStatus>;
   setMcpTool(name: string, allowed: boolean): Promise<McpStatus>;
@@ -678,16 +684,17 @@ const tauriApi: Api = {
   readLog: (id, from, lines) => invoke("read_log", { id, from, lines }),
   clearLogs: () => invoke("clear_logs"),
   clearLog: (id) => invoke("clear_log", { id }),
-  dbServer: () => invoke("db_server"),
-  dbList: () => invoke("db_list"),
-  dbCreate: (name) => invoke("db_create", { name }),
-  dbDrop: (name) => invoke("db_drop", { name }),
-  dbTables: (database) => invoke("db_tables", { database }),
-  dbBrowse: (database, table, offset, limit) => invoke("db_browse", { database, table, offset, limit }),
-  dbQuery: (database, sql) => invoke("db_query", { database, sql }),
-  dbBackup: (database) => invoke("db_backup", { database }),
+  dbServers: () => invoke("db_servers"),
+  dbServer: (server) => invoke("db_server", { server }),
+  dbList: (server) => invoke("db_list", { server }),
+  dbCreate: (name, server) => invoke("db_create", { name, server }),
+  dbDrop: (name, server) => invoke("db_drop", { name, server }),
+  dbTables: (database, server) => invoke("db_tables", { database, server }),
+  dbBrowse: (database, table, offset, limit, server) => invoke("db_browse", { database, table, offset, limit, server }),
+  dbQuery: (database, sql, server) => invoke("db_query", { database, sql, server }),
+  dbBackup: (database, server) => invoke("db_backup", { database, server }),
   dbBackups: () => invoke("db_backups"),
-  dbRestore: (database, file, into) => invoke("db_restore", { database, file, into }),
+  dbRestore: (database, file, into, server) => invoke("db_restore", { database, file, into, server }),
   dbRemoveBackup: (database, file) => invoke("db_remove_backup", { database, file }),
   cleanupScan: () => invoke("cleanup_scan"),
   cleanupRun: (ids) => invoke("cleanup_run", { ids }),
@@ -766,15 +773,28 @@ function browserApi(): Api {
     role: string,
     web: string | null,
     installed: string | null,
-  ): Service => ({ id, name, version, ports, role, web, installed, installing: false, state: "stopped" });
+    connect: string | null = null,
+  ): Service => ({ id, name, version, ports, role, web, connect, installed, installing: false, state: "stopped" });
   let services: Service[] = [
     service("caddy", "Caddy", "2", [80, 443], "Web server", "http://localhost", "2.10.2"),
-    service("mysql", "MySQL", "8.4", [3306], "Database", null, "8.4.6"),
-    service("mariadb", "MariaDB", "11.8", [3306], "Database", null, null),
-    service("postgres", "PostgreSQL", "18", [5432], "Database", null, null),
-    service("redis", "Redis", "8", [6379], "Cache and queues", null, null),
-    service("mailpit", "Mailpit", "1", [1025, 8025], "Mail catcher", "http://127.0.0.1:8025", null),
-    service("meilisearch", "Meilisearch", "1", [7700], "Search engine", "http://127.0.0.1:7700", null),
+    service("mysql", "MySQL", "8.4", [3306], "Database", null, "8.4.6", "mysql://root@127.0.0.1:3306"),
+    service("mariadb", "MariaDB", "11.8", [3306], "Database", null, null, "mysql://root@127.0.0.1:3306"),
+    service("postgres", "PostgreSQL", "18", [5432], "Database", null, "18.0", "postgresql://postgres@127.0.0.1:5432"),
+    service("redis", "Redis", "8", [6379], "Cache and queues", null, null, "redis://127.0.0.1:6379"),
+    service("mailpit", "Mailpit", "1", [1025, 8025], "Mail catcher", "http://127.0.0.1:8025", null, "smtp://127.0.0.1:1025"),
+    service("meilisearch", "Meilisearch", "1", [7700], "Search engine", "http://127.0.0.1:7700", null, "http://127.0.0.1:7700"),
+    service("mongodb", "MongoDB", "9.0", [27017], "Document database", null, null, "mongodb://127.0.0.1:27017"),
+    service(
+      "seaweedfs",
+      "SeaweedFS",
+      "4",
+      [8333, 23646, 9333, 9340, 8888],
+      "S3-compatible storage",
+      "http://127.0.0.1:23646",
+      null,
+      "http://127.0.0.1:8333 · key stackyard · secret stackyard-secret",
+    ),
+    service("nats", "NATS", "2", [4222, 8222], "Message queue", "http://127.0.0.1:8222", null, "nats://127.0.0.1:4222"),
   ];
   const serviceHandlers = new Set<(p: ServiceProgress) => void>();
   const starterHandlers = new Set<(p: StarterProgress) => void>();
@@ -830,12 +850,15 @@ function browserApi(): Api {
     mod("meilisearch", "Meilisearch", "service", "Fast search engine for apps, with a search preview page", false, true),
     mod("postgres", "PostgreSQL", "service", "PostgreSQL database server", false, true),
     mod("redis", "Redis", "service", "Cache and queues (macOS and Linux)", false, true),
+    mod("mongodb", "MongoDB", "service", "Document database (MongoDB Community Server, downloaded from mongodb.com)", false, true),
+    mod("seaweedfs", "SeaweedFS", "service", "S3-compatible storage for uploads and buckets, like MinIO or AWS S3", false, true),
+    mod("nats", "NATS", "service", "Message queue with JetStream, for jobs and events between apps", false, true),
     mod("shell", "Stackyard Shell", "feature", "Terminal and PATH shims with each project's versions", true, true),
     mod("updates", "Updates", "feature", "Checks for new Stackyard versions every few hours and tells you; you choose when to install", true, true),
     mod("logs", "Log viewer", "feature", "Live logs from every service, with search", true, true),
     mod("ai", "AI coding tools", "feature", "Install Claude Code, Codex, Gemini CLI and more on Stackyard's Node.js, and open them in a site's folder", true, true),
     mod("mcp", "MCP server", "feature", "Lets AI coding tools see and manage sites and services", false, true),
-    mod("databases", "Databases screen", "feature", "Browse tables, run queries, back up and restore MySQL and MariaDB", true, true),
+    mod("databases", "Databases screen", "feature", "Browse tables, run queries, back up and restore MySQL, MariaDB and PostgreSQL", true, true),
     mod("remote", "Remote servers", "feature", "Upload and download site files over SFTP, FTPS or FTP (Cloudways, cPanel, any VPS)", true, true),
     mod("git", "Git", "feature", "Link sites to GitHub or any Git host, then pull, commit and push (uses Git on your computer)", true, true),
     mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),
@@ -846,8 +869,9 @@ function browserApi(): Api {
     { name: "blog", tables: 3, size: 360448 },
     { name: "shop", tables: 3, size: 1769472 },
   ];
+  let pgDbs: Database[] = [{ name: "analytics", tables: 2, size: 8_421_376 }];
   let backups: DbBackup[] = [
-    { database: "shop", file: "shop-20261014-020000.sql.gz", size: 412377, created: Date.now() - 22 * 3600_000 },
+    { server: "mysql", database: "shop", file: "shop-20261014-020000.sql.gz", size: 412377, created: Date.now() - 22 * 3600_000 },
   ];
   // A rough stand-in for the core's schedule reading, enough for previews.
   const samplePreview = (schedule: string): SchedulePreview => {
@@ -1262,6 +1286,9 @@ function browserApi(): Api {
         { id: "mailpit", name: "Mailpit", group: "service", description: "Catches outgoing mail for testing", version: null, recommended: true },
         { id: "postgres", name: "PostgreSQL", group: "service", description: "PostgreSQL database server", version: null, recommended: false },
         { id: "meilisearch", name: "Meilisearch", group: "service", description: "Fast search engine for apps", version: null, recommended: false },
+        { id: "mongodb", name: "MongoDB", group: "service", description: "Document database", version: null, recommended: false },
+        { id: "seaweedfs", name: "SeaweedFS", group: "service", description: "S3-compatible storage", version: null, recommended: false },
+        { id: "nats", name: "NATS", group: "service", description: "Message queue", version: null, recommended: false },
       ],
     }),
     phpMyAdminStatus: async () => pma,
@@ -1349,20 +1376,33 @@ function browserApi(): Api {
     },
     clearLogs: async () => 3,
     clearLog: async () => true,
-    dbServer: async () => ({ server: { id: "mysql", name: "MySQL 8.4", version: "8.4.6" }, problem: null }),
-    dbList: async () => dbs,
-    dbCreate: async (name) => {
+    dbServers: async () => ["mysql", "postgres"],
+    dbServer: async (server) =>
+      server === "postgres"
+        ? { server: { id: "postgres", name: "PostgreSQL 18", version: "18.0" }, problem: null }
+        : { server: { id: "mysql", name: "MySQL 8.4", version: "8.4.6" }, problem: null },
+    dbList: async (server) => (server === "postgres" ? pgDbs : dbs),
+    dbCreate: async (name, server) => {
       if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) throw "use letters, digits, _ and - for database names (up to 64)";
-      if (dbs.some((d) => d.name === name)) throw `Can't create database '${name}'; database exists`;
-      dbs = [...dbs, { name, tables: 0, size: 0 }].sort((a, b) => a.name.localeCompare(b.name));
-      return dbs;
+      const list = server === "postgres" ? pgDbs : dbs;
+      if (list.some((d) => d.name === name)) throw `Can't create database '${name}'; database exists`;
+      const next = [...list, { name, tables: 0, size: 0 }].sort((a, b) => a.name.localeCompare(b.name));
+      if (server === "postgres") pgDbs = next;
+      else dbs = next;
+      return next;
     },
-    dbDrop: async (name) => {
+    dbDrop: async (name, server) => {
+      if (server === "postgres") return (pgDbs = pgDbs.filter((d) => d.name !== name));
       dbs = dbs.filter((d) => d.name !== name);
       return dbs;
     },
     dbTables: async (database) =>
-      database === "shop"
+      database === "analytics"
+        ? [
+            { name: "events", rows: 182_400, size: 7_340_032, kind: "BASE TABLE" },
+            { name: "reports.daily", rows: 365, size: 65_536, kind: "BASE TABLE" },
+          ]
+        : database === "shop"
         ? [
             { name: "customers", rows: 1250, size: 196608, kind: "BASE TABLE" },
             { name: "orders", rows: 8730, size: 1572864, kind: "BASE TABLE" },
@@ -1391,12 +1431,13 @@ function browserApi(): Api {
       if (/selec\b/i.test(sql)) throw "You have an error in your SQL syntax";
       return [{ columns: ["id", "total"], rows: [["1", "9.99"], ["2", null]], truncated: false }];
     },
-    dbBackup: async (database) => {
-      backups = [{ database, file: `${database}-20261015-001500.sql.gz`, size: 48213, created: Date.now() }, ...backups];
+    dbBackup: async (database, server = "mysql") => {
+      const file = `${database}-20261015-001500${server === "postgres" ? ".pg" : ""}.sql.gz`;
+      backups = [{ server, database, file, size: 48213, created: Date.now() }, ...backups];
       return backups;
     },
     dbBackups: async () => backups,
-    dbRestore: async () => dbs,
+    dbRestore: async (_db, _file, _into, server) => (server === "postgres" ? pgDbs : dbs),
     dbRemoveBackup: async (database, file) => {
       backups = backups.filter((b) => !(b.database === database && b.file === file));
       return backups;

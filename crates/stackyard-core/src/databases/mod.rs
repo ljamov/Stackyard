@@ -1,11 +1,14 @@
 //! The Databases screen and `stackyard db`: list, create and drop
 //! databases, browse tables, run queries, and back up and restore. It
 //! drives the `mysql` and `mysqldump` programs that come with MySQL and
-//! MariaDB, so no database driver is built in.
+//! MariaDB, and `psql` and `pg_dump` for PostgreSQL ([`postgres`]), so no
+//! database driver is built in.
 //!
 //! Backups are gzipped SQL dumps in `backups/<database>/` inside
 //! Stackyard's data folder.
 
+mod html;
+pub mod postgres;
 mod xml;
 
 use std::ffi::OsString;
@@ -31,7 +34,7 @@ const MAX_OUTPUT: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Server {
-    /// `mysql` or `mariadb`.
+    /// `mysql`, `mariadb` or `postgres`.
     pub id: String,
     /// e.g. `MariaDB 11.8`.
     pub name: String,
@@ -59,6 +62,8 @@ pub struct Table {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Backup {
+    /// `postgres` for PostgreSQL backups, else `mysql` (MySQL or MariaDB).
+    pub server: &'static str,
     pub database: String,
     /// The file name inside `backups/<database>/`.
     pub file: String,
@@ -71,9 +76,49 @@ pub struct Client {
     home: PathBuf,
     mysql: Launch,
     server: String,
+    pg: Option<postgres::Pg>,
+}
+
+/// The servers the screen can show: `mysql` when MySQL or MariaDB is
+/// installed and switched on, `postgres` when PostgreSQL is.
+pub fn servers(home: &Path) -> Vec<&'static str> {
+    let Ok(settings) = crate::settings::Settings::load_from(&home.join("settings.toml")) else {
+        return Vec::new();
+    };
+    let services = crate::services::ServiceManager::new(home);
+    let usable = |id: &str| settings.module_enabled(id) && services.get(id).is_some();
+    let mut found = Vec::new();
+    if usable("mysql") || usable("mariadb") {
+        found.push("mysql");
+    }
+    if usable("postgres") {
+        found.push("postgres");
+    }
+    found
 }
 
 impl Client {
+    /// The client for `server`: `postgres`, or MySQL and MariaDB for
+    /// anything else (see [`Client::open`]).
+    pub fn open_server(home: &Path, server: Option<&str>) -> Result<Self> {
+        if server != Some("postgres") {
+            return Self::open(home);
+        }
+        let pg = postgres::Pg::open(home)?;
+        Ok(Self {
+            home: home.to_owned(),
+            mysql: Launch {
+                program: PathBuf::new(),
+                args: Vec::new(),
+                path_first: PathBuf::new(),
+                env: Vec::new(),
+                summary: pg.summary().to_string(),
+            },
+            server: "postgres".into(),
+            pg: Some(pg),
+        })
+    }
+
     /// The client for whichever of MySQL and MariaDB is installed and
     /// switched on (the running one when both are).
     pub fn open(home: &Path) -> Result<Self> {
@@ -89,11 +134,19 @@ impl Client {
             home: home.to_owned(),
             mysql,
             server: server.into(),
+            pg: None,
         })
     }
 
     /// Which server this is, and its version if it is running.
     pub fn server(&self) -> Server {
+        if let Some(pg) = &self.pg {
+            return Server {
+                id: self.server.clone(),
+                name: pg.summary().to_string(),
+                version: pg.version(),
+            };
+        }
         let version = self
             .query(None, "SELECT VERSION() AS v")
             .ok()
@@ -108,6 +161,9 @@ impl Client {
     }
 
     pub fn databases(&self) -> Result<Vec<Database>> {
+        if let Some(pg) = &self.pg {
+            return pg.databases();
+        }
         let sql = format!(
             "SELECT s.SCHEMA_NAME AS name, COUNT(t.TABLE_NAME) AS tables, \
              COALESCE(SUM(t.DATA_LENGTH + t.INDEX_LENGTH), 0) AS size \
@@ -130,6 +186,9 @@ impl Client {
     }
 
     pub fn create(&self, name: &str) -> Result<()> {
+        if let Some(pg) = &self.pg {
+            return pg.create(name);
+        }
         check_name(name)?;
         self.query(
             None,
@@ -140,12 +199,18 @@ impl Client {
 
     /// Drops a database and everything in it.
     pub fn drop(&self, name: &str) -> Result<()> {
+        if let Some(pg) = &self.pg {
+            return pg.drop(name);
+        }
         check_user_database(name)?;
         self.query(None, &format!("DROP DATABASE {}", ident(name)))
             .map(|_| ())
     }
 
     pub fn tables(&self, database: &str) -> Result<Vec<Table>> {
+        if let Some(pg) = &self.pg {
+            return pg.tables(database);
+        }
         let sql = format!(
             "SELECT TABLE_NAME AS name, COALESCE(TABLE_ROWS, 0) AS `rows`, \
              COALESCE(DATA_LENGTH + INDEX_LENGTH, 0) AS size, TABLE_TYPE AS kind \
@@ -173,6 +238,9 @@ impl Client {
         offset: u64,
         limit: usize,
     ) -> Result<ResultSet> {
+        if let Some(pg) = &self.pg {
+            return pg.browse(database, table, offset, limit);
+        }
         let limit = limit.clamp(1, MAX_ROWS);
         let mut set = self.single(
             Some(database),
@@ -197,6 +265,9 @@ impl Client {
     /// Runs SQL as typed, in `database` when given. Each statement that
     /// returns rows gives one result, with at most [`MAX_ROWS`] rows.
     pub fn query(&self, database: Option<&str>, sql: &str) -> Result<Vec<ResultSet>> {
+        if let Some(pg) = &self.pg {
+            return pg.query(database, sql);
+        }
         let mut args: Vec<OsString> = vec!["--xml".into()];
         if let Some(db) = database {
             args.push(format!("--database={db}").into());
@@ -227,20 +298,14 @@ impl Client {
 
     /// Dumps a database to a new gzipped file in its backups folder.
     pub fn backup(&self, database: &str) -> Result<Backup> {
+        if let Some(pg) = &self.pg {
+            return pg.backup(database);
+        }
         check_user_database(database)?;
         let context = Context::load(&self.home)?;
         let dump = context.launch(Tool::Mysqldump, &self.home, Vec::new())?;
-        let dir = backups_dir(&self.home).join(database);
-        let io = |path: &Path| {
-            let path = path.to_owned();
-            move |source| Error::Io { path, source }
-        };
-        std::fs::create_dir_all(&dir).map_err(io(&dir))?;
-        let file = format!("{database}-{}.sql.gz", stamp());
-        let path = dir.join(&file);
-        let partial = dir.join(format!(".{file}.partial"));
-
-        let mut child = client_command(&dump)
+        let mut command = client_command(&dump);
+        command
             .args([
                 "--single-transaction",
                 "--routines",
@@ -248,44 +313,30 @@ impl Client {
                 "--events",
                 "--hex-blob",
             ])
-            .arg(database)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(io(&dump.program))?;
-        let mut stdout = child.stdout.take().expect("piped");
-        let stderr = child.stderr.take().expect("piped");
-        let errors = std::thread::spawn(move || read_all(stderr));
-        let written = (|| -> std::io::Result<()> {
-            let out = File::create(&partial)?;
-            let mut gz = flate2::write::GzEncoder::new(out, flate2::Compression::default());
-            std::io::copy(&mut stdout, &mut gz)?;
-            gz.finish()?.sync_all()
-        })();
-        let status = child.wait().map_err(io(&dump.program))?;
-        let errors = errors.join().unwrap_or_default();
-        if let Err(source) = written {
-            let _ = std::fs::remove_file(&partial);
-            return Err(Error::Io {
-                path: partial,
-                source,
-            });
-        }
-        if !status.success() {
-            let _ = std::fs::remove_file(&partial);
-            return Err(client_error(&errors, &self.server));
-        }
-        std::fs::rename(&partial, &path).map_err(io(&path))?;
-        backup_info(database, &path)
-            .ok_or_else(|| Error::Database("the backup file vanished".into()))
+            .arg(database);
+        write_backup(
+            &self.home,
+            database,
+            &format!("{database}-{}.sql.gz", stamp()),
+            command,
+            &dump.program,
+            |errors| client_error(errors, &self.server),
+        )
     }
 
     /// Loads a backup into `into` (its own database when `None`), creating
     /// that database if needed. Tables in the backup replace tables of the
     /// same name; others are left alone.
     pub fn restore(&self, database: &str, file: &str, into: Option<&str>) -> Result<()> {
+        if let Some(pg) = &self.pg {
+            return pg.restore(database, file, into);
+        }
         let path = backup_path(&self.home, database, file)?;
+        if postgres::is_backup(file) {
+            return Err(Error::Database(format!(
+                "{file} is a PostgreSQL backup; restore it there"
+            )));
+        }
         let target = into.unwrap_or(database);
         check_user_database(target)?;
         check_name(target)?;
@@ -386,6 +437,57 @@ impl Client {
 struct Output {
     stdout: Vec<u8>,
     cut_off: bool,
+}
+
+/// Runs a dump program and gzips what it prints into `backups/<database>/<file>`,
+/// which appears only once the dump is complete.
+fn write_backup(
+    home: &Path,
+    database: &str,
+    file: &str,
+    mut command: Command,
+    program: &Path,
+    explain: impl FnOnce(&str) -> Error,
+) -> Result<Backup> {
+    let dir = backups_dir(home).join(database);
+    let io = |path: &Path| {
+        let path = path.to_owned();
+        move |source| Error::Io { path, source }
+    };
+    std::fs::create_dir_all(&dir).map_err(io(&dir))?;
+    let path = dir.join(file);
+    let partial = dir.join(format!(".{file}.partial"));
+
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(io(program))?;
+    let mut stdout = child.stdout.take().expect("piped");
+    let stderr = child.stderr.take().expect("piped");
+    let errors = std::thread::spawn(move || read_all(stderr));
+    let written = (|| -> std::io::Result<()> {
+        let out = File::create(&partial)?;
+        let mut gz = flate2::write::GzEncoder::new(out, flate2::Compression::default());
+        std::io::copy(&mut stdout, &mut gz)?;
+        gz.finish()?.sync_all()
+    })();
+    let status = child.wait().map_err(io(program))?;
+    let errors = errors.join().unwrap_or_default();
+    if let Err(source) = written {
+        let _ = std::fs::remove_file(&partial);
+        return Err(Error::Io {
+            path: partial,
+            source,
+        });
+    }
+    if !status.success() {
+        let _ = std::fs::remove_file(&partial);
+        return Err(explain(&errors));
+    }
+    std::fs::rename(&partial, &path).map_err(io(&path))?;
+    backup_info(database, &path).ok_or_else(|| Error::Database("the backup file vanished".into()))
 }
 
 /// The client with its connection settings: root with no password, this
@@ -505,9 +607,15 @@ fn backup_info(database: &str, path: &Path) -> Option<Backup> {
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_millis() as u64);
+    let file = path.file_name()?.to_string_lossy().into_owned();
     Some(Backup {
+        server: if postgres::is_backup(&file) {
+            "postgres"
+        } else {
+            "mysql"
+        },
         database: database.to_string(),
-        file: path.file_name()?.to_string_lossy().into_owned(),
+        file,
         size: meta.len(),
         created,
     })

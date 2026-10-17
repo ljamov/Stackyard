@@ -40,6 +40,11 @@ export function ServiceCard({
         </span>
       </div>
       <div className="muted small">{s.role}</div>
+      {!compact && s.connect && (
+        <div className="mono small connect" title="How apps connect">
+          {s.connect}
+        </div>
+      )}
       {s.installing && <InstallProgressBar name={s.name} progress={hook.progress[s.id]} />}
       {error && (
         <p role="alert" className="error small">

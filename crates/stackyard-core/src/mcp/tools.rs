@@ -91,7 +91,7 @@ pub const TOOLS: &[ToolInfo] = &[
     read(
         "read_logs",
         "Read a log",
-        "Returns the last lines of a log: a service (caddy, mysql, mariadb, postgres, redis, mailpit, meilisearch), PHP for one version (php-8.4), a scheduled task (task-<id>) or the background service (daemon). Use it to find out why a site or service fails.",
+        "Returns the last lines of a log: a service (caddy, mysql, mariadb, postgres, redis, mongodb, mailpit, meilisearch, seaweedfs, nats), PHP for one version (php-8.4), a scheduled task (task-<id>) or the background service (daemon). Use it to find out why a site or service fails.",
     ),
     action(
         "start_service",
@@ -151,7 +151,7 @@ pub fn input_schema(name: &str) -> Value {
             json!({
                 "service": {
                     "type": "string",
-                    "description": "caddy, mysql, mariadb, postgres, redis, mailpit, meilisearch, php-<version> such as php-8.4, task-<id> for a scheduled task, or daemon",
+                    "description": "caddy, mysql, mariadb, postgres, redis, mongodb, mailpit, meilisearch, seaweedfs, nats, php-<version> such as php-8.4, task-<id> for a scheduled task, or daemon",
                 },
                 "lines": {
                     "type": "integer",
