@@ -11,6 +11,7 @@ change made in a terminal shows up in the app right away.
 stackyard sites add myapp --path ~/Code/myapp   # PHP, Node or static, detected
 stackyard sites add legacy --php 7.4 --path ~/Code/legacy
 stackyard sites add shop --node 22 --port 5173
+stackyard sites add api --python 3.13 --path ~/Code/api   # also --go 1.26, --java 21
 stackyard sites park ~/Code           # every project folder in ~/Code becomes a site
 stackyard sites list
 stackyard sites remove shop

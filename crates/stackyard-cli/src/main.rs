@@ -368,16 +368,25 @@ struct AddSite {
     #[arg(long)]
     path: Option<PathBuf>,
     /// Serve with this PHP version
-    #[arg(long, conflicts_with = "node")]
+    #[arg(long, group = "runtime")]
     php: Option<String>,
     /// Proxy to a Node dev server with this Node version
-    #[arg(long)]
+    #[arg(long, group = "runtime")]
     node: Option<String>,
-    /// Port the Node dev server listens on (default: detected, else 3000)
-    #[arg(long, requires = "node")]
+    /// Run the Django, FastAPI or Flask app with this Python version
+    #[arg(long, group = "runtime")]
+    python: Option<String>,
+    /// Run the Go app with this Go version
+    #[arg(long, group = "runtime")]
+    go: Option<String>,
+    /// Run the Spring Boot, Quarkus or Micronaut app with this Java version
+    #[arg(long, group = "runtime")]
+    java: Option<String>,
+    /// Port the app's server listens on (default: detected)
+    #[arg(long, conflicts_with_all = ["php", "plain"])]
     port: Option<u16>,
-    /// Serve the files as they are, even if the folder looks like PHP or Node
-    #[arg(long = "static", conflicts_with_all = ["php", "node"])]
+    /// Serve the files as they are, even if the folder looks like an app
+    #[arg(long = "static", group = "runtime")]
     plain: bool,
     /// Serve over plain HTTP only
     #[arg(long)]
@@ -433,6 +442,11 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                     } => format!("PHP {version}"),
                     Backend::Php { version, .. } => format!("PHP {version} (not installed)"),
                     Backend::Node { version, port } => format!("Node {version} on :{port}"),
+                    Backend::App {
+                        runtime,
+                        version,
+                        port,
+                    } => format!("{} {version} on :{port}", catalog::runtime(*runtime).name),
                     Backend::Static => "static".to_string(),
                 };
                 let framework = served
@@ -456,18 +470,33 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 Some(path) => current_dir()?.join(paths::expand_home(&path)),
                 None => current_dir()?,
             };
-            let runtime = match (args.php, args.node) {
-                (Some(version), _) => SiteRuntime::Php { version },
-                (None, Some(version)) => SiteRuntime::Node {
-                    version,
-                    port: args.port.unwrap_or(match detect::detect(&path).needs {
-                        Needs::Node { port } => port,
-                        _ => 3000,
-                    }),
-                },
-                _ if args.plain => SiteRuntime::Static,
-                _ => web::runtime_for(&path, &settings, &RuntimeManager::open()),
+            let chosen = [
+                (RuntimeKind::Php, args.php),
+                (RuntimeKind::Node, args.node),
+                (RuntimeKind::Python, args.python),
+                (RuntimeKind::Go, args.go),
+                (RuntimeKind::Java, args.java),
+            ]
+            .into_iter()
+            .find_map(|(kind, version)| Some((kind, version?)));
+            let mut runtime = match chosen {
+                Some((kind, version)) => {
+                    let usual = match detect::detect(&path).needs {
+                        Needs::Node { port } if kind == RuntimeKind::Node => port,
+                        Needs::App { runtime, port } if runtime == kind => port,
+                        _ if kind == RuntimeKind::Node => 3000,
+                        _ => 8000,
+                    };
+                    SiteRuntime::new(kind, version, usual)
+                }
+                None if args.plain => SiteRuntime::Static,
+                None => web::runtime_for(&path, &settings, &RuntimeManager::open()),
             };
+            if let (Some(port), Some(kind), Some(version)) =
+                (args.port, runtime.kind(), runtime.version())
+            {
+                runtime = SiteRuntime::new(kind, version.to_string(), port);
+            }
             let mut store = SiteStore::load()?;
             let url = store
                 .add(Site {

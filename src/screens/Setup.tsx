@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, errorText, type InstallProgress, type SetupChoices, type SetupOffer, type SetupStatus } from "../lib/api";
+import { api, errorText, type InstallProgress, type RuntimeKind, type SetupChoices, type SetupOffer, type SetupStatus } from "../lib/api";
 import { Logo } from "../components/Logo";
 
 type Step = "folders" | "modules" | "installing";
@@ -86,7 +86,7 @@ export function Setup({ status, onDone }: { status: SetupStatus; onDone(): void 
     const one = async (o: SetupOffer) => {
       setItems((all) => ({ ...all, [o.id]: { state: "installing" } }));
       try {
-        if (o.group === "runtime") await api.installRuntime(o.id as "php" | "node", o.version ?? "");
+        if (o.group === "runtime") await api.installRuntime(o.id as RuntimeKind, o.version ?? "");
         else if (o.id === "phpmyadmin") await api.installPhpMyAdmin();
         else await api.installService(o.id);
         setItems((all) => ({ ...all, [o.id]: { state: "done" } }));

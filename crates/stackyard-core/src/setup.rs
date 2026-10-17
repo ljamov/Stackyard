@@ -552,7 +552,9 @@ mod tests {
         assert!(offers.iter().any(|o| o.id == "caddy" && o.recommended));
         let php = offers.iter().find(|o| o.id == "php").unwrap();
         assert!(php.version.is_some());
-        assert!(!offers.iter().any(|o| o.id == "logs" || o.id == "python"));
+        let python = offers.iter().find(|o| o.id == "python").unwrap();
+        assert!(python.version.is_some() && !python.recommended);
+        assert!(!offers.iter().any(|o| o.id == "logs"));
     }
 
     #[test]

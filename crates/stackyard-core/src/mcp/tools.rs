@@ -220,18 +220,18 @@ pub fn input_schema(name: &str) -> Value {
                 },
                 "runtime": {
                     "type": "string",
-                    "enum": ["php", "node", "static"],
+                    "enum": ["php", "node", "python", "go", "java", "static"],
                     "description": "How to serve it; detected from the folder when left out",
                 },
                 "version": {
                     "type": "string",
-                    "description": "PHP or Node.js version as list_runtimes shows it, e.g. 8.4 or 22; the project's pinned or default version when left out",
+                    "description": "Runtime version as list_runtimes shows it, e.g. 8.4, 22, 3.13, 1.26 or 21; the project's pinned or default version when left out",
                 },
                 "port": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 65535,
-                    "description": "Node.js only: the port the project's dev server listens on",
+                    "description": "Node.js, Python, Go and Java only: the port the project's server listens on",
                 },
                 "https": {
                     "type": "boolean",
@@ -420,6 +420,16 @@ fn site_json(served: &ServedSite, ports: Ports) -> Value {
             json!({ "kind": "node", "version": version, "dev_server_port": port }),
             ports::is_free(*port).then(|| {
                 format!("nothing listens on port {port}: start the project's dev server (e.g. npm run dev)")
+            }),
+        ),
+        Backend::App {
+            runtime,
+            version,
+            port,
+        } => (
+            json!({ "kind": runtime.id(), "version": version, "server_port": port }),
+            ports::is_free(*port).then(|| {
+                format!("nothing listens on port {port}: Stackyard starts the app's server with the web server; its log is in Stackyard › Logs")
             }),
         ),
         Backend::Static => (json!({ "kind": "static" }), None),
@@ -715,52 +725,51 @@ fn create_site(ctx: &Ctx, args: &Args) -> Result<Value, String> {
     };
     let settings = settings(ctx)?;
     let runtimes = RuntimeManager::new(ctx.home);
-    let detected_port = || match detect::detect(&folder).needs {
-        detect::Needs::Node { port } => port,
-        _ => 3000,
-    };
+    let detected = detect::detect(&folder).needs;
     let runtime = match text(args, "runtime")? {
         None => web::runtime_for(&folder, &settings, &runtimes),
-        Some("php") => SiteRuntime::Php {
-            version: web::default_version(&settings, &runtimes, RuntimeKind::Php),
-        },
-        Some("node") => SiteRuntime::Node {
-            version: web::default_version(&settings, &runtimes, RuntimeKind::Node),
-            port: detected_port(),
-        },
         Some("static") => SiteRuntime::Static,
-        Some(other) => {
-            return Err(format!(
-                "runtime must be php, node or static, not {other:?}"
-            ))
+        Some(id) => {
+            let kind = RuntimeKind::from_id(id).ok_or_else(|| {
+                format!("runtime must be php, node, python, go, java or static, not {id:?}")
+            })?;
+            let usual = match detected {
+                detect::Needs::Node { port } if kind == RuntimeKind::Node => port,
+                detect::Needs::App { runtime, port } if runtime == kind => port,
+                _ if kind == RuntimeKind::Node => 3000,
+                _ => 8000,
+            };
+            SiteRuntime::new(
+                kind,
+                web::default_version(&settings, &runtimes, kind),
+                usual,
+            )
         }
     };
     let runtime = match (runtime, version, port) {
         (SiteRuntime::Static, Some(_), _) | (SiteRuntime::Static, _, Some(_)) => {
-            return Err("a static site has no version or port; pass runtime php or node".into())
+            return Err(
+                "a static site has no version or port; pass a runtime such as php or node".into(),
+            )
         }
         (SiteRuntime::Php { .. }, _, Some(_)) => {
-            return Err("port is for Node.js sites; PHP sites are served by the web server".into())
+            return Err(
+                "port is for sites with their own server; PHP sites are served by the web server"
+                    .into(),
+            )
         }
-        (SiteRuntime::Php { version: v }, version, None) => SiteRuntime::Php {
-            version: version.map_or(v, str::to_string),
-        },
-        (
-            SiteRuntime::Node {
-                version: v,
-                port: p,
-            },
-            version,
-            port,
-        ) => SiteRuntime::Node {
-            version: version.map_or(v, str::to_string),
-            port: port.unwrap_or(p),
-        },
-        (SiteRuntime::Static, None, None) => SiteRuntime::Static,
+        (mut runtime, version, port) => {
+            if let Some(version) = version {
+                runtime.set_version(version);
+            }
+            if let (Some(port), Some(kind)) = (port, runtime.kind()) {
+                runtime =
+                    SiteRuntime::new(kind, runtime.version().unwrap_or_default().into(), port);
+            }
+            runtime
+        }
     };
-    if let (Some(kind), SiteRuntime::Php { version } | SiteRuntime::Node { version, .. }) =
-        (runtime.kind(), &runtime)
-    {
+    if let (Some(kind), Some(version)) = (runtime.kind(), runtime.version()) {
         check_version(&settings, kind, version)?;
     }
     let mut store = SiteStore::load_from(&ctx.home.join("sites.toml")).map_err(fail)?;
@@ -787,10 +796,11 @@ fn set_site_runtime(ctx: &Ctx, args: &Args) -> Result<Value, String> {
         .find(|s| s.domain() == wanted || s.site.name == wanted)
         .ok_or_else(|| fail(Error::SiteNotFound(wanted.into())))?;
     let domain = served.domain();
-    let kind =
-        served.site.runtime.kind().ok_or_else(|| {
-            format!("{domain} serves plain files and has no PHP or Node.js version")
-        })?;
+    let kind = served
+        .site
+        .runtime
+        .kind()
+        .ok_or_else(|| format!("{domain} serves plain files and has no runtime version"))?;
     check_version(&settings(ctx)?, kind, version)?;
     let file = ctx.home.join("sites.toml");
     let mut store = SiteStore::load_from(&file).map_err(fail)?;

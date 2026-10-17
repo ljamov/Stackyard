@@ -55,6 +55,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 - **Park a folder** and every project inside becomes a site
 - Detects Laravel, Symfony, WordPress, Drupal, Craft, Magento, Vite, Next.js, Astro and more
 - Node dev servers proxied automatically; static sites served as is
+- **Django, FastAPI, Flask, Go, Spring Boot, Quarkus and Micronaut** apps run by Stackyard and served over HTTPS
 - **Starters**: a new WordPress, Laravel or Astro site in one click, database and config included
 
 </td>
@@ -62,8 +63,9 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 
 ### ⚙️ Runtimes
 - **PHP 8.1 to 8.5** (plus 7.4 and 8.0 on Windows) and **Node.js 20 to 26**, side by side
+- **Python 3.11 to 3.15**, **Go 1.25 to 1.27** and **Java 11 to 25** (Temurin), each a module you switch on
 - Pin a version per project with a `.stackyard` file (or an existing `.nvmrc`, `.php-version`, `.tool-versions`)
-- `php`, `composer`, `node`, `npm` and `mysql` pick the right version in any terminal
+- `php`, `composer`, `node`, `npm`, `python`, `pip`, `go`, `java` and `mysql` pick the right version in any terminal
 - Every download checked against a published SHA-256
 - Own `php.ini` per PHP version
 
@@ -279,7 +281,7 @@ data folder; set `STACKYARD_HOME` to use another one.
 - [x] Starters for WordPress, Laravel and Astro
 - [x] phpMyAdmin and an image optimizer
 - [x] Update notifications with release notes
-- [ ] Python, Go and Java runtimes
+- [x] Python, Go and Java runtimes
 - [ ] Code-signed installers for Windows and macOS
 
 ## Contributing

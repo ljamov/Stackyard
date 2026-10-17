@@ -407,6 +407,61 @@ jobs:
             stackyard db | grep -q "blog"
             stackyard stop
           fi
+      - name: Python and Go sites, with the servers Stackyard runs
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            curl() { /c/Windows/System32/curl.exe --ssl-no-revoke "$@"; }
+            venv=.venv/Scripts
+          else
+            venv=.venv/bin
+          fi
+          trap 'tail -n 40 "$STACKYARD_HOME"/logs/dev-*.log 2>/dev/null || true' ERR
+          stackyard modules on python
+          stackyard modules on go
+          stackyard runtimes install python 3.13
+          stackyard runtimes install go 1.26
+          bin="$STACKYARD_HOME/bin"
+          apps="$RUNNER_TEMP/apps"
+          mkdir -p "$apps/flaskapp" "$apps/goapp"
+
+          echo "== the commands run Stackyard's versions"
+          "$bin/python" --version | grep -q "Python 3.13"
+          "$bin/pip" --version
+          "$bin/go" version | grep -q "go1.26"
+
+          echo "== a Flask app in its own virtual environment"
+          cd "$apps/flaskapp"
+          "$bin/python" -m venv .venv
+          "$venv/python" -m pip install --quiet flask
+          printf 'flask\n' > requirements.txt
+          printf 'from flask import Flask\napp = Flask(__name__)\n\n@app.get("/")\ndef home():\n    return "hello from flask"\n' > app.py
+
+          echo "== a Go app that reads PORT"
+          cd "$apps/goapp"
+          printf 'module goapp\n\ngo 1.26\n' > go.mod
+          printf 'package main\n\nimport (\n\t"fmt"\n\t"net/http"\n\t"os"\n)\n\nfunc main() {\n\thttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "hello from go") })\n\tpanic(http.ListenAndServe("127.0.0.1:"+os.Getenv("PORT"), nil))\n}\n' > main.go
+
+          if [ "$RUNNER_OS" = Linux ]; then
+            # The stand-in PHP above has no php-fpm, so the web server could
+            # not start with the PHP sites made from starters.
+            stackyard sites remove shop
+            stackyard sites remove blog
+          fi
+          stackyard sites add flaskapp --path "$apps/flaskapp"
+          stackyard sites add goapp --path "$apps/goapp"
+          stackyard sites | tee "$RUNNER_TEMP/sites.txt"
+          grep -q "Flask" "$RUNNER_TEMP/sites.txt"
+          stackyard start caddy
+          port=$(sed -n 's/^https = //p' "$STACKYARD_HOME/config/caddy/ports.toml")
+          for site in "flaskapp:hello from flask" "goapp:hello from go"; do
+            name=${site%%:*}; text=${site#*:}
+            for _ in $(seq 60); do curl -fsSk --max-time 5 "https://$name.localhost:$port/" 2>/dev/null | grep -q "$text" && break; sleep 2; done
+            curl -fsSk --max-time 5 "https://$name.localhost:$port/" | grep "$text"
+          done
+          stackyard stop
       - name: Turn the commands off
         shell: bash
         run: |

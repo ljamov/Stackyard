@@ -5,6 +5,8 @@
 //!   on Windows (the official Windows builds have no php-fpm).
 //! - Node sites are proxied to the app's own dev server, which Stackyard
 //!   runs itself for sites made from a starter (`npm run dev`).
+//! - Python, Go and Java sites are proxied to the app's server, which
+//!   Stackyard always runs ([`crate::apps`]).
 //! - Static sites are served straight from the folder.
 //!
 //! Every site also answers on `<name>.localhost`, which browsers send to
@@ -101,6 +103,12 @@ pub enum Backend {
     Node {
         version: String,
         /// The app's dev server.
+        port: u16,
+    },
+    /// A Python, Go or Java app's own server.
+    App {
+        runtime: RuntimeKind,
+        version: String,
         port: u16,
     },
     Static,
@@ -219,11 +227,30 @@ fn from_site(site: Site, parked: bool, runtimes: &RuntimeManager) -> ServedSite 
             version: version(RuntimeKind::Node, saved),
             port: *port,
         },
+        SiteRuntime::Python {
+            version: saved,
+            port,
+        }
+        | SiteRuntime::Go {
+            version: saved,
+            port,
+        }
+        | SiteRuntime::Java {
+            version: saved,
+            port,
+        } => {
+            let runtime = site.runtime.kind().expect("an app runtime");
+            Backend::App {
+                runtime,
+                version: version(runtime, saved),
+                port: *port,
+            }
+        }
         SiteRuntime::Static => Backend::Static,
     };
     // A framework's public folder applies to PHP and plain files alike.
     let root = match detected.needs {
-        Needs::Node { .. } => site.path.clone(),
+        Needs::Node { .. } | Needs::App { .. } => site.path.clone(),
         _ => site.path.join(&detected.root),
     };
     ServedSite {
@@ -303,6 +330,7 @@ pub fn runtime_for(path: &Path, settings: &Settings, runtimes: &RuntimeManager) 
             version: version(RuntimeKind::Node),
             port,
         },
+        Needs::App { runtime, port } => SiteRuntime::new(runtime, version(runtime), port),
         Needs::Static => SiteRuntime::Static,
     }
 }
@@ -350,7 +378,7 @@ pub fn caddy_sites(sites: &[ServedSite]) -> String {
                 out.push_str(&format!("\tphp_fastcgi 127.0.0.1:{port}\n"));
                 out.push_str("\tfile_server\n");
             }
-            Backend::Node { port, .. } => {
+            Backend::Node { port, .. } | Backend::App { port, .. } => {
                 // Dev servers often refuse unknown host names, so pass theirs.
                 out.push_str(&format!(
                     "\treverse_proxy localhost:{port} {{\n\t\theader_up Host {{upstream_hostport}}\n\t}}\n"
@@ -395,12 +423,13 @@ pub fn dev_server_id(site: &str) -> String {
     format!("dev-{site}")
 }
 
-/// `npm run dev` for each Node site Stackyard runs the dev server of, on
-/// the site's port, with the site's Node version.
+/// `npm run dev` for each Node site Stackyard runs the dev server of, and
+/// the server of every Python, Go and Java site ([`crate::apps::server`]),
+/// on the site's port, with the site's version.
 pub fn dev_servers(home: &Path, sites: &[ServedSite]) -> Vec<ProcessSpec> {
     let wanted: Vec<&ServedSite> = sites
         .iter()
-        .filter(|s| s.site.dev_server && !s.parked)
+        .filter(|s| (s.site.dev_server || s.site.runtime.runs_own_server()) && !s.parked)
         .collect();
     if wanted.is_empty() {
         return Vec::new();
@@ -415,16 +444,22 @@ pub fn dev_servers(home: &Path, sites: &[ServedSite]) -> Vec<ProcessSpec> {
     wanted
         .into_iter()
         .filter_map(|served| {
-            let Backend::Node { port, .. } = served.backend else {
-                return None;
+            let launch = match served.backend {
+                Backend::Node { port, .. } => {
+                    let args = ["run", "dev", "--", "--port", &port.to_string()]
+                        .map(std::ffi::OsString::from)
+                        .to_vec();
+                    context.launch(crate::shell::Tool::Npm, &served.site.path, args)
+                }
+                Backend::App { runtime, port, .. } => {
+                    crate::apps::server(&context, &served.site.path, runtime, port)
+                }
+                _ => return None,
             };
-            let args = ["run", "dev", "--", "--port", &port.to_string()]
-                .map(std::ffi::OsString::from)
-                .to_vec();
-            let launch = context
-                .launch(crate::shell::Tool::Npm, &served.site.path, args)
+            let launch = launch
                 .map_err(|e| eprintln!("no dev server for {}: {e}", served.domain()))
                 .ok()?;
+            let port = served.site.runtime.port()?;
             let mut env = vec![(
                 "PATH".to_string(),
                 launch.path_var().to_string_lossy().into_owned(),

@@ -1,5 +1,6 @@
 //! Works out what a project folder holds: which framework, which folder the
-//! web server should serve, and whether it needs PHP, Node or nothing.
+//! web server should serve, and whether it needs PHP, Node, Python, Go, Java
+//! or nothing.
 //!
 //! Detection only looks for marker files; it never runs project code.
 
@@ -13,6 +14,11 @@ pub enum Needs {
     Php,
     /// A Node dev server, usually listening on this port.
     Node {
+        port: u16,
+    },
+    /// A Python, Go or Java app whose server Stackyard runs ([`crate::apps`]).
+    App {
+        runtime: crate::catalog::RuntimeKind,
         port: u16,
     },
     Static,
@@ -69,6 +75,17 @@ pub fn detect(project: &Path) -> Detected {
                 needs: Needs::Php,
             };
         }
+    }
+    // Before Node: these projects often have a package.json for their CSS.
+    if let Some(app) = crate::apps::detect(project) {
+        return Detected {
+            framework: Some(app.framework),
+            root: PathBuf::new(),
+            needs: Needs::App {
+                runtime: app.kind,
+                port: app.port,
+            },
+        };
     }
     if let Some((framework, port)) = node_project(project) {
         return Detected {

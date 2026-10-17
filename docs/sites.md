@@ -14,6 +14,17 @@ becomes a site named after the folder. Stackyard looks at each project to decide
   defaults and then left to you.
 - **Node**: a project with a `dev` or `start` script is proxied to its dev server. The port comes
   from the script (`--port 4000`) or the framework's usual one (Vite 5173, Next.js 3000, Astro 4321…).
+- **Python, Go and Java**: Stackyard runs the app's server itself, on a port of the site's own, and
+  passes requests on. Django (`manage.py runserver`), FastAPI (`uvicorn <module>:app --reload`, with
+  the app in `main.py`, `app/main.py`, `app.py`, `src/main.py` or `api/main.py`), Flask
+  (`flask run --debug`), Go (`go run .`, or the first `cmd/<name>`; the port is in `PORT`), and
+  Spring Boot, Quarkus and Micronaut through the project's Maven or Gradle wrapper (`mvnw`,
+  `gradlew`; the port is in `SERVER_PORT`, `QUARKUS_HTTP_PORT` and `MICRONAUT_SERVER_PORT`).
+  A Python project's own `.venv` or `venv` is used when it has one, so install its packages there
+  (`python -m venv .venv`, then `.venv/bin/pip install -r requirements.txt`, or
+  `.venv\Scripts\pip` on Windows). The server's output is in the log viewer as `dev-<site>`.
+  Parked folders are served but their servers are not started; add the folder as a site for that.
+  Django checks the origin of form posts, so add `https://<name>.stack` to `CSRF_TRUSTED_ORIGINS`.
 - **Static files**: anything else, from `public/` or `dist/` when the page lives there.
 
 Every site answers at `https://<name><ending>` (`.stack` by default) and at `<name>.localhost`, which
