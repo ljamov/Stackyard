@@ -28,7 +28,9 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
-use stackyard_core::{domain, images, interface, languages, paths, phpmyadmin, starters, videos};
+use stackyard_core::{
+    domain, images, interface, languages, paths, phpmyadmin, starters, themes, videos,
+};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
 mod ai;
@@ -935,6 +937,38 @@ fn show_interface_file(file: String) -> CmdResult<()> {
         .arg(path.parent().unwrap_or(path.as_path()))
         .spawn();
     result.map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Color themes added to the `themes` folder, and the files that couldn't be used.
+#[tauri::command]
+fn theme_files() -> themes::ThemeFiles {
+    themes::load()
+}
+
+/// Copies a VS Code theme (`.json`) or extension (`.vsix`) into the themes
+/// folder; returns the ids of the themes it added.
+#[tauri::command]
+fn import_theme(path: std::path::PathBuf) -> CmdResult<Vec<String>> {
+    themes::import(&path)
+}
+
+#[tauri::command]
+fn remove_theme(id: String) -> CmdResult<()> {
+    themes::remove(&id)
+}
+
+#[tauri::command]
+fn open_themes_folder() -> CmdResult<()> {
+    let dir = themes::folder();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    let mut cmd = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut cmd = std::process::Command::new("explorer");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = std::process::Command::new("xdg-open");
+    cmd.arg(&dir).spawn().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1930,6 +1964,10 @@ pub fn run() {
             keybindings,
             save_keybindings,
             show_interface_file,
+            theme_files,
+            import_theme,
+            remove_theme,
+            open_themes_folder,
             list_sites,
             set_site_version,
             add_site,

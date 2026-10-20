@@ -9,6 +9,8 @@ export type Layout = {
   sideBarWidth: number;
   panel: boolean;
   panelHeight: number;
+  /** The panel's width when it sits on the right (Settings › Appearance). */
+  panelWidth: number;
   /** What the bottom panel shows. */
   panelTab: PanelTab;
   tabs: TabScreen[];
@@ -19,6 +21,7 @@ export type PanelTab = "problems" | "logs";
 
 export const SIDE_BAR_WIDTH = { min: 170, max: 480 };
 export const PANEL_HEIGHT = { min: 120, max: 720 };
+export const PANEL_WIDTH = { min: 240, max: 960 };
 
 const KEY = "stackyard.layout";
 const DEFAULT: Layout = {
@@ -26,6 +29,7 @@ const DEFAULT: Layout = {
   sideBarWidth: 240,
   panel: false,
   panelHeight: 260,
+  panelWidth: 420,
   panelTab: "logs",
   tabs: ["Dashboard"],
   active: "Dashboard",
@@ -43,6 +47,7 @@ function loadLayout(): Layout {
       sideBarWidth: clamp(saved.sideBarWidth, SIDE_BAR_WIDTH, DEFAULT.sideBarWidth),
       panel: typeof saved.panel === "boolean" ? saved.panel : DEFAULT.panel,
       panelHeight: clamp(saved.panelHeight, PANEL_HEIGHT, DEFAULT.panelHeight),
+      panelWidth: clamp(saved.panelWidth, PANEL_WIDTH, DEFAULT.panelWidth),
       panelTab: saved.panelTab === "problems" ? "problems" : DEFAULT.panelTab,
       tabs,
       active: isTabScreen(saved.active) && tabs.includes(saved.active) ? saved.active : (tabs[0] ?? null),

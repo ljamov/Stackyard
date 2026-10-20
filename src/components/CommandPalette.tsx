@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { endPreview } from "../lib/appearance";
 import type { Command } from "../lib/commands";
 import { keyLabel, keysFor, useKeyChanges } from "../lib/keybindings";
 import { closePalette, matchScore, recentCommands, rememberCommand, type PaletteMode } from "../lib/palette";
@@ -6,16 +7,20 @@ import { useT } from "../lib/i18n";
 
 /**
  * The search box over the screen. With ">" first it lists commands, otherwise
- * sites and screens. Arrow keys move, Enter runs, Escape closes.
+ * sites and screens; opened as the theme picker it lists color themes and
+ * shows each one while it is selected. Arrow keys move, Enter runs, Escape
+ * closes (and puts the theme back).
  */
 export function CommandPalette({
   mode,
   commands,
   places,
+  themes,
 }: {
   mode: Exclude<PaletteMode, null>;
   commands: Command[];
   places: Command[];
+  themes: Command[];
 }) {
   const t = useT();
   const changes = useKeyChanges();
@@ -24,11 +29,12 @@ export function CommandPalette({
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const listId = useId();
-  const isCommands = text.startsWith(">");
+  const isThemes = mode === "themes";
+  const isCommands = !isThemes && text.startsWith(">");
   const query = isCommands ? text.slice(1).trim() : text.trim();
 
   const shown = useMemo(() => {
-    const pool = isCommands ? commands : places;
+    const pool = isThemes ? themes : isCommands ? commands : places;
     if (!query) {
       if (!isCommands) return pool;
       const recent = recentCommands();
@@ -40,9 +46,14 @@ export function CommandPalette({
       .filter((m): m is { c: Command; score: number } => m.score !== null)
       .sort((a, b) => b.score - a.score)
       .map((m) => m.c);
-  }, [isCommands, query, commands, places]);
+  }, [isThemes, isCommands, query, commands, places, themes]);
 
   useEffect(() => input.current?.focus(), []);
+  // The theme picker shows the selected theme; closing without picking puts the chosen one back.
+  useEffect(() => {
+    if (isThemes) shown[selected]?.preview?.();
+  }, [isThemes, shown, selected]);
+  useEffect(() => () => void (isThemes && endPreview()), [isThemes]);
   useEffect(() => setSelected(0), [text]);
   useEffect(() => {
     list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
@@ -80,8 +91,8 @@ export function CommandPalette({
           aria-expanded="true"
           aria-controls={listId}
           aria-activedescendant={shown.length ? option(selected) : undefined}
-          aria-label={t("Search sites and screens, or type > for commands")}
-          placeholder={t("Search sites and screens, or type > for commands")}
+          aria-label={isThemes ? t("Pick a color theme") : t("Search sites and screens, or type > for commands")}
+          placeholder={isThemes ? t("Pick a color theme") : t("Search sites and screens, or type > for commands")}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={key}

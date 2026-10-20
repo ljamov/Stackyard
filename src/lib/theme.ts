@@ -32,6 +32,9 @@ export const TOKENS = {
   "activityBar.background": { css: "--activity-bg", description: "The bar of screen icons on the far left" },
   "tab.inactiveBackground": { css: "--tab-inactive", description: "The tab strip and the tabs not shown" },
   "statusBar.background": { css: "--statusbar", description: "The status bar along the bottom" },
+  "statusBar.foreground": { css: "--statusbar-fg", description: "Words in the status bar" },
+  "activityBar.foreground": { css: "--activity-fg", description: "The shown screen's icon in the activity bar" },
+  "activityBar.inactiveForeground": { css: "--activity-inactive-fg", description: "The other icons in the activity bar" },
 } as const;
 
 export type TokenId = keyof typeof TOKENS;
@@ -77,6 +80,9 @@ const BASE: Record<ThemeId, BaseColors> = {
     "activityBar.background": "#08090c",
     "tab.inactiveBackground": "#0b0d10",
     "statusBar.background": "#0b0d10",
+    "statusBar.foreground": "#b4bcc6",
+    "activityBar.foreground": "#ffffff",
+    "activityBar.inactiveForeground": "#9aa3ae",
     ...CLOSE,
     ...LOGO,
   },
@@ -99,6 +105,9 @@ const BASE: Record<ThemeId, BaseColors> = {
     "activityBar.background": "#e2e6eb",
     "tab.inactiveBackground": "#eaecf0",
     "statusBar.background": "#e2e6eb",
+    "statusBar.foreground": "#3c434d",
+    "activityBar.foreground": "#000000",
+    "activityBar.inactiveForeground": "#5d6671",
     ...CLOSE,
     ...LOGO,
   },
@@ -123,6 +132,9 @@ const BASE: Record<ThemeId, BaseColors> = {
     "activityBar.background": "#000000",
     "tab.inactiveBackground": "#000000",
     "statusBar.background": "#000000",
+    "statusBar.foreground": "#ffffff",
+    "activityBar.foreground": "#ffffff",
+    "activityBar.inactiveForeground": "#d6d6d6",
     ...CLOSE,
     ...LOGO,
   },
@@ -146,12 +158,172 @@ export function themeColors(theme: ThemeId, accent: Accent): ThemeColors {
 
 /** Writes a theme's colors as CSS variables on the page. */
 export function applyTheme(theme: ThemeId, accent: Accent) {
+  applyColors(themeColors(theme, accent), theme, accent);
+}
+
+/**
+ * Writes a full set of colors. `kind` is the built-in theme they are closest
+ * to: it sets the page's light or dark scheme and the high-contrast extras in
+ * styles.css.
+ */
+export function applyColors(colors: ThemeColors, kind: ThemeId, accent: string) {
   const root = document.documentElement;
-  const colors = themeColors(theme, accent);
   for (const id of Object.keys(TOKENS) as TokenId[]) {
     root.style.setProperty(TOKENS[id].css, colors[id]);
   }
-  root.style.colorScheme = theme === "light" ? "light" : "dark";
-  root.dataset.theme = theme;
+  root.style.colorScheme = kind === "light" ? "light" : "dark";
+  root.dataset.theme = kind;
   root.dataset.accent = accent;
+}
+
+/**
+ * A theme added from a file (stackyard-core themes.rs). Its colors use VS
+ * Code's keys, so a VS Code theme works as it is; Stackyard's own token ids
+ * work too and win over the VS Code keys.
+ */
+export type AddedTheme = { id: string; name: string; kind: ThemeId; colors: Record<string, string> };
+
+/** Where each token looks in a VS Code theme; the first key the theme has wins. */
+const VSCODE_KEYS: Record<TokenId, string[]> = {
+  "window.background": ["editor.background"],
+  "sideBar.background": ["sideBar.background", "editorGroupHeader.tabsBackground", "panel.background"],
+  "card.background": ["editorWidget.background", "sideBarSectionHeader.background", "input.background"],
+  "card.raisedBackground": ["list.inactiveSelectionBackground", "list.hoverBackground", "editor.lineHighlightBackground"],
+  "border": ["panel.border", "editorGroup.border", "sideBar.border", "contrastBorder"],
+  "border.strong": ["input.border", "dropdown.border", "widget.border", "contrastBorder"],
+  "foreground": ["editor.foreground", "foreground"],
+  "foreground.secondary": ["sideBar.foreground", "foreground"],
+  "foreground.muted": ["descriptionForeground", "tab.inactiveForeground"],
+  "foreground.strong": ["list.activeSelectionForeground", "tab.activeForeground", "editor.foreground"],
+  "accent": ["button.background", "activityBarBadge.background", "focusBorder"],
+  "accent.soft": ["button.hoverBackground"],
+  "accent.foreground": ["button.foreground", "activityBarBadge.foreground"],
+  "textLink.foreground": ["textLink.foreground"],
+  "focusBorder": ["focusBorder"],
+  "status.ok": ["testing.iconPassed", "terminal.ansiGreen", "gitDecoration.addedResourceForeground"],
+  "status.warning": ["editorWarning.foreground", "list.warningForeground", "terminal.ansiYellow"],
+  "status.error": ["editorError.foreground", "errorForeground", "terminal.ansiRed"],
+  "status.idle": ["disabledForeground", "descriptionForeground"],
+  "titleBar.closeHover.background": [],
+  "titleBar.closeHover.foreground": [],
+  "widget.shadow": ["widget.shadow"],
+  "logo.primary": [],
+  "logo.secondary": [],
+  "activityBar.background": ["activityBar.background"],
+  "tab.inactiveBackground": ["tab.inactiveBackground", "editorGroupHeader.tabsBackground"],
+  "statusBar.background": ["statusBar.background"],
+  "statusBar.foreground": ["statusBar.foreground"],
+  "activityBar.foreground": ["activityBar.foreground"],
+  "activityBar.inactiveForeground": ["activityBar.inactiveForeground"],
+};
+
+type Rgba = [number, number, number, number];
+
+function parse(color: string): Rgba | null {
+  const m = /^#([0-9a-f]{3,8})$/i.exec(color.trim());
+  if (!m || ![3, 4, 6, 8].includes(m[1].length)) return null;
+  const h = m[1].length <= 4 ? [...m[1]].map((c) => c + c).join("") : m[1];
+  const n = (i: number) => parseInt(h.slice(i, i + 2), 16);
+  return [n(0), n(2), n(4), h.length === 8 ? n(6) / 255 : 1];
+}
+
+function hex([r, g, b]: Rgba): string {
+  return "#" + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+}
+
+/** `a` laid over `b` with `a`'s own transparency, or mixed at `amount` of `a`. */
+function mix(a: Rgba, b: Rgba, amount = a[3]): Rgba {
+  return [0, 1, 2].map((i) => a[i] * amount + b[i] * (1 - amount)).concat(1) as Rgba;
+}
+
+/** WCAG relative luminance, 0 (black) to 1 (white). */
+export function luminance(color: string): number {
+  const c = parse(color);
+  if (!c) return 0;
+  const [r, g, b] = c.slice(0, 3).map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** WCAG contrast ratio between two colors, 1 to 21. */
+export function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+const WHITE: Rgba = [255, 255, 255, 1];
+const BLACK: Rgba = [0, 0, 0, 1];
+
+/**
+ * An added theme's full set of colors. What it leaves out is worked out from
+ * its own background and text, or taken from the built-in theme of its kind,
+ * so a theme with only a handful of colors still looks whole.
+ */
+export function addedThemeColors(theme: AddedTheme, accent: Accent): ThemeColors {
+  const base = themeColors(theme.kind, accent);
+  const find = (id: TokenId): Rgba | null => {
+    for (const key of [id, ...VSCODE_KEYS[id]]) {
+      const c = theme.colors[key] && parse(theme.colors[key]);
+      if (c) return c;
+    }
+    return null;
+  };
+  const bg = find("window.background") ?? parse(base["window.background"])!;
+  const solidBg: Rgba = mix(bg, parse(base["window.background"])!);
+  const fg = mix(find("foreground") ?? parse(base["foreground"])!, solidBg);
+  // Transparent colors are laid over the background, as VS Code draws them.
+  const get = (id: TokenId, fallback: () => Rgba): string => {
+    const c = find(id);
+    return hex(c ? mix(c, solidBg) : fallback());
+  };
+  const keep = (id: TokenId) => () => parse(base[id])!;
+  const between = (amount: number) => () => mix(fg, solidBg, amount);
+
+  const colors = { ...base } as ThemeColors;
+  colors["window.background"] = hex(solidBg);
+  colors["foreground"] = hex(fg);
+  colors["sideBar.background"] = get("sideBar.background", () => solidBg);
+  colors["card.background"] = get("card.background", between(0.04));
+  colors["card.raisedBackground"] = get("card.raisedBackground", between(0.1));
+  colors["border"] = get("border", between(0.14));
+  colors["border.strong"] = get("border.strong", between(0.26));
+  colors["foreground.secondary"] = get("foreground.secondary", between(0.82));
+  colors["foreground.muted"] = get("foreground.muted", between(0.62));
+  colors["foreground.strong"] = get("foreground.strong", () => fg);
+  const accentColor = find("accent") ? mix(find("accent")!, solidBg) : parse(base["accent"])!;
+  colors["accent"] = hex(accentColor);
+  colors["accent.soft"] = get("accent.soft", () => mix(accentColor, fg, 0.7));
+  const onAccent = find("accent.foreground");
+  colors["accent.foreground"] =
+    onAccent && contrast(hex(mix(onAccent, accentColor)), colors["accent"]) >= 3
+      ? hex(mix(onAccent, accentColor))
+      : contrast("#ffffff", colors["accent"]) >= contrast("#000000", colors["accent"])
+        ? hex(WHITE)
+        : hex(BLACK);
+  colors["textLink.foreground"] = get("textLink.foreground", () => accentColor);
+  colors["focusBorder"] = get("focusBorder", () => accentColor);
+  for (const id of ["status.ok", "status.warning", "status.error", "status.idle"] as const) {
+    colors[id] = get(id, keep(id));
+  }
+  const shadow = find("widget.shadow");
+  if (shadow) colors["widget.shadow"] = `rgba(${shadow.slice(0, 3).join(", ")}, ${shadow[3].toFixed(2)})`;
+  colors["activityBar.background"] = get("activityBar.background", () => parse(colors["sideBar.background"])!);
+  colors["tab.inactiveBackground"] = get("tab.inactiveBackground", () => parse(colors["sideBar.background"])!);
+  colors["statusBar.background"] = get("statusBar.background", () => parse(colors["sideBar.background"])!);
+  // Words on the bars must stay readable on whatever color the theme gives them.
+  const readable = (id: TokenId, on: string, fallback: string) => {
+    const c = find(id);
+    const value = c ? hex(mix(c, parse(on)!)) : fallback;
+    return contrast(value, on) >= 3 ? value : contrast("#ffffff", on) > contrast("#000000", on) ? "#ffffff" : "#000000";
+  };
+  colors["statusBar.foreground"] = readable("statusBar.foreground", colors["statusBar.background"], colors["foreground.secondary"]);
+  colors["activityBar.foreground"] = readable("activityBar.foreground", colors["activityBar.background"], colors["foreground.strong"]);
+  colors["activityBar.inactiveForeground"] = readable(
+    "activityBar.inactiveForeground",
+    colors["activityBar.background"],
+    colors["foreground.muted"],
+  );
+  return colors;
 }

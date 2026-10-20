@@ -297,6 +297,7 @@ the layout, the checks CI runs and the few ground rules.
 
 ## License
 
-Stackyard is [MIT licensed](LICENSE). It bundles the Space Grotesk, IBM Plex Sans and JetBrains Mono
-fonts under the SIL Open Font License 1.1. Runtimes and services that Stackyard downloads keep their
-own licenses.
+Stackyard is [MIT licensed](LICENSE). It bundles the JetBrains Mono font under the SIL Open Font
+License 1.1, and the [Codicons](https://github.com/microsoft/vscode-codicons) icon font by Microsoft
+under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (used when you pick the Codicons icon
+set). Runtimes and services that Stackyard downloads keep their own licenses.

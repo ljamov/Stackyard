@@ -1,5 +1,8 @@
-// Line icons for the workbench, drawn on a 24-unit grid in the text color.
-// Sizes and stroke come from the CSS around them.
+// Icons for the workbench. The Stackyard set is line icons drawn here on a
+// 24-unit grid in the text color; the Codicons set (Settings › Appearance ›
+// Icons) is the icon font VS Code uses. Sizes come from the CSS around them.
+
+import { useViewOptions } from "../lib/viewOptions";
 
 const PATHS = {
   explorer: "M4 5.5h6l2 2h8v11H4zM4 9.5h16",
@@ -25,7 +28,31 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
+/** The same icons in the Codicons font. */
+const CODICONS: Record<IconName, string> = {
+  explorer: "files",
+  dashboard: "dashboard",
+  sites: "globe",
+  services: "server",
+  runtimes: "code",
+  databases: "database",
+  scheduler: "watch",
+  images: "file-media",
+  videos: "device-camera-video",
+  ai: "sparkle",
+  mcp: "plug",
+  logs: "output",
+  settings: "settings-gear",
+  keyboard: "keyboard",
+  search: "search",
+  play: "play",
+  stop: "debug-stop",
+  close: "close",
+};
+
 export function Icon({ name }: { name: IconName }) {
+  const { iconTheme } = useViewOptions();
+  if (iconTheme === "codicons") return <span className={`codicon codicon-${CODICONS[name]}`} aria-hidden="true" />;
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d={PATHS[name]} />
