@@ -28,7 +28,7 @@ use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
 use stackyard_core::web::{self, Backend, Ports, ServedSite};
-use stackyard_core::{domain, images, languages, paths, phpmyadmin, starters, videos};
+use stackyard_core::{domain, images, interface, languages, paths, phpmyadmin, starters, videos};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
 mod ai;
@@ -878,6 +878,63 @@ fn open_languages_folder() -> CmdResult<()> {
     let mut cmd = std::process::Command::new("xdg-open");
     cmd.arg(&dir).spawn().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// The window's own settings, from the `[interface]` section of `settings.toml`.
+#[tauri::command]
+fn interface_settings() -> interface::InterfaceFile {
+    interface::load_settings()
+}
+
+#[tauri::command]
+fn save_interface_settings(values: interface::Table) -> CmdResult<()> {
+    interface::save_settings(values).map_err(err)
+}
+
+/// The keyboard shortcuts from `keybindings.toml`.
+#[tauri::command]
+fn keybindings() -> interface::InterfaceFile {
+    interface::load_keybindings()
+}
+
+#[tauri::command]
+fn save_keybindings(values: interface::Table) -> CmdResult<()> {
+    interface::save_keybindings(&values).map_err(err)
+}
+
+/// Shows `settings.toml` or `keybindings.toml` in the file manager, made
+/// first when it does not exist yet, so it can be opened in an editor.
+#[tauri::command]
+fn show_interface_file(file: String) -> CmdResult<()> {
+    let path = match file.as_str() {
+        "settings" => paths::settings_file(),
+        "keybindings" => interface::keybindings_file(),
+        _ => return Err(format!("unknown file {file:?}")),
+    };
+    if !path.exists() {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&path, "").map_err(|e| e.to_string())?;
+    }
+    // Explorer reads `/select,"path"` itself, so the quotes are written here.
+    #[cfg(target_os = "windows")]
+    let result = {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{}\"", path.display()))
+            .spawn()
+    };
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = std::process::Command::new("xdg-open")
+        .arg(path.parent().unwrap_or(path.as_path()))
+        .spawn();
+    result.map(|_| ()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1868,6 +1925,11 @@ pub fn run() {
             set_tld,
             language_files,
             open_languages_folder,
+            interface_settings,
+            save_interface_settings,
+            keybindings,
+            save_keybindings,
+            show_interface_file,
             list_sites,
             set_site_version,
             add_site,

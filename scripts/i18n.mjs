@@ -31,9 +31,9 @@ for (const file of [...files(join(root, "src"), ".tsx"), ...files(join(root, "sr
   const text = readFileSync(file, "utf8");
   add(new RegExp(String.raw`\bt\(\s*` + STR, "g"), text);
 }
-// Lists whose entries are shown through t(): screen names, themes, groups, states.
-for (const file of ["src/lib/appearance.ts", "src/screens/Settings.tsx"]) {
-  add(new RegExp(String.raw`\b(?:label|title):\s*` + STR, "g"), readFileSync(join(root, file), "utf8"));
+// Lists whose entries are shown through t(): screen names, themes, groups, states, problems.
+for (const file of ["src/lib/appearance.ts", "src/screens/Settings.tsx", "src/lib/useUserFiles.ts"]) {
+  add(new RegExp(String.raw`\b(?:label|title|message):\s*` + STR, "g"), readFileSync(join(root, file), "utf8"));
 }
 const screens = readFileSync(join(root, "src/lib/screens.ts"), "utf8");
 add(new RegExp(STR, "g"), screens.slice(screens.indexOf("SCREENS = ["), screens.indexOf("] as const")));

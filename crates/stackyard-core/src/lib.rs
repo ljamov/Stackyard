@@ -17,6 +17,7 @@ pub mod error;
 pub mod git;
 pub mod images;
 pub mod install;
+pub mod interface;
 pub mod languages;
 pub mod logs;
 pub(crate) mod manifest;

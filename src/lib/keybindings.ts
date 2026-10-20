@@ -1,5 +1,6 @@
 // Which keys run which command. The defaults are below; a person's own changes
-// are kept in the window's storage and replace a command's default keys.
+// replace a command's default keys. They are saved in keybindings.toml (see
+// useUserFiles.ts) and also kept in the window's storage.
 //
 // A key is written like "ctrl+shift+p": "ctrl" means Ctrl on Windows and Linux
 // and ⌘ on a Mac. Two keys separated by a space are pressed one after the
@@ -12,6 +13,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "workbench.quickOpen": ["ctrl+p"],
   "view.explorer": ["ctrl+b"],
   "view.panel": ["ctrl+j"],
+  "view.problems": ["ctrl+shift+m"],
   "tab.close": ["ctrl+w"],
   "tab.next": ["ctrl+tab", "ctrl+pagedown"],
   "tab.previous": ["ctrl+shift+tab", "ctrl+pageup"],
@@ -20,7 +22,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
 };
 
 const KEY = "stackyard.keybindings";
-type Changes = Record<string, string[]>;
+export type Changes = Record<string, string[]>;
 
 function loadChanges(): Changes {
   try {
@@ -38,6 +40,17 @@ function loadChanges(): Changes {
 
 let changes = loadChanges();
 const listeners = new Set<(c: Changes) => void>();
+/** Told of every change and whether it came from keybindings.toml. */
+const changeListeners = new Set<(c: Changes, fromFile: boolean) => void>();
+
+export function onKeyChange(listener: (c: Changes, fromFile: boolean) => void): () => void {
+  changeListeners.add(listener);
+  return () => void changeListeners.delete(listener);
+}
+
+export function currentKeyChanges(): Changes {
+  return changes;
+}
 
 /** A command's keys: the person's own when they changed them, else the defaults. */
 export function keysFor(id: string, c: Changes = changes): string[] {
@@ -51,13 +64,35 @@ export function isChanged(id: string, c: Changes = changes) {
 /** Sets a command's keys; `null` goes back to its defaults, `[]` leaves it without keys. */
 export function setKeys(id: string, keys: string[] | null) {
   const { [id]: _, ...rest } = changes;
-  changes = keys === null ? rest : { ...rest, [id]: keys };
+  replaceKeyChanges(keys === null ? rest : { ...rest, [id]: keys });
+}
+
+/** Replaces every change at once; `fromFile`: read from keybindings.toml, so not written back. */
+export function replaceKeyChanges(next: Changes, fromFile = false) {
+  if (JSON.stringify(next) === JSON.stringify(changes)) return;
+  changes = next;
   try {
     localStorage.setItem(KEY, JSON.stringify(changes));
   } catch {
     // Not saved; it still applies until the app closes.
   }
   listeners.forEach((l) => l(changes));
+  changeListeners.forEach((l) => l(changes, fromFile));
+}
+
+/** Why a key written by hand can't be used, or null when it can. */
+export type KeyProblem = "too-many" | "no-key" | "modifier";
+
+export function keyProblem(key: string): KeyProblem | null {
+  const parts = key.trim().split(/\s+/);
+  if (!key.trim() || parts.length > 2) return "too-many";
+  for (const part of parts) {
+    const bits = part.split("+");
+    const main = bits.pop();
+    if (!main) return "no-key";
+    if (bits.some((b) => !["ctrl", "alt", "shift"].includes(b))) return "modifier";
+  }
+  return null;
 }
 
 /** The person's changes; re-renders when they change. Pass it to keysFor(). */

@@ -1,5 +1,6 @@
 import type { ServicesHook } from "../lib/useServices";
 import type { TabScreen } from "../lib/screens";
+import { togglePanelTab, type PanelTab } from "../lib/layout";
 import { useUpdate } from "../lib/updates";
 import { useT } from "../lib/i18n";
 
@@ -9,15 +10,17 @@ export function StatusBar({
   siteCount,
   logsOn,
   panel,
+  panelTab,
+  problemCount,
   onOpen,
-  onTogglePanel,
 }: {
   shownServices: ServicesHook["services"];
   siteCount: number;
   logsOn: boolean;
   panel: boolean;
+  panelTab: PanelTab;
+  problemCount: number;
   onOpen: (s: TabScreen) => void;
-  onTogglePanel: () => void;
 }) {
   const t = useT();
   const { status: update } = useUpdate();
@@ -34,6 +37,16 @@ export function StatusBar({
       <button type="button" className="status-item" onClick={() => onOpen("Sites")}>
         {siteCount === 1 ? t("1 site") : t("{count} sites", { count: siteCount })}
       </button>
+      {problemCount > 0 && (
+        <button
+          type="button"
+          className="status-item warn"
+          aria-pressed={panel && panelTab === "problems"}
+          onClick={() => togglePanelTab("problems")}
+        >
+          ⚠ {problemCount === 1 ? t("1 problem") : t("{count} problems", { count: problemCount })}
+        </button>
+      )}
       <div className="status-spacer" />
       {update?.available && (
         <button type="button" className="status-item highlight" onClick={() => onOpen("Settings")}>
@@ -41,7 +54,12 @@ export function StatusBar({
         </button>
       )}
       {logsOn && (
-        <button type="button" className="status-item" aria-pressed={panel} onClick={onTogglePanel}>
+        <button
+          type="button"
+          className="status-item"
+          aria-pressed={panel && panelTab === "logs"}
+          onClick={() => togglePanelTab("logs")}
+        >
           {t("Logs")}
         </button>
       )}

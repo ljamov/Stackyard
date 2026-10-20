@@ -5,7 +5,7 @@
 import { createContext, useContext, useMemo } from "react";
 import { api, type Site } from "./api";
 import { ACCENTS, setAppearance, THEMES } from "./appearance";
-import { closeTab, cycleTab, openTab, setLayout } from "./layout";
+import { closeTab, cycleTab, openTab, setLayout, togglePanelTab } from "./layout";
 import { openPalette } from "./palette";
 import { checkForUpdate } from "./updates";
 import type { ServicesHook } from "./useServices";
@@ -52,9 +52,9 @@ export function useWorkbenchCommands({
       { id: "workbench.commands", category: view, title: t("Show all commands"), run: () => openPalette("commands") },
       { id: "workbench.quickOpen", category: view, title: t("Go to a site or screen"), run: () => openPalette("quick") },
       { id: "view.explorer", category: view, title: t("Show or hide the Explorer"), run: () => setLayout((l) => ({ sideBar: !l.sideBar })) },
-      ...(logsOn
-        ? [{ id: "view.panel", category: view, title: t("Show or hide the Logs panel"), run: () => setLayout((l) => ({ panel: !l.panel })) }]
-        : []),
+      { id: "view.panel", category: view, title: t("Show or hide the panel"), run: () => setLayout((l) => ({ panel: !l.panel })) },
+      { id: "view.problems", category: view, title: t("Show problems"), run: () => togglePanelTab("problems") },
+      ...(logsOn ? [{ id: "view.logs", category: view, title: t("Show or hide the Logs panel"), run: () => togglePanelTab("logs") }] : []),
       ...(active ? [{ id: "tab.close", category: tabsCat, title: t("Close the tab"), run: () => closeTab(active) }] : []),
       ...(tabs.length
         ? [{ id: "tab.closeAll", category: tabsCat, title: t("Close all tabs"), run: () => setLayout({ tabs: [], active: null }) }]
@@ -100,6 +100,16 @@ export function useWorkbenchCommands({
       ...THEMES.map((th) => ({ id: `theme.${th.id}`, category: t("Theme"), title: t(th.label), run: () => setAppearance({ theme: th.id }) })),
       ...ACCENTS.map((a) => ({ id: `accent.${a.id}`, category: t("Accent color"), title: t(a.label), run: () => setAppearance({ accent: a.id }) })),
       { id: "updates.check", title: t("Check for updates"), run: () => void checkForUpdate() },
+      {
+        id: "files.settings",
+        title: t("Show {file} in the file manager", { file: "settings.toml" }),
+        run: () => void api.showInterfaceFile("settings"),
+      },
+      {
+        id: "files.keybindings",
+        title: t("Show {file} in the file manager", { file: "keybindings.toml" }),
+        run: () => void api.showInterfaceFile("keybindings"),
+      },
     ];
 
     const places: Command[] = [
