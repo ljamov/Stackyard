@@ -322,7 +322,7 @@ export function Images() {
                     inputMode="numeric"
                     value={customWidth}
                     placeholder="e.g. 1200"
-                    title="Wider images are made this wide. Narrower ones keep their size unless you set a height."
+                    title={t("Wider images are made this wide. Narrower ones keep their size unless you set a height.")}
                     onChange={(e) => setCustomWidth(e.target.value.replace(/\D/g, "").slice(0, 5))}
                   />
                 </div>
@@ -335,7 +335,7 @@ export function Images() {
                       inputMode="numeric"
                       value={customHeight}
                       placeholder="e.g. 630"
-                      title="Every image comes out exactly this high, cut from the middle so nothing is stretched."
+                      title={t("Every image comes out exactly this high, cut from the middle so nothing is stretched.")}
                       onChange={(e) => setCustomHeight(e.target.value.replace(/\D/g, "").slice(0, 5))}
                     />
                   </div>
@@ -409,7 +409,7 @@ export function Images() {
       </div>
 
       {results.length > 0 && (
-        <section aria-label="Results" className="card table-wrap">
+        <section aria-label={t("Results")} className="card table-wrap">
           <p className="muted small results-summary">
             {before > 0 && `New files: ${size(after)} instead of ${size(before)} (${saved(before, after)}).`}
             {failed.length > 0 && ` ${failed.length} could not be read.`}

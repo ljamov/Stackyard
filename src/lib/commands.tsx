@@ -9,6 +9,7 @@ import { importThemeFromFile } from "./themeImport";
 import { DEFAULT_VIEW, DENSITIES, ICON_THEMES, setViewOptions, useViewOptions, zoomBy } from "./viewOptions";
 import { closeTab, cycleTab, openTab, setLayout, togglePanelTab } from "./layout";
 import { openPalette } from "./palette";
+import { focusPart } from "./focus";
 import { checkForUpdate } from "./updates";
 import type { ServicesHook } from "./useServices";
 import type { TabScreen } from "./screens";
@@ -116,6 +117,8 @@ export function useWorkbenchCommands({
           void importThemeFromFile(t("Import a VS Code theme"));
         },
       },
+      { id: "workbench.focusNextPart", category: view, title: t("Focus the next part of the window"), run: () => focusPart(1) },
+      { id: "workbench.focusPreviousPart", category: view, title: t("Focus the previous part of the window"), run: () => focusPart(-1) },
       { id: "view.zoomIn", category: view, title: t("Zoom in"), run: () => zoomBy(1) },
       { id: "view.zoomOut", category: view, title: t("Zoom out"), run: () => zoomBy(-1) },
       { id: "view.zoomReset", category: view, title: t("Reset zoom"), run: () => setViewOptions({ zoom: DEFAULT_VIEW.zoom }) },

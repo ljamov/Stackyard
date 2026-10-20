@@ -1,8 +1,10 @@
+import { useEffect, useRef, useState } from "react";
 import type { ServicesHook } from "../lib/useServices";
 import type { TabScreen } from "../lib/screens";
 import { togglePanelTab, type PanelTab } from "../lib/layout";
 import { useUpdate } from "../lib/updates";
 import { useT } from "../lib/i18n";
+import { SERVICE_STATE } from "./ServiceCard";
 
 /** The bar along the bottom: live state, each item opening where it is managed. */
 export function StatusBar({
@@ -28,8 +30,23 @@ export function StatusBar({
   const crashed = shownServices.some((s) => s.state === "crashed");
   const tone = crashed ? "error" : running > 0 ? "ok" : "";
 
+  // Screen readers hear when a service starts, stops or crashes.
+  const seen = useRef<Record<string, string> | null>(null);
+  const [said, setSaid] = useState("");
+  useEffect(() => {
+    const now = Object.fromEntries(shownServices.map((s) => [s.id, s.state]));
+    const before = seen.current;
+    seen.current = now;
+    if (!before) return;
+    const changed = shownServices.filter((s) => before[s.id] && before[s.id] !== s.state);
+    if (changed.length) setSaid(changed.map((s) => `${s.name}: ${t(SERVICE_STATE[s.state])}`).join(", "));
+  }, [shownServices, t]);
+
   return (
-    <footer className="statusbar" aria-label={t("Status bar")}>
+    <footer className="statusbar" aria-label={t("Status bar")} data-part="statusbar">
+      <span className="sr-only" role="status">
+        {said}
+      </span>
       <button type="button" className="status-item" onClick={() => onOpen("Services")}>
         <span className={`dot ${tone}`} aria-hidden="true" />
         {t("{running} of {total} services running", { running, total: shownServices.length })}
@@ -44,7 +61,7 @@ export function StatusBar({
           aria-pressed={panel && panelTab === "problems"}
           onClick={() => togglePanelTab("problems")}
         >
-          ⚠ {problemCount === 1 ? t("1 problem") : t("{count} problems", { count: problemCount })}
+          <span aria-hidden="true">⚠</span> {problemCount === 1 ? t("1 problem") : t("{count} problems", { count: problemCount })}
         </button>
       )}
       <div className="status-spacer" />

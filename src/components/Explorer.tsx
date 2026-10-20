@@ -1,4 +1,5 @@
 import { Icon } from "./Icon";
+import { SERVICE_STATE } from "./ServiceCard";
 import type { ServicesHook } from "../lib/useServices";
 import type { Site } from "../lib/api";
 import type { TabScreen } from "../lib/screens";
@@ -20,7 +21,7 @@ export function Explorer({
 }) {
   const t = useT();
   return (
-    <aside className="sidebar-view" style={{ width }} aria-label={t("Explorer")}>
+    <aside className="sidebar-view" style={{ width }} aria-label={t("Explorer")} data-part="sidebar">
       <div className="view-title">{t("Explorer")}</div>
 
       <section className="view-section" aria-labelledby="sb-services">
@@ -36,6 +37,7 @@ export function Explorer({
               <span className={`dot ${tone}`} aria-hidden="true" />
               <button type="button" className="view-link" onClick={() => onOpen("Services")}>
                 {s.name}
+                <span className="sr-only">, {t(SERVICE_STATE[s.state])}</span>
               </button>
               {s.installed && (
                 <button

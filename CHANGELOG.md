@@ -43,6 +43,14 @@ Update button, and the app shows its own version's section after it updates.
 - **Zoom** from 80% to 150%: **Ctrl+=**, **Ctrl+-** and **Ctrl+0**.
 - The side bar can sit on the right and the Logs panel on the right, beside the screen.
 - All of these are kept in `settings.toml` with the rest, and can be changed there too.
+- Keyboard only: **F6** and **Shift+F6** move between the icon bar, Explorer, screen, panel and
+  status bar; the arrow keys, Home and End move along the icon bar and the tabs, and **Delete**
+  closes a tab. The command palette puts the focus back where it was when it closes.
+- Screen readers hear each service's state in the Explorer and are told when a service starts,
+  stops or crashes. Labels that were only in English are translated.
+- Fields, buttons, borders and the stopped-service dot have more contrast, and on the Light theme
+  accent buttons use the darker accent shade, so every built-in theme meets WCAG AA with every
+  accent color. The build now checks this.
 
 ## 0.6.0
 

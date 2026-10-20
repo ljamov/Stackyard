@@ -393,7 +393,7 @@ export function Videos() {
                   inputMode="numeric"
                   value={customWidth}
                   placeholder="e.g. 1600"
-                  title="Wider videos are made this wide; the height follows, so nothing is stretched."
+                  title={t("Wider videos are made this wide; the height follows, so nothing is stretched.")}
                   onChange={(e) => setCustomWidth(e.target.value.replace(/\D/g, "").slice(0, 4))}
                 />
               </div>
@@ -465,7 +465,7 @@ export function Videos() {
       </div>
 
       {results.length > 0 && (
-        <section aria-label="Results" className="card table-wrap">
+        <section aria-label={t("Results")} className="card table-wrap">
           <table>
             <thead>
               <tr>

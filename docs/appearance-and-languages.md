@@ -124,6 +124,26 @@ the browser, switch theme or accent color, close tabs, check for updates.
 | Ctrl+K, then Ctrl+T | Pick a color theme |
 | Ctrl+=, Ctrl+- | Zoom in, zoom out |
 | Ctrl+0 | Reset zoom |
+| F6, Shift+F6 | Move to the next or previous part of the window |
+
+## Using Stackyard with the keyboard alone
+
+Everything in Stackyard can be reached without a mouse, and whatever has the keyboard focus gets a
+clear outline.
+
+- **F6** moves between the parts of the window: the icon bar, the Explorer, the open screen, the
+  panel and the status bar. **Shift+F6** goes back.
+- The icon bar and each row of tabs count as one stop for **Tab**. Inside them, the arrow keys move
+  between icons or tabs, **Home** and **End** jump to the first and last, and **Enter** or **Space**
+  opens the one with the outline. **Delete** closes the tab with the outline.
+- **Tab** from a tab goes into the screen it shows.
+- The command palette puts the focus back where it was when you close it with **Escape**.
+- Screen readers hear each service's state in the Explorer, and are told when a service starts,
+  stops or crashes.
+
+Every built-in theme, with every accent color, passes the WCAG AA contrast levels: 4.5:1 for text
+and 3:1 for field edges, focus outlines and status dots. `npm run build` checks this
+(`scripts/check-contrast.mjs`), so a color change that makes something too faint fails the build.
 
 To change a shortcut, open **Keyboard shortcuts** (from Settings, the palette or Ctrl+K Ctrl+S),
 click **Change** beside a command and press the new keys; Escape cancels. **Remove** leaves the

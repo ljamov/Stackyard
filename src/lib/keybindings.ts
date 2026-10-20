@@ -23,6 +23,8 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "view.zoomIn": ["ctrl+=", "ctrl+shift+="],
   "view.zoomOut": ["ctrl+-"],
   "view.zoomReset": ["ctrl+0"],
+  "workbench.focusNextPart": ["f6"],
+  "workbench.focusPreviousPart": ["shift+f6"],
 };
 
 const KEY = "stackyard.keybindings";
