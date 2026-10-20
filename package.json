@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/check-colors.mjs && tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
   },

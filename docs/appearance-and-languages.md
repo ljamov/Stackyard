@@ -6,13 +6,26 @@ looked.
 
 ## Theme and accent color
 
-- **Theme**: Dark, Light, or **Match my computer**, which follows the light or dark setting of
-  Windows, macOS or Linux and switches along with it.
+- **Theme**: Dark, Light, High contrast, or **Match my computer**, which follows the light or dark
+  setting of Windows, macOS or Linux and switches along with it. When the computer asks for more
+  contrast (a Windows contrast theme, or **Increase contrast** on macOS), it picks High contrast.
 - **Accent color**: amber (the default), blue, green, violet, rose or teal. It colors buttons,
   switches, links and highlights.
 
+High contrast is black with bright borders, a thick orange focus outline and underlined links, so
+nothing depends on telling two shades apart.
+
 The choice is kept with the app's window settings on this computer and is applied before the
 window first draws, so the app never flashes the other theme.
+
+### For contributors: color tokens
+
+Every color in the interface is a named token in `src/lib/theme.ts`, such as `sideBar.background`
+or `status.error`. Each theme gives every token a value, and the app writes them as CSS variables
+(`--sidebar`, `--error`) that `styles.css` and the components use. To color something new, use an
+existing variable or add a token with a value in all three themes; don't write a color anywhere
+else. `npm run build` runs `scripts/check-colors.mjs`, which fails if a color value appears in `src`
+outside `theme.ts`.
 
 ## Language
 

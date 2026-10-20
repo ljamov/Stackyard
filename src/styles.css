@@ -1,58 +1,15 @@
+/* Colors are CSS variables written by src/lib/theme.ts from the chosen theme
+   and accent (Settings › Appearance); see TOKENS there for what each one colors. */
 :root {
-  --bg: #111418;
-  --sidebar: #0b0d10;
-  --surface: #181c22;
-  --surface-2: #1f242c;
-  --border: #262c35;
-  --border-strong: #333a45;
-  --text: #e8eaed;
-  --text-2: #b4bcc6;
-  --muted: #9aa3ae;
-  --accent: #f2b035;
-  --accent-soft: #f7cd72;
-  --on-accent: #1a1300;
-  /* Accent used as text, e.g. links; darker on the light theme. */
-  --accent-ink: var(--accent);
-  --text-strong: #fff;
-  --ok: #6ee7a0;
-  --warn: #f7cd72;
-  --error: #ff8a80;
   --display: "Space Grotesk", system-ui, sans-serif;
   --body: "IBM Plex Sans", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
-  color-scheme: dark;
 }
 
-/* Light theme (Settings › Appearance). */
-:root[data-theme="light"] {
-  --bg: #f5f6f8;
-  --sidebar: #eaecf0;
-  --surface: #ffffff;
-  --surface-2: #e2e6eb;
-  --border: #dde1e6;
-  --border-strong: #c3c9d2;
-  --text: #171a1f;
-  --text-2: #3c434d;
-  --muted: #5d6671;
-  --text-strong: #000;
-  --accent-ink: #8a5a00;
-  --ok: #157a46;
-  --warn: #8a5a00;
-  --error: #c0282d;
-  color-scheme: light;
-}
-
-/* Accent colors; amber is the default above. */
-:root[data-accent="blue"] { --accent: #5aa9ff; --accent-soft: #8cc4ff; --on-accent: #00172e; }
-:root[data-accent="green"] { --accent: #4fd18b; --accent-soft: #86e3b0; --on-accent: #00200f; }
-:root[data-accent="violet"] { --accent: #b48cff; --accent-soft: #ccb2ff; --on-accent: #1a0939; }
-:root[data-accent="rose"] { --accent: #ff7a9a; --accent-soft: #ffa3b8; --on-accent: #2d000f; }
-:root[data-accent="teal"] { --accent: #3fd0c9; --accent-soft: #7fe3de; --on-accent: #00211f; }
-:root[data-theme="light"][data-accent="blue"] { --accent-ink: #1a5fb4; }
-:root[data-theme="light"][data-accent="green"] { --accent-ink: #187040; }
-:root[data-theme="light"][data-accent="violet"] { --accent-ink: #6a3cc4; }
-:root[data-theme="light"][data-accent="rose"] { --accent-ink: #b0244c; }
-:root[data-theme="light"][data-accent="teal"] { --accent-ink: #0f7570; }
+/* High contrast: thicker focus outlines and an underline on links, so neither
+   depends on color alone. */
+:root[data-theme="high-contrast"] :focus-visible { outline-width: 3px; }
+:root[data-theme="high-contrast"] .link { text-decoration: underline; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -64,7 +21,7 @@ h1 { font-size: 30px; font-weight: 700; }
 h2 { font-size: 18px; font-weight: 600; }
 p { margin: 0; }
 button, input, select { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 .frame {
   height: 100%; display: flex; flex-direction: column; overflow: hidden;
@@ -82,7 +39,7 @@ button, input, select { font: inherit; color: inherit; }
 }
 .titlebar-btn svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; }
 .titlebar-btn:hover { background: var(--surface-2); color: var(--text-strong); }
-.titlebar-btn.close:hover { background: #c42b1c; color: #fff; }
+.titlebar-btn.close:hover { background: var(--close-hover); color: var(--on-close-hover); }
 .shell { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .shell > .sidebar, .shell > .content { overflow-y: auto; }
 .sidebar {
@@ -144,12 +101,12 @@ td { padding: 12px 18px; border-top: 1px solid var(--border); }
 }
 .input-affix { display: flex; align-items: center; gap: 4px; }
 .input-affix input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; padding: 0; outline: none; }
-.input-affix:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.input-affix:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
 
 .status { flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: #5b6470; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
 .notice { color: var(--text-2); background: var(--surface-2); border-radius: 10px; padding: 10px 14px; }
 .notice.inset { margin-bottom: 8px; }
 .code { background: var(--sidebar); border-radius: 8px; padding: 10px 12px; }
@@ -301,7 +258,7 @@ details summary { cursor: pointer; color: var(--text-2); }
 .tip {
   display: none; position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; right: 0;
   background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); border-radius: 10px;
-  padding: 10px 12px; font-size: 12px; line-height: 1.5; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  padding: 10px 12px; font-size: 12px; line-height: 1.5; box-shadow: 0 8px 24px var(--shadow);
 }
 .field.has-tip:hover > .tip, .field.has-tip:focus-within > .tip { display: block; }
 .tip-mark {

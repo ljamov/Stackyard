@@ -1,25 +1,28 @@
-// Light or dark look and the accent color. Kept in the window's own storage
-// and applied before the first paint, so the app never flashes the wrong look.
+// Light, dark or high-contrast look and the accent color. Kept in the window's
+// own storage and applied before the first paint, so the app never flashes the
+// wrong look. The colors themselves are in theme.ts.
 
 import { useEffect, useState } from "react";
+import { ACCENT_COLORS, applyTheme, type Accent, type ThemeId } from "./theme";
 
-export type Theme = "dark" | "light" | "system";
-export type Accent = "amber" | "blue" | "green" | "violet" | "rose" | "teal";
+export type { Accent } from "./theme";
+export type Theme = ThemeId | "system";
 
 export const THEMES: { id: Theme; label: string }[] = [
   { id: "dark", label: "Dark" },
   { id: "light", label: "Light" },
+  { id: "high-contrast", label: "High contrast" },
   { id: "system", label: "Match my computer" },
 ];
 
-/** The swatch shown in Settings; the colors themselves live in styles.css. */
+/** The swatch shown in Settings is the accent itself. */
 export const ACCENTS: { id: Accent; label: string; swatch: string }[] = [
-  { id: "amber", label: "Amber", swatch: "#f2b035" },
-  { id: "blue", label: "Blue", swatch: "#5aa9ff" },
-  { id: "green", label: "Green", swatch: "#4fd18b" },
-  { id: "violet", label: "Violet", swatch: "#b48cff" },
-  { id: "rose", label: "Rose", swatch: "#ff7a9a" },
-  { id: "teal", label: "Teal", swatch: "#3fd0c9" },
+  { id: "amber", label: "Amber", swatch: ACCENT_COLORS.amber.accent },
+  { id: "blue", label: "Blue", swatch: ACCENT_COLORS.blue.accent },
+  { id: "green", label: "Green", swatch: ACCENT_COLORS.green.accent },
+  { id: "violet", label: "Violet", swatch: ACCENT_COLORS.violet.accent },
+  { id: "rose", label: "Rose", swatch: ACCENT_COLORS.rose.accent },
+  { id: "teal", label: "Teal", swatch: ACCENT_COLORS.teal.accent },
 ];
 
 export type Appearance = { theme: Theme; accent: Accent };
@@ -39,14 +42,20 @@ export function loadAppearance(): Appearance {
   }
 }
 
-const systemLight = () => window.matchMedia?.("(prefers-color-scheme: light)").matches ?? false;
+const media = (query: string) => window.matchMedia?.(query);
+const LIGHT = "(prefers-color-scheme: light)";
+// Windows contrast themes report forced colors; macOS "Increase contrast" reports more contrast.
+const CONTRAST = ["(prefers-contrast: more)", "(forced-colors: active)"];
 
-/** Sets `data-theme` and `data-accent` on the page, which styles.css reads. */
+/** The theme to show: the computer's when set to match it. */
+export function resolveTheme(theme: Theme): ThemeId {
+  if (theme !== "system") return theme;
+  if (CONTRAST.some((q) => media(q)?.matches)) return "high-contrast";
+  return media(LIGHT)?.matches ? "light" : "dark";
+}
+
 export function applyAppearance(a: Appearance) {
-  const root = document.documentElement;
-  const light = a.theme === "light" || (a.theme === "system" && systemLight());
-  root.dataset.theme = light ? "light" : "dark";
-  root.dataset.accent = a.accent;
+  applyTheme(resolveTheme(a.theme), a.accent);
 }
 
 let current = loadAppearance();
@@ -55,7 +64,9 @@ const listeners = new Set<(a: Appearance) => void>();
 /** Applies the saved look and follows the computer's when set to match it. */
 export function startAppearance() {
   applyAppearance(current);
-  window.matchMedia?.("(prefers-color-scheme: light)").addEventListener("change", () => applyAppearance(current));
+  for (const q of [LIGHT, ...CONTRAST]) {
+    media(q)?.addEventListener("change", () => applyAppearance(current));
+  }
 }
 
 export function setAppearance(change: Partial<Appearance>) {
