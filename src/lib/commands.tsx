@@ -4,7 +4,9 @@
 
 import { createContext, useContext, useMemo } from "react";
 import { api, type Site } from "./api";
-import { ACCENTS, setAppearance, THEMES } from "./appearance";
+import { ACCENTS, endPreview, previewTheme, setAppearance, THEMES, useAddedThemes, useAppearance } from "./appearance";
+import { importThemeFromFile } from "./themeImport";
+import { DEFAULT_VIEW, DENSITIES, ICON_THEMES, setViewOptions, useViewOptions, zoomBy } from "./viewOptions";
 import { closeTab, cycleTab, openTab, setLayout, togglePanelTab } from "./layout";
 import { openPalette } from "./palette";
 import { checkForUpdate } from "./updates";
@@ -20,6 +22,8 @@ export type Command = {
   /** Shown after the title, dimmed. */
   detail?: string;
   run: () => void;
+  /** Shows what the command would do while the palette selects it (the theme picker). */
+  preview?: () => void;
 };
 
 export function useWorkbenchCommands({
@@ -38,8 +42,11 @@ export function useWorkbenchCommands({
   logsOn: boolean;
   tabs: TabScreen[];
   active: TabScreen | null;
-}): { commands: Command[]; places: Command[] } {
+}): { commands: Command[]; places: Command[]; themes: Command[] } {
   const t = useT();
+  const added = useAddedThemes();
+  const { theme: shownTheme } = useAppearance();
+  const options = useViewOptions();
   return useMemo(() => {
     const view = t("View");
     const tabsCat = t("Tabs");
@@ -97,7 +104,35 @@ export function useWorkbenchCommands({
         title: t("Open {name} in your browser", { name: site.domain }),
         run: () => void api.openLocalPage(site.url),
       })),
+      { id: "workbench.colorTheme", category: t("Theme"), title: t("Pick a color theme"), run: () => openPalette("themes") },
       ...THEMES.map((th) => ({ id: `theme.${th.id}`, category: t("Theme"), title: t(th.label), run: () => setAppearance({ theme: th.id }) })),
+      ...added.map((th) => ({ id: `theme.${th.id}`, category: t("Theme"), title: th.name, run: () => setAppearance({ theme: th.id }) })),
+      {
+        id: "theme.import",
+        category: t("Theme"),
+        title: t("Import a VS Code theme…"),
+        run: () => {
+          openTab("Settings");
+          void importThemeFromFile(t("Import a VS Code theme"));
+        },
+      },
+      { id: "view.zoomIn", category: view, title: t("Zoom in"), run: () => zoomBy(1) },
+      { id: "view.zoomOut", category: view, title: t("Zoom out"), run: () => zoomBy(-1) },
+      { id: "view.zoomReset", category: view, title: t("Reset zoom"), run: () => setViewOptions({ zoom: DEFAULT_VIEW.zoom }) },
+      {
+        id: "view.sideBarPosition",
+        category: view,
+        title: options.sideBarPosition === "left" ? t("Move the side bar to the right") : t("Move the side bar to the left"),
+        run: () => setViewOptions({ sideBarPosition: options.sideBarPosition === "left" ? "right" : "left" }),
+      },
+      {
+        id: "view.panelPosition",
+        category: view,
+        title: options.panelPosition === "bottom" ? t("Move the panel to the right") : t("Move the panel to the bottom"),
+        run: () => setViewOptions({ panelPosition: options.panelPosition === "bottom" ? "right" : "bottom" }),
+      },
+      ...DENSITIES.map((d) => ({ id: `density.${d.id}`, category: t("Density"), title: t(d.label), run: () => setViewOptions({ density: d.id }) })),
+      ...ICON_THEMES.map((i) => ({ id: `icons.${i.id}`, category: t("Icons"), title: t(i.label), run: () => setViewOptions({ iconTheme: i.id }) })),
       ...ACCENTS.map((a) => ({ id: `accent.${a.id}`, category: t("Accent color"), title: t(a.label), run: () => setAppearance({ accent: a.id }) })),
       { id: "updates.check", title: t("Check for updates"), run: () => void checkForUpdate() },
       {
@@ -122,8 +157,26 @@ export function useWorkbenchCommands({
       })),
       ...screens.map((s) => ({ id: `place.screen.${s}`, category: open, title: t(s), run: () => openTab(s) })),
     ];
-    return { commands, places };
-  }, [t, screens, services, shownServices, sites, logsOn, tabs, active]);
+    // The theme picker: the shown theme first, so Escape and Enter on it change nothing.
+    const allThemes = [
+      ...THEMES.map((th) => ({ id: th.id, title: t(th.label), detail: undefined as string | undefined })),
+      ...added.map((th) => ({ id: th.id, title: th.name, detail: t("Added") })),
+    ];
+    const themes: Command[] = [
+      ...allThemes.filter((th) => th.id === shownTheme),
+      ...allThemes.filter((th) => th.id !== shownTheme),
+    ].map((th) => ({
+      id: `pick.theme.${th.id}`,
+      title: th.title,
+      detail: th.detail,
+      preview: () => previewTheme(th.id),
+      run: () => {
+        endPreview();
+        setAppearance({ theme: th.id });
+      },
+    }));
+    return { commands, places, themes };
+  }, [t, screens, services, shownServices, sites, logsOn, tabs, active, added, shownTheme, options]);
 }
 
 const CommandsContext = createContext<Command[]>([]);

@@ -1,7 +1,10 @@
 // Keeps the window in step with the two files people may edit by hand:
 //
-//   settings.toml     [interface]  theme, accent, language
+//   settings.toml     [interface]  theme, accent, language, iconTheme, density,
+//                                  zoom, sideBarPosition, panelPosition
 //   keybindings.toml  [keys]       "command.id" = ["ctrl+shift+e"]
+//
+// and reads the themes folder, where added color themes live.
 //
 // Changes made in the app are written to the files; changes made in an editor
 // are picked up within a couple of seconds. A value Stackyard can't use is
@@ -9,17 +12,31 @@
 // breaks the app.
 
 import { useEffect, useRef } from "react";
-import { api, type InterfaceFile, type InterfaceFileName } from "./api";
+import { api, type InterfaceFile, type InterfaceFileName, type ThemeFiles } from "./api";
 import {
   ACCENTS,
   currentAppearance,
   DEFAULT_APPEARANCE,
   onAppearanceChange,
+  setAddedThemes,
   setAppearance,
   THEMES,
   type Accent,
   type Theme,
 } from "./appearance";
+import {
+  clampZoom,
+  currentViewOptions,
+  DEFAULT_VIEW,
+  DENSITIES,
+  ICON_THEMES,
+  onViewOptionsChange,
+  PANEL_POSITIONS,
+  setViewOptions,
+  SIDE_BAR_POSITIONS,
+  ZOOM,
+  type ViewOptions,
+} from "./viewOptions";
 import { currentKeyChanges, keyProblem, onKeyChange, replaceKeyChanges, type Changes } from "./keybindings";
 import { setProblems, type Problem } from "./problems";
 import { useI18n } from "./i18n";
@@ -32,15 +49,23 @@ type Found = Omit<Problem, "source">;
 
 /** The [interface] settings: what each may hold. Anything else is reported. */
 export const INTERFACE_SETTINGS = {
-  theme: THEMES.map((t) => t.id),
+  theme: THEMES.map((t) => t.id), // or an added theme's id
   accent: ACCENTS.map((a) => a.id),
   language: null, // a language code, or "system"
+  iconTheme: ICON_THEMES.map((x) => x.id),
+  density: DENSITIES.map((x) => x.id),
+  zoom: null, // a percentage, ZOOM.min to ZOOM.max in steps of ZOOM.step
+  sideBarPosition: SIDE_BAR_POSITIONS.map((x) => x.id),
+  panelPosition: PANEL_POSITIONS.map((x) => x.id),
 } as const;
+
+/** The view options as they are written in settings.toml, with their defaults. */
+const VIEW_KEYS = ["iconTheme", "density", "zoom", "sideBarPosition", "panelPosition"] as const;
 
 const known = new Set(Object.keys(INTERFACE_SETTINGS));
 const list = (xs: readonly string[]) => xs.map((x) => `"${x}"`).join(", ");
 
-function readSettings(file: InterfaceFile, languages: string[]) {
+function readSettings(file: InterfaceFile, languages: string[], themeIds: string[]) {
   const problems: Found[] = [];
   const v = file.values;
   const pick = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
@@ -53,7 +78,7 @@ function readSettings(file: InterfaceFile, languages: string[]) {
     });
     return fallback;
   };
-  const theme = pick<Theme>("theme", INTERFACE_SETTINGS.theme, DEFAULT_APPEARANCE.theme);
+  const theme = pick<Theme>("theme", [...INTERFACE_SETTINGS.theme, ...themeIds], DEFAULT_APPEARANCE.theme);
   const accent = pick<Accent>("accent", INTERFACE_SETTINGS.accent, DEFAULT_APPEARANCE.accent);
   let language = DEFAULT_LANGUAGE;
   if ("language" in v) {
@@ -67,12 +92,28 @@ function readSettings(file: InterfaceFile, languages: string[]) {
       });
     }
   }
+  const view: ViewOptions = {
+    iconTheme: pick("iconTheme", INTERFACE_SETTINGS.iconTheme, DEFAULT_VIEW.iconTheme),
+    density: pick("density", INTERFACE_SETTINGS.density, DEFAULT_VIEW.density),
+    zoom: DEFAULT_VIEW.zoom,
+    sideBarPosition: pick("sideBarPosition", INTERFACE_SETTINGS.sideBarPosition, DEFAULT_VIEW.sideBarPosition),
+    panelPosition: pick("panelPosition", INTERFACE_SETTINGS.panelPosition, DEFAULT_VIEW.panelPosition),
+  };
+  if ("zoom" in v) {
+    if (clampZoom(v.zoom) === v.zoom) view.zoom = v.zoom as number;
+    else
+      problems.push({
+        file: file.path,
+        message: "{name} must be a number from {min} to {max} in steps of {step}; using {fallback}.",
+        vars: { name: "interface.zoom", min: String(ZOOM.min), max: String(ZOOM.max), step: String(ZOOM.step), fallback: String(DEFAULT_VIEW.zoom) },
+      });
+  }
   for (const key of Object.keys(v)) {
     if (!known.has(key)) {
       problems.push({ file: file.path, message: "{name} isn't a setting Stackyard knows.", vars: { name: `interface.${key}` } });
     }
   }
-  return { theme, accent, language, problems };
+  return { theme, accent, language, view, problems };
 }
 
 function readKeybindings(file: InterfaceFile) {
@@ -126,6 +167,8 @@ export function useUserFiles() {
   const codes = languages.map((l) => l.code);
   const seen = useRef<Partial<Record<InterfaceFileName, string>>>({});
   const files = useRef<Partial<Record<InterfaceFileName, InterfaceFile>>>({});
+  const seenThemes = useRef<string | null>(null);
+  const themeIds = useRef<string[]>([]);
   // A language set from the file, so the change it causes isn't written back.
   const fromFile = useRef<string | null>(null);
   const state = useRef({ choice, codes, setLanguage });
@@ -136,13 +179,29 @@ export function useUserFiles() {
     let stopped = false;
     async function check(first: boolean) {
       if (stopped || (!first && document.visibilityState !== "visible")) return;
-      const [settings, keybindings] = await Promise.all([
+      const [settings, keybindings, themes] = await Promise.all([
         api.interfaceSettings().catch(() => null),
         api.keybindings().catch(() => null),
+        api.themeFiles().catch(() => null),
       ]);
       if (stopped) return;
-      if (settings) applySettings(settings, first);
+      // Themes first: settings.toml may name one of them.
+      const themesChanged = themes ? applyThemes(themes) : false;
+      if (settings) applySettings(settings, first, themesChanged);
       if (keybindings) applyKeybindings(keybindings, first);
+    }
+
+    function applyThemes(files: ThemeFiles) {
+      const text = stable(files);
+      if (seenThemes.current === text) return false;
+      seenThemes.current = text;
+      themeIds.current = files.themes.map((t) => t.id);
+      setAddedThemes(files.themes);
+      setProblems(
+        "themes",
+        files.problems.map((p) => ({ file: `${files.folder}/${p.file}`, message: "This theme file can't be used.", detail: p.problem })),
+      );
+      return true;
     }
 
     function changed(name: InterfaceFileName, file: InterfaceFile) {
@@ -153,21 +212,25 @@ export function useUserFiles() {
       return true;
     }
 
-    function applySettings(file: InterfaceFile, first: boolean) {
-      if (!changed("settings", file)) return;
+    function applySettings(file: InterfaceFile, first: boolean, again = false) {
+      // A new list of themes can make the theme setting right or wrong, so it is read again.
+      if (!changed("settings", file) && !again) return;
       if (file.error) return setProblems("settings", [invalid(file)]);
       const { codes, choice, setLanguage } = state.current;
       // First run with this version: keep the look chosen before, by writing it to the file.
       if (first && Object.keys(file.values).length === 0) {
         const a = currentAppearance();
-        if (a.theme !== DEFAULT_APPEARANCE.theme || a.accent !== DEFAULT_APPEARANCE.accent || choice !== DEFAULT_LANGUAGE) {
-          void saveSettings({ theme: a.theme, accent: a.accent, language: choice });
+        const view = currentViewOptions();
+        const viewChanged = VIEW_KEYS.some((k) => view[k] !== DEFAULT_VIEW[k]);
+        if (a.theme !== DEFAULT_APPEARANCE.theme || a.accent !== DEFAULT_APPEARANCE.accent || choice !== DEFAULT_LANGUAGE || viewChanged) {
+          void saveSettings({ theme: a.theme, accent: a.accent, language: choice, ...view });
         }
         return setProblems("settings", []);
       }
-      const read = readSettings(file, codes);
+      const read = readSettings(file, codes, themeIds.current);
       setProblems("settings", read.problems);
       setAppearance({ theme: read.theme, accent: read.accent }, true);
+      setViewOptions(read.view, true);
       if (read.language !== choice) {
         fromFile.current = read.language;
         void setLanguage(read.language);
@@ -198,12 +261,15 @@ export function useUserFiles() {
     };
   }, []);
 
-  async function saveSettings(change: { theme?: Theme; accent?: Accent; language?: string }) {
+  async function saveSettings(change: { theme?: Theme; accent?: Accent; language?: string } & Partial<ViewOptions>) {
     let values = files.current.settings?.error ? null : (files.current.settings?.values ?? {});
     if (!values) return; // Never overwrite a file someone is in the middle of fixing.
     if (change.theme) values = withValue(values, "theme", change.theme, change.theme === DEFAULT_APPEARANCE.theme);
     if (change.accent) values = withValue(values, "accent", change.accent, change.accent === DEFAULT_APPEARANCE.accent);
     if (change.language) values = withValue(values, "language", change.language, change.language === DEFAULT_LANGUAGE);
+    for (const key of VIEW_KEYS) {
+      if (change[key] !== undefined) values = withValue(values, key, change[key], change[key] === DEFAULT_VIEW[key]);
+    }
     await api.saveInterfaceSettings(values).catch(() => {});
     remember("settings", values);
   }
@@ -228,6 +294,7 @@ export function useUserFiles() {
     () => onAppearanceChange((a, fromSettings) => void (fromSettings || saveSettings({ theme: a.theme, accent: a.accent }))),
     [],
   );
+  useEffect(() => onViewOptionsChange((v, fromSettings) => void (fromSettings || saveSettings({ ...v }))), []);
   useEffect(() => onKeyChange((c, fromKeysFile) => void (fromKeysFile || saveKeys(c))), []);
   useEffect(() => {
     if (fromFile.current === choice) {

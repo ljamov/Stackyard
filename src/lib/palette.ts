@@ -3,8 +3,11 @@
 
 import { useEffect, useState } from "react";
 
-/** "commands" opens with ">" typed, listing commands; "quick" lists sites and screens. */
-export type PaletteMode = "commands" | "quick" | null;
+/**
+ * "commands" opens with ">" typed, listing commands; "quick" lists sites and
+ * screens; "themes" lists color themes and shows each one as it is selected.
+ */
+export type PaletteMode = "commands" | "quick" | "themes" | null;
 
 let mode: PaletteMode = null;
 const listeners = new Set<(m: PaletteMode) => void>();

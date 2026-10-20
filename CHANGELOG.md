@@ -33,6 +33,16 @@ Update button, and the app shows its own version's section after it updates.
 - A **Problems** panel beside Logs (**Ctrl+Shift+M**, or the count in the status bar) lists anything
   Stackyard can't use in those files or in language files, such as a misspelled value or a file
   that isn't valid TOML, and says what to fix. Stackyard keeps working with the defaults meanwhile.
+- **VS Code themes**: Settings › Appearance › **Import a VS Code theme…** takes a theme's `.json`
+  file or a whole `.vsix` extension, and every color theme in it appears under **Added themes**.
+  Stackyard uses the theme's colors for its own window, so your editor and Stackyard can match.
+- A theme picker: **Ctrl+K Ctrl+T** lists every theme and shows each one on the window as you move
+  through them; Escape goes back.
+- **Icons**: pick the Stackyard line icons or Codicons, the icons VS Code uses.
+- **Density**: Compact, Default or Comfortable, for more on screen or more room.
+- **Zoom** from 80% to 150%: **Ctrl+=**, **Ctrl+-** and **Ctrl+0**.
+- The side bar can sit on the right and the Logs panel on the right, beside the screen.
+- All of these are kept in `settings.toml` with the rest, and can be changed there too.
 
 ## 0.6.0
 

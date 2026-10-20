@@ -1,9 +1,9 @@
-// Problems with files people edit by hand: settings.toml, keybindings.toml and
-// language files. The Problems panel lists them; the status bar counts them.
+// Problems with files people edit by hand: settings.toml, keybindings.toml,
+// language files and theme files. The Problems panel lists them; the status bar counts them.
 
 import { useEffect, useState } from "react";
 
-export type ProblemSource = "settings" | "keybindings" | "languages";
+export type ProblemSource = "settings" | "keybindings" | "languages" | "themes";
 
 export type Problem = {
   source: ProblemSource;

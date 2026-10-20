@@ -19,6 +19,10 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "tab.previous": ["ctrl+shift+tab", "ctrl+pageup"],
   "open.Settings": ["ctrl+,"],
   "open.Keyboard shortcuts": ["ctrl+k ctrl+s"],
+  "workbench.colorTheme": ["ctrl+k ctrl+t"],
+  "view.zoomIn": ["ctrl+=", "ctrl+shift+="],
+  "view.zoomOut": ["ctrl+-"],
+  "view.zoomReset": ["ctrl+0"],
 };
 
 const KEY = "stackyard.keybindings";

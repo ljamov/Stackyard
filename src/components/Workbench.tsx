@@ -25,7 +25,8 @@ import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
 import { SCREENS, isTabScreen, useScreenOn, type TabScreen } from "../lib/screens";
-import { closeTab, openTab, PANEL_HEIGHT, setLayout, SIDE_BAR_WIDTH, togglePanelTab, useLayout } from "../lib/layout";
+import { closeTab, openTab, PANEL_HEIGHT, PANEL_WIDTH, setLayout, SIDE_BAR_WIDTH, togglePanelTab, useLayout } from "../lib/layout";
+import { useViewOptions } from "../lib/viewOptions";
 import { CommandsProvider, useWorkbenchCommands } from "../lib/commands";
 import { dispatchKeys, withKey } from "../lib/keybindings";
 import { usePalette } from "../lib/palette";
@@ -71,6 +72,8 @@ function screen(s: TabScreen): ReactNode {
 export function Workbench() {
   const t = useT();
   const layout = useLayout();
+  const view = useViewOptions();
+  const panelRight = view.panelPosition === "right";
   const on = useScreenOn();
   const { modules, isOn } = useModules();
   const services = useServices();
@@ -102,7 +105,7 @@ export function Workbench() {
   const togglePanel = () => setLayout((l) => ({ panel: !l.panel }));
 
   const palette = usePalette();
-  const { commands, places } = useWorkbenchCommands({
+  const { commands, places, themes } = useWorkbenchCommands({
     screens,
     services,
     shownServices,
@@ -132,7 +135,7 @@ export function Workbench() {
 
   return (
     <CommandsProvider value={commands}>
-      <div className="workbench">
+      <div className="workbench" data-side={view.sideBarPosition}>
         <ActivityBar
           screens={screens.filter((s) => s !== "Keyboard shortcuts")}
           active={active}
@@ -156,12 +159,13 @@ export function Workbench() {
               orientation="vertical"
               value={layout.sideBarWidth}
               {...SIDE_BAR_WIDTH}
+              invert={view.sideBarPosition === "right"}
               onChange={(sideBarWidth) => setLayout({ sideBarWidth })}
               label={t("Resize the side bar")}
             />
           </>
         )}
-        <div className="editor-column">
+        <div className="editor-column" data-panel={view.panelPosition}>
           <div className="editor">
             {tabs.length > 0 && (
               <div className="tabs" role="tablist" aria-label={t("Open screens")}>
@@ -204,15 +208,30 @@ export function Workbench() {
           </div>
           {panel && (
             <>
-              <Sash
-                orientation="horizontal"
-                value={layout.panelHeight}
-                {...PANEL_HEIGHT}
-                invert
-                onChange={(panelHeight) => setLayout({ panelHeight })}
-                label={t("Resize the panel")}
-              />
-              <section className="panel" style={{ height: layout.panelHeight }} aria-label={t("Panel")}>
+              {panelRight ? (
+                <Sash
+                  orientation="vertical"
+                  value={layout.panelWidth}
+                  {...PANEL_WIDTH}
+                  invert
+                  onChange={(panelWidth) => setLayout({ panelWidth })}
+                  label={t("Resize the panel")}
+                />
+              ) : (
+                <Sash
+                  orientation="horizontal"
+                  value={layout.panelHeight}
+                  {...PANEL_HEIGHT}
+                  invert
+                  onChange={(panelHeight) => setLayout({ panelHeight })}
+                  label={t("Resize the panel")}
+                />
+              )}
+              <section
+                className="panel"
+                style={panelRight ? { width: layout.panelWidth } : { height: layout.panelHeight }}
+                aria-label={t("Panel")}
+              >
                 <div className="panel-header">
                   <div className="panel-tabs" role="tablist" aria-label={t("Panel")}>
                     <button
@@ -264,7 +283,7 @@ export function Workbench() {
         problemCount={problems.length}
         onOpen={openTab}
       />
-      {palette && <CommandPalette mode={palette} commands={commands} places={places} />}
+      {palette && <CommandPalette mode={palette} commands={commands} places={places} themes={themes} />}
     </CommandsProvider>
   );
 }

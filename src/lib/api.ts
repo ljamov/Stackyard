@@ -22,6 +22,13 @@ export type InterfaceFile = {
   error: string | null;
 };
 
+/** Color themes added to the themes folder (see stackyard-core themes.rs). */
+export type ThemeFiles = {
+  folder: string;
+  themes: { id: string; name: string; kind: "dark" | "light" | "high-contrast"; colors: Record<string, string> }[];
+  problems: { file: string; problem: string }[];
+};
+
 /** Which hand-editable file: `settings.toml` or `keybindings.toml`. */
 export type InterfaceFileName = "settings" | "keybindings";
 
@@ -522,6 +529,14 @@ export interface Api {
   saveKeybindings(values: Record<string, unknown>): Promise<void>;
   /** Shows the file in the file manager (made first if missing) to open in an editor. */
   showInterfaceFile(file: InterfaceFileName): Promise<void>;
+  /** Color themes in the themes folder, and files there that can't be used. */
+  themeFiles(): Promise<ThemeFiles>;
+  /** Copies a VS Code theme (.json) or extension (.vsix) in; returns the ids added. */
+  importTheme(path: string): Promise<string[]>;
+  removeTheme(id: string): Promise<void>;
+  openThemesFolder(): Promise<void>;
+  /** Asks for a VS Code theme file or extension to import. */
+  pickThemeFile(title: string): Promise<string | null>;
   listModules(): Promise<Module[]>;
   setModule(id: string, enabled: boolean): Promise<Module[]>;
   listSites(): Promise<Site[]>;
@@ -702,6 +717,18 @@ const tauriApi: Api = {
   keybindings: () => invoke("keybindings"),
   saveKeybindings: (values) => invoke("save_keybindings", { values }),
   showInterfaceFile: (file) => invoke("show_interface_file", { file }),
+  themeFiles: () => invoke("theme_files"),
+  importTheme: (path) => invoke("import_theme", { path }),
+  removeTheme: (id) => invoke("remove_theme", { id }),
+  openThemesFolder: () => invoke("open_themes_folder"),
+  pickThemeFile: async (title) => {
+    const picked = await openDialog({
+      multiple: false,
+      title,
+      filters: [{ name: "VS Code theme", extensions: ["json", "jsonc", "vsix"] }],
+    });
+    return typeof picked === "string" ? picked : null;
+  },
   listModules: () => invoke("list_modules"),
   setModule: (id, enabled) => invoke("set_module", { id, enabled }),
   listSites: () => invoke("list_sites"),
@@ -1042,6 +1069,9 @@ function browserApi(): Api {
     keybindings: { path: "C:\\stackyard\\keybindings.toml", values: {}, error: null },
   };
   (window as unknown as { stackyardFiles: typeof previewFiles }).stackyardFiles = previewFiles;
+  // Added themes, empty in the preview; push one from the console to try it.
+  const previewThemes: ThemeFiles = { folder: "C:\\stackyard\\themes", themes: [], problems: [] };
+  (window as unknown as { stackyardThemes: ThemeFiles }).stackyardThemes = previewThemes;
   const sample = (name: string, runtime: string, framework: string | null, parked: boolean, problem: string | null = null): Site => ({
     name,
     domain: `${name}.stack`,
@@ -1215,6 +1245,13 @@ function browserApi(): Api {
     keybindings: async () => ({ ...previewFiles.keybindings }),
     saveKeybindings: async (values) => void (previewFiles.keybindings = { ...previewFiles.keybindings, values, error: null }),
     showInterfaceFile: async () => {},
+    themeFiles: async () => ({ ...previewThemes, themes: [...previewThemes.themes] }),
+    importTheme: async () => {
+      throw "Importing a theme needs the Stackyard app.";
+    },
+    removeTheme: async (id) => void (previewThemes.themes = previewThemes.themes.filter((t) => t.id !== id)),
+    openThemesFolder: async () => {},
+    pickThemeFile: async () => "C:\\Users\\you\\Downloads\\theme.json",
     listModules: async () => modules,
     setModule: async (id, enabled) => {
       modules = modules.map((m) => (m.id === id && m.available ? { ...m, enabled } : m));
