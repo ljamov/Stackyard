@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ActivityBar } from "./ActivityBar";
 import { Explorer } from "./Explorer";
 import { Icon } from "./Icon";
@@ -17,13 +17,18 @@ import { Scheduler } from "../screens/Scheduler";
 import { Images } from "../screens/Images";
 import { Videos } from "../screens/Videos";
 import { AiTools } from "../screens/AiTools";
+import { KeyboardShortcuts } from "../screens/KeyboardShortcuts";
+import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 import { api } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
 import { SCREENS, isTabScreen, useScreenOn, type TabScreen } from "../lib/screens";
-import { closeTab, cycleTab, openTab, PANEL_HEIGHT, setLayout, SIDE_BAR_WIDTH, useLayout } from "../lib/layout";
+import { closeTab, openTab, PANEL_HEIGHT, setLayout, SIDE_BAR_WIDTH, useLayout } from "../lib/layout";
+import { CommandsProvider, useWorkbenchCommands } from "../lib/commands";
+import { dispatchKeys, withKey } from "../lib/keybindings";
+import { usePalette } from "../lib/palette";
 import { useT } from "../lib/i18n";
 
 function screen(s: TabScreen): ReactNode {
@@ -50,6 +55,8 @@ function screen(s: TabScreen): ReactNode {
       return <McpServer />;
     case "Settings":
       return <Settings />;
+    case "Keyboard shortcuts":
+      return <KeyboardShortcuts />;
   }
 }
 
@@ -87,27 +94,40 @@ export function Workbench() {
   const toggleSideBar = () => setLayout((l) => ({ sideBar: !l.sideBar }));
   const togglePanel = () => logsOn && setLayout((l) => ({ panel: !l.panel }));
 
+  const palette = usePalette();
+  const { commands, places } = useWorkbenchCommands({
+    screens,
+    services,
+    shownServices,
+    sites: sites.data,
+    logsOn,
+    tabs,
+    active,
+  });
+
+  // Each key press runs the command bound to it (lib/keybindings.ts).
+  const latest = useRef(commands);
+  latest.current = commands;
   useEffect(() => {
+    const chord = { pending: null as string | null };
     function key(e: KeyboardEvent) {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "b" && !e.shiftKey) toggleSideBar();
-      else if (k === "j" && !e.shiftKey) togglePanel();
-      else if (k === "w" && !e.shiftKey && active) closeTab(active);
-      else if (e.key === "PageDown" || (e.key === "Tab" && !e.shiftKey)) cycleTab(1);
-      else if (e.key === "PageUp" || (e.key === "Tab" && e.shiftKey)) cycleTab(-1);
-      else return;
-      e.preventDefault();
+      const list = latest.current;
+      dispatchKeys(
+        e,
+        list.map((c) => c.id),
+        (id) => list.find((c) => c.id === id)?.run(),
+        chord,
+      );
     }
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  });
+  }, []);
 
   return (
-    <>
+    <CommandsProvider value={commands}>
       <div className="workbench">
         <ActivityBar
-          screens={screens}
+          screens={screens.filter((s) => s !== "Keyboard shortcuts")}
           active={active}
           sideBar={layout.sideBar}
           panel={panel}
@@ -154,7 +174,7 @@ export function Workbench() {
                       type="button"
                       className="icon-btn tab-close"
                       aria-label={t("Close {name}", { name: t(s) })}
-                      title={`${t("Close {name}", { name: t(s) })} (Ctrl+W)`}
+                      title={withKey(t("Close {name}", { name: t(s) }), "tab.close")}
                       onClick={() => closeTab(s)}
                     >
                       <Icon name="close" />
@@ -194,7 +214,7 @@ export function Workbench() {
                     type="button"
                     className="icon-btn"
                     aria-label={t("Hide the panel")}
-                    title={`${t("Hide the panel")} (Ctrl+J)`}
+                    title={withKey(t("Hide the panel"), "view.panel")}
                     onClick={togglePanel}
                   >
                     <Icon name="close" />
@@ -216,6 +236,7 @@ export function Workbench() {
         onOpen={openTab}
         onTogglePanel={togglePanel}
       />
-    </>
+      {palette && <CommandPalette mode={palette} commands={commands} places={places} />}
+    </CommandsProvider>
   );
 }

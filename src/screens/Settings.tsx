@@ -7,6 +7,7 @@ import { useModules } from "../lib/modules";
 import { useLoad } from "../lib/useLoad";
 import { useT } from "../lib/i18n";
 import { AppearanceSettings } from "../components/AppearanceSettings";
+import { openTab } from "../lib/layout";
 
 const GROUPS: { group: Module["group"]; title: string }[] = [
   { group: "runtime", title: "Runtimes" },
@@ -80,6 +81,16 @@ export function Settings() {
       <Updates />
 
       <AppearanceSettings />
+
+      <section aria-labelledby="keys-h" className="card stack">
+        <h2 id="keys-h">{t("Keyboard shortcuts")}</h2>
+        <p className="muted">{t("Change the keys for any command. Click Change, then press the new keys.")}</p>
+        <div>
+          <button type="button" className="btn" onClick={() => openTab("Keyboard shortcuts")}>
+            {t("Keyboard shortcuts")}
+          </button>
+        </div>
+      </section>
 
       <section aria-labelledby="dom-h" className="card stack">
         <h2 id="dom-h">{t("Local domains")}</h2>

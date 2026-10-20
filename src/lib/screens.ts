@@ -13,6 +13,7 @@ export const SCREENS = [
   "AI tools",
   "MCP server",
   "Settings",
+  "Keyboard shortcuts",
 ] as const;
 
 export type Screen = (typeof SCREENS)[number];

@@ -3,13 +3,16 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useT } from "../lib/i18n";
 import { Logo } from "./Logo";
+import { Icon } from "./Icon";
+import { openPalette } from "../lib/palette";
+import { withKey } from "../lib/keybindings";
 
 /**
  * Stackyard draws its own title bar: the window has no system frame so it
  * can have rounded corners. Drag the bar to move the window, double-click
  * it to maximise.
  */
-export function TitleBar({ onMaximized }: { onMaximized(maximized: boolean): void }) {
+export function TitleBar({ onMaximized, search = false }: { onMaximized(maximized: boolean): void; search?: boolean }) {
   const t = useT();
   const [maximized, setMaximized] = useState(false);
   const inApp = isTauri();
@@ -42,6 +45,18 @@ export function TitleBar({ onMaximized }: { onMaximized(maximized: boolean): voi
         <Logo size={16} />
         Stackyard
       </span>
+      {search && (
+        <button
+          type="button"
+          className="command-center"
+          title={withKey(t("Search sites and commands"), "workbench.quickOpen")}
+          onClick={() => openPalette("quick")}
+        >
+          <Icon name="search" />
+          <span>{t("Search sites and commands")}</span>
+        </button>
+      )}
+      <span className="titlebar-fill" data-tauri-drag-region />
       {inApp && (
         <div className="titlebar-buttons">
           <button type="button" className="titlebar-btn" aria-label={t("Minimise")} onClick={() => win().minimize()}>

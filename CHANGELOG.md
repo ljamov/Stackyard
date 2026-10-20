@@ -19,6 +19,12 @@ Update button, and the app shows its own version's section after it updates.
   a tab, **Ctrl+Tab** and **Ctrl+PageDown/PageUp** move between tabs (**⌘** instead of Ctrl on a Mac).
 - A denser, flatter look: your computer's own interface font, smaller buttons and fields, and
   squarer corners, so more fits on screen. The app is also smaller, with two fewer bundled fonts.
+- A command palette: **Ctrl+Shift+P** (or **F1**) finds any command by a few of its letters: start
+  or stop services, open a site in the browser, switch theme, close tabs and more. **Ctrl+P**, or the
+  new search box at the top of the window, jumps to a site or screen.
+- **Keyboard shortcuts** (in Settings, or **Ctrl+K Ctrl+S**): change the keys for any command by
+  pressing the new ones, remove them or reset them, with a warning when two commands share a key.
+  **Ctrl+,** opens Settings.
 
 ## 0.6.0
 
