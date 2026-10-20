@@ -11,6 +11,14 @@ Update button, and the app shows its own version's section after it updates.
   contrast.
 - The focus outline on the Light theme uses the darker accent, so it's easier to see on white.
 - Every color in the app is now a named theme token, which prepares for custom themes later.
+- A new window layout: a bar of screen icons on the left, an Explorer beside it with your services
+  (start and stop them right there) and sites, screens that open as tabs, Logs in a panel along the
+  bottom, and a status bar with how many services are running. Drag the edges to resize the
+  Explorer and the panel; Stackyard opens the way you left it.
+- Shortcuts: **Ctrl+B** shows or hides the Explorer, **Ctrl+J** the Logs panel, **Ctrl+W** closes
+  a tab, **Ctrl+Tab** and **Ctrl+PageDown/PageUp** move between tabs (**⌘** instead of Ctrl on a Mac).
+- A denser, flatter look: your computer's own interface font, smaller buttons and fields, and
+  squarer corners, so more fits on screen. The app is also smaller, with two fewer bundled fonts.
 
 ## 0.6.0
 

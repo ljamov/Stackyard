@@ -3,7 +3,7 @@ import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { ServiceCard } from "../components/ServiceCard";
 import { useModules } from "../lib/modules";
-import type { Screen } from "../components/Sidebar";
+import type { Screen } from "../lib/screens";
 import { useT } from "../lib/i18n";
 
 export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useT } from "../lib/i18n";
+import { Logo } from "./Logo";
 
 /**
  * Stackyard draws its own title bar: the window has no system frame so it
@@ -38,6 +39,7 @@ export function TitleBar({ onMaximized }: { onMaximized(maximized: boolean): voi
   return (
     <header className="titlebar" data-tauri-drag-region>
       <span className="titlebar-name" data-tauri-drag-region>
+        <Logo size={16} />
         Stackyard
       </span>
       {inApp && (

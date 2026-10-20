@@ -27,6 +27,28 @@ existing variable or add a token with a value in all three themes; don't write a
 else. `npm run build` runs `scripts/check-colors.mjs`, which fails if a color value appears in `src`
 outside `theme.ts`.
 
+## The window
+
+| Part | What it does |
+| --- | --- |
+| Bar of icons on the left | The top icon shows or hides the Explorer. Each other icon opens a screen as a tab; the Logs icon near the bottom shows or hides the Logs panel. |
+| Explorer | Your services, each with a start or stop button, and your sites. Click a name to open its screen. |
+| Tabs | Every screen you open stays open as a tab until you close it. Middle-click a tab to close it. |
+| Logs panel | Every service's log along the bottom, under whichever screen is open. |
+| Status bar | How many services are running and how many sites you have; click either to open its screen. When an update is out, it says so there too. |
+
+Drag the line beside the Explorer or above the Logs panel to resize it, or focus the line with Tab and
+use the arrow keys. Which parts show, their sizes and the open tabs are kept, so Stackyard opens the
+way you left it. In a narrow window the Explorer steps aside to leave room for the screen.
+
+| Shortcut (⌘ instead of Ctrl on a Mac) | Does |
+| --- | --- |
+| Ctrl+B | Show or hide the Explorer |
+| Ctrl+J | Show or hide the Logs panel |
+| Ctrl+W | Close the tab |
+| Ctrl+Tab, Ctrl+PageDown | Next tab |
+| Ctrl+Shift+Tab, Ctrl+PageUp | Previous tab |
+
 ## Language
 
 Pick a language from the list, or **Match my computer** to use your computer's language when

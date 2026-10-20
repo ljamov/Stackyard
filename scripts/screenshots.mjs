@@ -147,6 +147,6 @@ async function prepare(page) {
 }
 
 async function open(page, screen) {
-  await page.locator(".sidebar .nav-item", { hasText: new RegExp(`^${screen}`) }).click();
+  await page.locator(`.activitybar [data-screen="${screen}"]`).click();
   await sleep(300);
 }
