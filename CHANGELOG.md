@@ -4,6 +4,14 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- A **High contrast** theme in Settings › Appearance: black with bright borders, a thick focus
+  outline and underlined links. **Match my computer** picks it when Windows or macOS is set to more
+  contrast.
+- The focus outline on the Light theme uses the darker accent, so it's easier to see on white.
+- Every color in the app is now a named theme token, which prepares for custom themes later.
+
 ## 0.6.0
 
 - Site tools: **Manage** on a site's row on the Sites screen opens its settings, backups, public
