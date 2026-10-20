@@ -25,10 +25,13 @@ import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
 import { SCREENS, isTabScreen, useScreenOn, type TabScreen } from "../lib/screens";
-import { closeTab, openTab, PANEL_HEIGHT, setLayout, SIDE_BAR_WIDTH, useLayout } from "../lib/layout";
+import { closeTab, openTab, PANEL_HEIGHT, setLayout, SIDE_BAR_WIDTH, togglePanelTab, useLayout } from "../lib/layout";
 import { CommandsProvider, useWorkbenchCommands } from "../lib/commands";
 import { dispatchKeys, withKey } from "../lib/keybindings";
 import { usePalette } from "../lib/palette";
+import { useProblems } from "../lib/problems";
+import { useUserFiles } from "../lib/useUserFiles";
+import { ProblemsList } from "./ProblemsList";
 import { useT } from "../lib/i18n";
 
 function screen(s: TabScreen): ReactNode {
@@ -79,7 +82,11 @@ export function Workbench() {
   const loaded = modules.length > 0;
   const tabs = loaded ? layout.tabs.filter(on) : layout.tabs;
   const active = layout.active && tabs.includes(layout.active) ? layout.active : (tabs[0] ?? null);
-  const panel = layout.panel && logsOn;
+  const panel = layout.panel;
+  // Logs switched off: the panel shows Problems.
+  const panelTab = layout.panelTab === "logs" && logsOn ? "logs" : "problems";
+  const problems = useProblems();
+  useUserFiles();
 
   useEffect(() => {
     let off: (() => void) | undefined;
@@ -92,7 +99,7 @@ export function Workbench() {
   }, [sites.reload]);
 
   const toggleSideBar = () => setLayout((l) => ({ sideBar: !l.sideBar }));
-  const togglePanel = () => logsOn && setLayout((l) => ({ panel: !l.panel }));
+  const togglePanel = () => setLayout((l) => ({ panel: !l.panel }));
 
   const palette = usePalette();
   const { commands, places } = useWorkbenchCommands({
@@ -130,11 +137,11 @@ export function Workbench() {
           screens={screens.filter((s) => s !== "Keyboard shortcuts")}
           active={active}
           sideBar={layout.sideBar}
-          panel={panel}
+          panel={panel && panelTab === "logs"}
           logsOn={logsOn}
           onOpen={openTab}
           onToggleSideBar={toggleSideBar}
-          onTogglePanel={togglePanel}
+          onTogglePanel={() => togglePanelTab("logs")}
         />
         {layout.sideBar && (
           <>
@@ -205,11 +212,31 @@ export function Workbench() {
                 onChange={(panelHeight) => setLayout({ panelHeight })}
                 label={t("Resize the panel")}
               />
-              <section className="panel" style={{ height: layout.panelHeight }} aria-labelledby="panel-h">
+              <section className="panel" style={{ height: layout.panelHeight }} aria-label={t("Panel")}>
                 <div className="panel-header">
-                  <h2 id="panel-h" className="panel-tab">
-                    {t("Logs")}
-                  </h2>
+                  <div className="panel-tabs" role="tablist" aria-label={t("Panel")}>
+                    <button
+                      type="button"
+                      role="tab"
+                      className="panel-tab"
+                      aria-selected={panelTab === "problems"}
+                      onClick={() => setLayout({ panelTab: "problems" })}
+                    >
+                      {t("Problems")}
+                      {problems.length > 0 && <span className="count">{problems.length}</span>}
+                    </button>
+                    {logsOn && (
+                      <button
+                        type="button"
+                        role="tab"
+                        className="panel-tab"
+                        aria-selected={panelTab === "logs"}
+                        onClick={() => setLayout({ panelTab: "logs" })}
+                      >
+                        {t("Logs")}
+                      </button>
+                    )}
+                  </div>
                   <button
                     type="button"
                     className="icon-btn"
@@ -220,8 +247,8 @@ export function Workbench() {
                     <Icon name="close" />
                   </button>
                 </div>
-                <div className="panel-body">
-                  <Logs inPanel />
+                <div className="panel-body" role="tabpanel">
+                  {panelTab === "logs" ? <Logs inPanel /> : <ProblemsList problems={problems} />}
                 </div>
               </section>
             </>
@@ -233,8 +260,9 @@ export function Workbench() {
         siteCount={sites.data.length}
         logsOn={logsOn}
         panel={panel}
+        panelTab={panelTab}
+        problemCount={problems.length}
         onOpen={openTab}
-        onTogglePanel={togglePanel}
       />
       {palette && <CommandPalette mode={palette} commands={commands} places={places} />}
     </CommandsProvider>

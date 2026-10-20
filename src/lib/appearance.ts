@@ -1,6 +1,7 @@
-// Light, dark or high-contrast look and the accent color. Kept in the window's
-// own storage and applied before the first paint, so the app never flashes the
-// wrong look. The colors themselves are in theme.ts.
+// Light, dark or high-contrast look and the accent color. Saved in settings.toml
+// (see useUserFiles.ts) and also kept in the window's own storage, which is read
+// before the first paint so the app never flashes the wrong look. The colors
+// themselves are in theme.ts.
 
 import { useEffect, useState } from "react";
 import { ACCENT_COLORS, applyTheme, type Accent, type ThemeId } from "./theme";
@@ -28,7 +29,8 @@ export const ACCENTS: { id: Accent; label: string; swatch: string }[] = [
 export type Appearance = { theme: Theme; accent: Accent };
 
 const KEY = "stackyard.appearance";
-const DEFAULT: Appearance = { theme: "dark", accent: "amber" };
+export const DEFAULT_APPEARANCE: Appearance = { theme: "dark", accent: "amber" };
+const DEFAULT = DEFAULT_APPEARANCE;
 
 export function loadAppearance(): Appearance {
   try {
@@ -60,6 +62,17 @@ export function applyAppearance(a: Appearance) {
 
 let current = loadAppearance();
 const listeners = new Set<(a: Appearance) => void>();
+/** Told of every change and whether it came from the settings file. */
+const changeListeners = new Set<(a: Appearance, fromFile: boolean) => void>();
+
+export function onAppearanceChange(listener: (a: Appearance, fromFile: boolean) => void): () => void {
+  changeListeners.add(listener);
+  return () => void changeListeners.delete(listener);
+}
+
+export function currentAppearance(): Appearance {
+  return current;
+}
 
 /** Applies the saved look and follows the computer's when set to match it. */
 export function startAppearance() {
@@ -69,8 +82,11 @@ export function startAppearance() {
   }
 }
 
-export function setAppearance(change: Partial<Appearance>) {
+/** `fromFile`: the change was read from settings.toml, so it isn't written back. */
+export function setAppearance(change: Partial<Appearance>, fromFile = false) {
+  const before = current;
   current = { ...current, ...change };
+  if (current.theme === before.theme && current.accent === before.accent) return;
   try {
     localStorage.setItem(KEY, JSON.stringify(current));
   } catch {
@@ -78,6 +94,7 @@ export function setAppearance(change: Partial<Appearance>) {
   }
   applyAppearance(current);
   listeners.forEach((l) => l(current));
+  changeListeners.forEach((l) => l(current, fromFile));
 }
 
 export function useAppearance(): Appearance {

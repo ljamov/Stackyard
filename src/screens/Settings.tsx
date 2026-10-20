@@ -85,9 +85,24 @@ export function Settings() {
       <section aria-labelledby="keys-h" className="card stack">
         <h2 id="keys-h">{t("Keyboard shortcuts")}</h2>
         <p className="muted">{t("Change the keys for any command. Click Change, then press the new keys.")}</p>
-        <div>
+        <div className="row wrap">
           <button type="button" className="btn" onClick={() => openTab("Keyboard shortcuts")}>
             {t("Keyboard shortcuts")}
+          </button>
+        </div>
+      </section>
+
+      <section aria-labelledby="files-h" className="card stack">
+        <h2 id="files-h">{t("Settings files")}</h2>
+        <p className="muted">
+          {t("Everything on this page is also kept in settings.toml, and your shortcuts in keybindings.toml. Change them in any text editor; Stackyard picks the changes up within a few seconds, and lists anything it can't use under Problems.")}
+        </p>
+        <div className="row wrap">
+          <button type="button" className="btn" onClick={() => void api.showInterfaceFile("settings")}>
+            {t("Show {file} in the file manager", { file: "settings.toml" })}
+          </button>
+          <button type="button" className="btn" onClick={() => void api.showInterfaceFile("keybindings")}>
+            {t("Show {file} in the file manager", { file: "keybindings.toml" })}
           </button>
         </div>
       </section>

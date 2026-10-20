@@ -9,9 +9,13 @@ export type Layout = {
   sideBarWidth: number;
   panel: boolean;
   panelHeight: number;
+  /** What the bottom panel shows. */
+  panelTab: PanelTab;
   tabs: TabScreen[];
   active: TabScreen | null;
 };
+
+export type PanelTab = "problems" | "logs";
 
 export const SIDE_BAR_WIDTH = { min: 170, max: 480 };
 export const PANEL_HEIGHT = { min: 120, max: 720 };
@@ -22,6 +26,7 @@ const DEFAULT: Layout = {
   sideBarWidth: 240,
   panel: false,
   panelHeight: 260,
+  panelTab: "logs",
   tabs: ["Dashboard"],
   active: "Dashboard",
 };
@@ -38,6 +43,7 @@ function loadLayout(): Layout {
       sideBarWidth: clamp(saved.sideBarWidth, SIDE_BAR_WIDTH, DEFAULT.sideBarWidth),
       panel: typeof saved.panel === "boolean" ? saved.panel : DEFAULT.panel,
       panelHeight: clamp(saved.panelHeight, PANEL_HEIGHT, DEFAULT.panelHeight),
+      panelTab: saved.panelTab === "problems" ? "problems" : DEFAULT.panelTab,
       tabs,
       active: isTabScreen(saved.active) && tabs.includes(saved.active) ? saved.active : (tabs[0] ?? null),
     };
@@ -66,6 +72,11 @@ export function useLayout(): Layout {
     return () => void listeners.delete(setValue);
   }, []);
   return value;
+}
+
+/** Shows the panel on a tab; showing the tab it already shows hides the panel. */
+export function togglePanelTab(tab: PanelTab) {
+  setLayout(({ panel, panelTab }) => (panel && panelTab === tab ? { panel: false } : { panel: true, panelTab: tab }));
 }
 
 /** Shows a screen, opening its tab after the current one if it isn't open. */

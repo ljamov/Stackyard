@@ -25,6 +25,14 @@ Update button, and the app shows its own version's section after it updates.
 - **Keyboard shortcuts** (in Settings, or **Ctrl+K Ctrl+S**): change the keys for any command by
   pressing the new ones, remove them or reset them, with a warning when two commands share a key.
   **Ctrl+,** opens Settings.
+- Settings you can edit by hand: the theme, accent color and language are now saved in
+  `settings.toml` (in a new `[interface]` section) and changed shortcuts in `keybindings.toml`.
+  Edit either in a text editor and Stackyard picks the change up within a few seconds. **Settings ›
+  Settings files** shows them in your file manager. Your current look and shortcuts are copied into
+  the files the first time this version starts.
+- A **Problems** panel beside Logs (**Ctrl+Shift+M**, or the count in the status bar) lists anything
+  Stackyard can't use in those files or in language files, such as a misspelled value or a file
+  that isn't valid TOML, and says what to fix. Stackyard keeps working with the defaults meanwhile.
 
 ## 0.6.0
 

@@ -412,3 +412,20 @@ details summary { cursor: pointer; color: var(--text-2); }
   font: 11px var(--body); color: var(--text-2); background: var(--sidebar);
 }
 @media (max-width: 720px) { .command-center span { display: none; } .command-center { flex: none; min-width: 0; } }
+
+/* Panel tabs and the Problems list (components/ProblemsList.tsx). */
+.panel-tabs { display: flex; gap: 16px; align-self: stretch; align-items: center; }
+.panel-header .panel-tab {
+  display: inline-flex; align-items: center; gap: 6px; height: 100%; padding: 0; border: 0; border-bottom: 1px solid transparent;
+  background: none; color: var(--muted); cursor: pointer;
+}
+.panel-header .panel-tab[aria-selected="true"] { color: var(--text-strong); border-bottom-color: var(--accent); }
+.panel-tab .count {
+  min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--surface-2); color: var(--text);
+  font-size: 11px; line-height: 18px; text-align: center; letter-spacing: 0;
+}
+.problems { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.problem { display: flex; gap: 10px; align-items: flex-start; }
+.problem .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.problem-detail { margin: 0; padding: 8px 10px; border-radius: 4px; background: var(--sidebar); white-space: pre-wrap; overflow-x: auto; }
+.status-item.warn { color: var(--warn); }

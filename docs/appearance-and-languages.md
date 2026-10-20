@@ -15,8 +15,8 @@ looked.
 High contrast is black with bright borders, a thick orange focus outline and underlined links, so
 nothing depends on telling two shades apart.
 
-The choice is kept with the app's window settings on this computer and is applied before the
-window first draws, so the app never flashes the other theme.
+The choice is saved in `settings.toml` (see [Settings files](#settings-files)) and is applied before
+the window first draws, so the app never flashes the other theme.
 
 ### For contributors: color tokens
 
@@ -66,7 +66,52 @@ the browser, switch theme or accent color, close tabs, check for updates.
 To change a shortcut, open **Keyboard shortcuts** (from Settings, the palette or Ctrl+K Ctrl+S),
 click **Change** beside a command and press the new keys; Escape cancels. **Remove** leaves the
 command without keys and **Reset** brings back its default. If two commands share a key, both rows
-say so. Your shortcuts are kept with the app's window settings on this computer.
+say so. Your shortcuts are saved in `keybindings.toml`.
+
+| Shortcut | Does |
+| --- | --- |
+| Ctrl+Shift+M | Show the Problems panel |
+
+## Settings files
+
+Two text files in Stackyard's folder (for example `C:\stackyard`, or `~/Library/Application
+Support/Stackyard` on macOS) hold everything you can set. Change them in the app or in any text
+editor; Stackyard picks up a change made in an editor within a few seconds, with no restart.
+**Settings › Settings files** shows each one in your file manager.
+
+**`settings.toml`** holds every setting on the Settings page. The look and language are in its
+`[interface]` section:
+
+```toml
+[interface]
+theme = "light"        # "dark", "light", "high-contrast" or "system"
+accent = "teal"        # "amber", "blue", "green", "violet", "rose" or "teal"
+language = "mk"        # a language code, or "system"
+```
+
+A setting left out uses its default (dark, amber, English).
+
+**`keybindings.toml`** holds the shortcuts you changed, by command. Each line replaces that command's
+default keys; `[]` leaves it without any. Command ids look like `view.explorer`, `open.Settings`,
+`service.start.mysql` or `theme.light`; the ones with default keys are listed in `DEFAULT_KEYS` in
+`src/lib/keybindings.ts`. The easiest start is to change a key on the Keyboard shortcuts screen and
+look at what Stackyard wrote.
+
+```toml
+[keys]
+"view.explorer" = ["ctrl+shift+e"]
+"workbench.commands" = ["ctrl+shift+p", "f1"]
+"tab.closeAll" = []
+```
+
+Write keys in lowercase, joined by `+`, with `ctrl`, `alt` and `shift` before the key (`ctrl` is ⌘
+on a Mac). Two keys pressed one after the other are separated by a space: `"ctrl+k ctrl+s"`.
+
+If something in either file can't be used (a typo in a value, a setting Stackyard doesn't know, a key
+written wrongly, or a file that isn't valid TOML), Stackyard keeps working with the default or the
+last good value and lists the problem in the **Problems** panel (Ctrl+Shift+M, or the count in the
+status bar), with the file and what to fix. Comments you write in these files are not kept when you
+change a setting in the app, because the app writes the file again.
 
 ### For contributors: adding a command
 

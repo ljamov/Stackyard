@@ -14,6 +14,17 @@ export type LanguageFiles = {
   problems: { file: string; problem: string }[];
 };
 
+/** A file people may edit by hand, as the core read it (see stackyard-core interface.rs). */
+export type InterfaceFile = {
+  path: string;
+  values: Record<string, unknown>;
+  /** What is wrong with the file and where, when it is not valid TOML. */
+  error: string | null;
+};
+
+/** Which hand-editable file: `settings.toml` or `keybindings.toml`. */
+export type InterfaceFileName = "settings" | "keybindings";
+
 export type SiteDatabase = { server: "mysql" | "postgres"; name: string };
 
 /** A site's own settings, beyond its runtime version. */
@@ -504,6 +515,13 @@ export interface Api {
   /** Translation files added to the languages folder in Stackyard's home. */
   languageFiles(): Promise<LanguageFiles>;
   openLanguagesFolder(): Promise<void>;
+  /** The `[interface]` section of settings.toml: the window's own settings. */
+  interfaceSettings(): Promise<InterfaceFile>;
+  saveInterfaceSettings(values: Record<string, unknown>): Promise<void>;
+  keybindings(): Promise<InterfaceFile>;
+  saveKeybindings(values: Record<string, unknown>): Promise<void>;
+  /** Shows the file in the file manager (made first if missing) to open in an editor. */
+  showInterfaceFile(file: InterfaceFileName): Promise<void>;
   listModules(): Promise<Module[]>;
   setModule(id: string, enabled: boolean): Promise<Module[]>;
   listSites(): Promise<Site[]>;
@@ -679,6 +697,11 @@ const tauriApi: Api = {
   setTld: (value) => invoke("set_tld", { value }),
   languageFiles: () => invoke("language_files"),
   openLanguagesFolder: () => invoke("open_languages_folder"),
+  interfaceSettings: () => invoke("interface_settings"),
+  saveInterfaceSettings: (values) => invoke("save_interface_settings", { values }),
+  keybindings: () => invoke("keybindings"),
+  saveKeybindings: (values) => invoke("save_keybindings", { values }),
+  showInterfaceFile: (file) => invoke("show_interface_file", { file }),
   listModules: () => invoke("list_modules"),
   setModule: (id, enabled) => invoke("set_module", { id, enabled }),
   listSites: () => invoke("list_sites"),
@@ -1014,6 +1037,11 @@ function browserApi(): Api {
     ),
   ];
   let tld = ".stack";
+  const previewFiles: Record<InterfaceFileName, InterfaceFile> = {
+    settings: { path: "C:\\stackyard\\settings.toml", values: {}, error: null },
+    keybindings: { path: "C:\\stackyard\\keybindings.toml", values: {}, error: null },
+  };
+  (window as unknown as { stackyardFiles: typeof previewFiles }).stackyardFiles = previewFiles;
   const sample = (name: string, runtime: string, framework: string | null, parked: boolean, problem: string | null = null): Site => ({
     name,
     domain: `${name}.stack`,
@@ -1180,6 +1208,13 @@ function browserApi(): Api {
     },
     languageFiles: async () => ({ folder: "C:\\stackyard\\languages", languages: [], problems: [] }),
     openLanguagesFolder: async () => {},
+    // The preview keeps both files in memory; edit them from the console with
+    // window.stackyardFiles to see live reload and the Problems panel.
+    interfaceSettings: async () => ({ ...previewFiles.settings }),
+    saveInterfaceSettings: async (values) => void (previewFiles.settings = { ...previewFiles.settings, values, error: null }),
+    keybindings: async () => ({ ...previewFiles.keybindings }),
+    saveKeybindings: async (values) => void (previewFiles.keybindings = { ...previewFiles.keybindings, values, error: null }),
+    showInterfaceFile: async () => {},
     listModules: async () => modules,
     setModule: async (id, enabled) => {
       modules = modules.map((m) => (m.id === id && m.available ? { ...m, enabled } : m));

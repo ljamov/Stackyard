@@ -24,6 +24,10 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sites_folder: Option<PathBuf>,
     pub mcp: McpSettings,
+    /// The window's own settings (theme, accent color, language), kept as
+    /// written; see [`crate::interface`].
+    #[serde(skip_serializing_if = "toml::Table::is_empty")]
+    pub interface: toml::Table,
 }
 
 /// What AI tools may do through the MCP server.
@@ -44,6 +48,7 @@ impl Default for Settings {
             parked: Vec::new(),
             sites_folder: None,
             mcp: McpSettings::default(),
+            interface: toml::Table::new(),
         }
     }
 }
