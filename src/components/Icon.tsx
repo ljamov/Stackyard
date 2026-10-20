@@ -16,6 +16,8 @@ const PATHS = {
   mcp: "M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4",
   logs: "M4 4.5h16v15H4zM7.5 9l3 3-3 3M12.5 15h4",
   settings: "M4 6.5h9M17 6.5h3M4 12h3M11 12h9M4 17.5h11M19 17.5h1M15 4.5v4M9 10v4M17 15.5v4",
+  keyboard: "M3 6.5h18v11H3zM6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M8 14h8",
+  search: "M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.5 15.5 20 20",
   play: "M8 5.5v13l10.5-6.5z",
   stop: "M7 7h10v10H7z",
   close: "M7 7l10 10M17 7 7 17",

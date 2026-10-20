@@ -41,13 +41,38 @@ Drag the line beside the Explorer or above the Logs panel to resize it, or focus
 use the arrow keys. Which parts show, their sizes and the open tabs are kept, so Stackyard opens the
 way you left it. In a narrow window the Explorer steps aside to leave room for the screen.
 
+## Commands and shortcuts
+
+Everything the window can do is a command: open a screen, start or stop a service, open a site in
+the browser, switch theme or accent color, close tabs, check for updates.
+
+- **Ctrl+Shift+P** (or **F1**) opens the command palette. Type a few letters of a command, for
+  example `start all` for "Start all services", then Enter. The commands you ran last come first.
+- **Ctrl+P**, or the search box at the top of the window, finds a site or a screen. Enter opens the
+  site in your browser or the screen as a tab. Type `>` first to search commands instead.
+
 | Shortcut (⌘ instead of Ctrl on a Mac) | Does |
 | --- | --- |
+| Ctrl+Shift+P, F1 | Show all commands |
+| Ctrl+P | Go to a site or screen |
 | Ctrl+B | Show or hide the Explorer |
 | Ctrl+J | Show or hide the Logs panel |
 | Ctrl+W | Close the tab |
 | Ctrl+Tab, Ctrl+PageDown | Next tab |
 | Ctrl+Shift+Tab, Ctrl+PageUp | Previous tab |
+| Ctrl+, | Open Settings |
+| Ctrl+K, then Ctrl+S | Open Keyboard shortcuts |
+
+To change a shortcut, open **Keyboard shortcuts** (from Settings, the palette or Ctrl+K Ctrl+S),
+click **Change** beside a command and press the new keys; Escape cancels. **Remove** leaves the
+command without keys and **Reset** brings back its default. If two commands share a key, both rows
+say so. Your shortcuts are kept with the app's window settings on this computer.
+
+### For contributors: adding a command
+
+Commands are built in `useWorkbenchCommands` in `src/lib/commands.tsx`, each with an `id`, a
+translated `title` and what it runs; the palette and the Keyboard shortcuts screen list them from
+there. A default key goes in `DEFAULT_KEYS` in `src/lib/keybindings.ts`, by the command's `id`.
 
 ## Language
 

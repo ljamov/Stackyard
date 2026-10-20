@@ -1,6 +1,7 @@
 import { Icon, type IconName } from "./Icon";
 import { useUpdate } from "../lib/updates";
 import { useT } from "../lib/i18n";
+import { withKey } from "../lib/keybindings";
 import type { Screen, TabScreen } from "../lib/screens";
 
 export const SCREEN_ICON: Record<Screen, IconName> = {
@@ -16,6 +17,7 @@ export const SCREEN_ICON: Record<Screen, IconName> = {
   "AI tools": "ai",
   "MCP server": "mcp",
   Settings: "settings",
+  "Keyboard shortcuts": "keyboard",
 };
 
 /**
@@ -50,7 +52,7 @@ export function ActivityBar({
       className="activity-item"
       data-screen={s}
       aria-label={t(s)}
-      title={t(s)}
+      title={withKey(t(s), `open.${s}`)}
       aria-current={s === active ? "page" : undefined}
       onClick={() => onOpen(s)}
     >
@@ -70,7 +72,7 @@ export function ActivityBar({
         type="button"
         className="activity-item"
         aria-label={t("Explorer")}
-        title={`${t("Explorer")} (Ctrl+B)`}
+        title={withKey(t("Explorer"), "view.explorer")}
         aria-pressed={sideBar}
         onClick={onToggleSideBar}
       >
@@ -84,7 +86,7 @@ export function ActivityBar({
           className="activity-item"
           data-screen="Logs"
           aria-label={t("Logs")}
-          title={`${t("Logs")} (Ctrl+J)`}
+          title={withKey(t("Logs"), "view.panel")}
           aria-pressed={panel}
           onClick={onTogglePanel}
         >

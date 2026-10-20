@@ -377,3 +377,38 @@ details summary { cursor: pointer; color: var(--text-2); }
   .sidebar-view, .sash.vertical { display: none; }
   .content { padding: 20px 16px; }
 }
+
+/* Command palette (components/CommandPalette.tsx) and the title bar's search box that opens it. */
+.titlebar-name { flex: 1 1 0; }
+.titlebar-fill { flex: 1 1 0; align-self: stretch; }
+.command-center {
+  flex: 0 1 420px; min-width: 120px; height: 24px; display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface);
+  color: var(--muted); font-size: 12px; cursor: pointer; overflow: hidden; white-space: nowrap;
+}
+.command-center:hover { color: var(--text); border-color: var(--muted); }
+.command-center svg { flex: none; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.command-center span { overflow: hidden; text-overflow: ellipsis; }
+
+.palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 44px; }
+.palette {
+  width: min(600px, calc(100vw - 32px)); display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 12px 32px var(--shadow);
+}
+.palette-input {
+  margin: 8px; height: 30px; padding: 0 10px; border: 1px solid var(--focus); border-radius: 4px;
+  background: var(--sidebar); outline: none;
+}
+.palette-list { list-style: none; margin: 0; padding: 0 0 6px; max-height: min(420px, 60vh); overflow-y: auto; }
+.palette-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 26px; padding: 0 12px;
+  cursor: pointer;
+}
+.palette-item[aria-selected="true"] { background: var(--surface-2); color: var(--text-strong); box-shadow: inset 2px 0 0 var(--accent); }
+.palette-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-empty { padding: 6px 12px; color: var(--muted); }
+.palette-key, kbd {
+  flex: none; padding: 1px 6px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px;
+  font: 11px var(--body); color: var(--text-2); background: var(--sidebar);
+}
+@media (max-width: 720px) { .command-center span { display: none; } .command-center { flex: none; min-width: 0; } }

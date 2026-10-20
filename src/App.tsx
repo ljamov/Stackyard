@@ -20,7 +20,7 @@ export function App() {
   return (
     <ModulesProvider>
       <div className={maximized ? "frame maximized" : "frame"}>
-        <TitleBar onMaximized={onMaximized} />
+        <TitleBar onMaximized={onMaximized} search={checked && !setup} />
         {!checked ? null : setup ? (
           <Setup status={setup} onDone={() => window.location.reload()} />
         ) : (
