@@ -35,8 +35,8 @@ for (const file of [...files(join(root, "src"), ".tsx"), ...files(join(root, "sr
 for (const file of ["src/lib/appearance.ts", "src/screens/Settings.tsx"]) {
   add(new RegExp(String.raw`\b(?:label|title):\s*` + STR, "g"), readFileSync(join(root, file), "utf8"));
 }
-const sidebar = readFileSync(join(root, "src/components/Sidebar.tsx"), "utf8");
-add(new RegExp(STR, "g"), sidebar.slice(sidebar.indexOf("SCREENS = ["), sidebar.indexOf("] as const")));
+const screens = readFileSync(join(root, "src/lib/screens.ts"), "utf8");
+add(new RegExp(STR, "g"), screens.slice(screens.indexOf("SCREENS = ["), screens.indexOf("] as const")));
 const card = readFileSync(join(root, "src/components/ServiceCard.tsx"), "utf8");
 add(new RegExp(String.raw`\w+: ` + STR, "g"), card.slice(card.indexOf("const STATUS"), card.indexOf("};")));
 

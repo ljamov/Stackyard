@@ -8,7 +8,8 @@ const FIRST_READ = 500;
 
 type Matcher = { test: (line: string) => boolean; mark: (line: string) => ReactNode } | null;
 
-export function Logs() {
+/** `inPanel`: shown in the bottom panel, whose tab already names it. */
+export function Logs({ inPanel = false }: { inPanel?: boolean }) {
   const t = useT();
   const [files, setFiles] = useState<LogFile[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
@@ -119,12 +120,14 @@ export function Logs() {
   return (
     <>
       <header className="page-header">
-        <div>
-          <h1>{t("Logs")}</h1>
-          <p className="muted">
-            {t("Every service's log in one place, updated live. Search with plain text or a regular expression.")}
-          </p>
-        </div>
+        {!inPanel && (
+          <div>
+            <h1>{t("Logs")}</h1>
+            <p className="muted">
+              {t("Every service's log in one place, updated live. Search with plain text or a regular expression.")}
+            </p>
+          </div>
+        )}
         {files.length > 0 &&
           (confirming ? (
             <div className="row centered">
