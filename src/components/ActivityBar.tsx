@@ -2,6 +2,7 @@ import { Icon, type IconName } from "./Icon";
 import { useUpdate } from "../lib/updates";
 import { useT } from "../lib/i18n";
 import { withKey } from "../lib/keybindings";
+import { rovingGroup, rovingKeys } from "../lib/focus";
 import type { Screen, TabScreen } from "../lib/screens";
 
 export const SCREEN_ICON: Record<Screen, IconName> = {
@@ -22,7 +23,8 @@ export const SCREEN_ICON: Record<Screen, IconName> = {
 
 /**
  * The column of icons on the far left: Explorer shows or hides the side bar,
- * each screen opens as a tab, and Logs shows or hides the bottom panel.
+ * each screen opens as a tab, and Logs shows or hides the bottom panel. It is
+ * one Tab stop; the up and down arrows move between its icons.
  */
 export function ActivityBar({
   screens,
@@ -50,8 +52,13 @@ export function ActivityBar({
       key={s}
       type="button"
       className="activity-item"
+      data-roving
       data-screen={s}
-      aria-label={t(s)}
+      aria-label={
+        s === "Settings" && update?.available
+          ? `${t(s)}: ${t("Stackyard {version} is available", { version: update.available.version })}`
+          : t(s)
+      }
       title={withKey(t(s), `open.${s}`)}
       aria-current={s === active ? "page" : undefined}
       onClick={() => onOpen(s)}
@@ -60,6 +67,7 @@ export function ActivityBar({
       {s === "Settings" && update?.available && (
         <span
           className="activity-dot"
+          aria-hidden="true"
           title={t("Stackyard {version} is available", { version: update.available.version })}
         />
       )}
@@ -67,10 +75,11 @@ export function ActivityBar({
   );
 
   return (
-    <nav className="activitybar" aria-label={t("Main")}>
+    <nav ref={rovingGroup} className="activitybar" aria-label={t("Main")} data-part="activitybar" onKeyDown={(e) => rovingKeys(e, "vertical")}>
       <button
         type="button"
         className="activity-item"
+        data-roving
         aria-label={t("Explorer")}
         title={withKey(t("Explorer"), "view.explorer")}
         aria-pressed={sideBar}
@@ -84,6 +93,7 @@ export function ActivityBar({
         <button
           type="button"
           className="activity-item"
+          data-roving
           data-screen="Logs"
           aria-label={t("Logs")}
           title={withKey(t("Logs"), "view.panel")}

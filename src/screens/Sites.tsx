@@ -273,7 +273,7 @@ export function Sites() {
                   autoComplete="off"
                   spellCheck={false}
                   aria-describedby="f-name-hint"
-                  title="Letters, numbers and dashes. Spaces and other characters become dashes."
+                  title={t("Letters, numbers and dashes. Spaces and other characters become dashes.")}
                   onChange={(e) => setTypedName(e.target.value)}
                 />
                 <span className="mono muted">{tldDraft}</span>
@@ -409,7 +409,7 @@ export function Sites() {
         </form>
       </div>
 
-      <section aria-label="Site list" className="card table-wrap">
+      <section aria-label={t("Site list")} className="card table-wrap">
         <table>
           <thead>
             <tr>

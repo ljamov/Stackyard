@@ -34,6 +34,9 @@ import { useProblems } from "../lib/problems";
 import { useUserFiles } from "../lib/useUserFiles";
 import { ProblemsList } from "./ProblemsList";
 import { useT } from "../lib/i18n";
+import { rovingGroup, rovingKeys } from "../lib/focus";
+
+const tabId = (s: TabScreen) => `tab-${s.replace(/\W+/g, "-")}`;
 
 function screen(s: TabScreen): ReactNode {
   switch (s) {
@@ -166,16 +169,37 @@ export function Workbench() {
           </>
         )}
         <div className="editor-column" data-panel={view.panelPosition}>
-          <div className="editor">
+          <div className="editor" data-part="editor">
             {tabs.length > 0 && (
-              <div className="tabs" role="tablist" aria-label={t("Open screens")}>
+              <div
+                ref={rovingGroup}
+                className="tabs"
+                role="tablist"
+                aria-label={t("Open screens")}
+                onKeyDown={(e) => {
+                  rovingKeys(e, "horizontal");
+                  const s = (e.target as HTMLElement).dataset.tab as TabScreen | undefined;
+                  if (s && e.key === "Delete") {
+                    e.preventDefault();
+                    closeTab(s);
+                    // Focus stays in the tabs, on the one shown next.
+                    requestAnimationFrame(() =>
+                      document.querySelector<HTMLElement>('.tabs [data-roving][tabindex="0"], .editor-empty')?.focus(),
+                    );
+                  }
+                }}
+              >
                 {tabs.map((s) => (
                   <div key={s} className="tab-item" data-active={s === active || undefined}>
                     <button
                       type="button"
                       role="tab"
+                      id={tabId(s)}
                       className="tab-label"
+                      data-roving
+                      data-tab={s}
                       aria-selected={s === active}
+                      aria-controls={s === active ? "editor-content" : undefined}
                       onClick={() => openTab(s)}
                       onAuxClick={(e) => e.button === 1 && closeTab(s)}
                     >
@@ -184,6 +208,7 @@ export function Workbench() {
                     <button
                       type="button"
                       className="icon-btn tab-close"
+                      tabIndex={-1}
                       aria-label={t("Close {name}", { name: t(s) })}
                       title={withKey(t("Close {name}", { name: t(s) }), "tab.close")}
                       onClick={() => closeTab(s)}
@@ -195,12 +220,12 @@ export function Workbench() {
               </div>
             )}
             {active ? (
-              <main className="content" role="tabpanel" aria-label={t(active)}>
+              <main id="editor-content" className="content" role="tabpanel" aria-labelledby={tabId(active)} tabIndex={-1}>
                 <UpdateNotice />
                 {screen(active)}
               </main>
             ) : (
-              <main className="editor-empty">
+              <main className="editor-empty" tabIndex={-1}>
                 <Logo size={64} />
                 <p>{t("Open a screen from the bar on the left.")}</p>
               </main>
@@ -231,14 +256,24 @@ export function Workbench() {
                 className="panel"
                 style={panelRight ? { width: layout.panelWidth } : { height: layout.panelHeight }}
                 aria-label={t("Panel")}
+                data-part="panel"
               >
                 <div className="panel-header">
-                  <div className="panel-tabs" role="tablist" aria-label={t("Panel")}>
+                  <div
+                    ref={rovingGroup}
+                    className="panel-tabs"
+                    role="tablist"
+                    aria-label={t("Panel")}
+                    onKeyDown={(e) => rovingKeys(e, "horizontal")}
+                  >
                     <button
                       type="button"
                       role="tab"
+                      id="panel-tab-problems"
                       className="panel-tab"
+                      data-roving
                       aria-selected={panelTab === "problems"}
+                      aria-controls="panel-body"
                       onClick={() => setLayout({ panelTab: "problems" })}
                     >
                       {t("Problems")}
@@ -248,8 +283,11 @@ export function Workbench() {
                       <button
                         type="button"
                         role="tab"
+                        id="panel-tab-logs"
                         className="panel-tab"
+                        data-roving
                         aria-selected={panelTab === "logs"}
+                        aria-controls="panel-body"
                         onClick={() => setLayout({ panelTab: "logs" })}
                       >
                         {t("Logs")}
@@ -266,7 +304,7 @@ export function Workbench() {
                     <Icon name="close" />
                   </button>
                 </div>
-                <div className="panel-body" role="tabpanel">
+                <div id="panel-body" className="panel-body" role="tabpanel" aria-labelledby={`panel-tab-${panelTab}`}>
                   {panelTab === "logs" ? <Logs inPanel /> : <ProblemsList problems={problems} />}
                 </div>
               </section>

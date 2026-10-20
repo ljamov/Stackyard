@@ -132,7 +132,7 @@ export function Scheduler() {
       )}
 
       <div className="split">
-        <section className="table-wrap stack" aria-label="Tasks">
+        <section className="table-wrap stack" aria-label={t("Tasks")}>
           {tasks && tasks.length === 0 && (
             <div className="card empty">
               <p>No tasks yet. Add one with the form, for example Laravel's scheduler every minute.</p>

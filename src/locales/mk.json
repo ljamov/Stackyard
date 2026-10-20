@@ -284,5 +284,15 @@
   "{name} must be one of {values}; using {fallback}.": "{name} мора да биде едно од {values}; се користи {fallback}.",
   "{name}: {key} can't be used ({why}).": "{name}: {key} не може да се користи ({why}).",
   "{running} of {total} services running": "{running} од {total} сервиси работат",
-  "{version} (default)": "{version} (стандардна)"
+  "{version} (default)": "{version} (стандардна)",
+  "Database server": "Сервер за бази на податоци",
+  "Every image comes out exactly this high, cut from the middle so nothing is stretched.": "Секоја слика излегува точно со оваа висина, исечена од средината за ништо да не се развлече.",
+  "Focus the next part of the window": "Фокусирај го следниот дел од прозорецот",
+  "Focus the previous part of the window": "Фокусирај го претходниот дел од прозорецот",
+  "Letters, numbers and dashes. Spaces and other characters become dashes.": "Букви, бројки и цртички. Празните места и другите знаци стануваат цртички.",
+  "Log lines": "Редови од логот",
+  "Site list": "Листа на сајтови",
+  "Tasks": "Задачи",
+  "Wider images are made this wide. Narrower ones keep their size unless you set a height.": "Пошироките слики се сведуваат на оваа ширина. Потесните ја задржуваат својата големина, освен ако не поставиш висина.",
+  "Wider videos are made this wide; the height follows, so nothing is stretched.": "Пошироките видеа се сведуваат на оваа ширина; висината следи, за ништо да не се развлече."
 }

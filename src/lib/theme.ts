@@ -67,7 +67,7 @@ const BASE: Record<ThemeId, BaseColors> = {
     "card.background": "#181c22",
     "card.raisedBackground": "#1f242c",
     "border": "#262c35",
-    "border.strong": "#333a45",
+    "border.strong": "#646d79",
     "foreground": "#e8eaed",
     "foreground.secondary": "#b4bcc6",
     "foreground.muted": "#9aa3ae",
@@ -75,7 +75,7 @@ const BASE: Record<ThemeId, BaseColors> = {
     "status.ok": "#6ee7a0",
     "status.warning": "#f7cd72",
     "status.error": "#ff8a80",
-    "status.idle": "#5b6470",
+    "status.idle": "#68717d",
     "widget.shadow": "rgba(0, 0, 0, 0.35)",
     "activityBar.background": "#08090c",
     "tab.inactiveBackground": "#0b0d10",
@@ -92,7 +92,7 @@ const BASE: Record<ThemeId, BaseColors> = {
     "card.background": "#ffffff",
     "card.raisedBackground": "#e2e6eb",
     "border": "#dde1e6",
-    "border.strong": "#c3c9d2",
+    "border.strong": "#7a828c",
     "foreground": "#171a1f",
     "foreground.secondary": "#3c434d",
     "foreground.muted": "#5d6671",
@@ -146,11 +146,14 @@ export function themeColors(theme: ThemeId, accent: Accent): ThemeColors {
   // Accent-colored text needs the darker shade on light backgrounds and the
   // lighter one on black.
   const ink = theme === "light" ? a.ink : theme === "high-contrast" ? a.soft : a.accent;
+  // On white the bright accents are too faint for buttons and switches, so the
+  // light theme fills them with the darker shade and white text.
+  const light = theme === "light";
   return {
     ...BASE[theme],
-    "accent": a.accent,
+    "accent": light ? a.ink : a.accent,
     "accent.soft": a.soft,
-    "accent.foreground": a.on,
+    "accent.foreground": light ? "#ffffff" : a.on,
     "textLink.foreground": ink,
     "focusBorder": theme === "high-contrast" ? "#f38518" : ink,
   };

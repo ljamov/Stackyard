@@ -152,7 +152,7 @@ export function Logs({ inPanel = false }: { inPanel?: boolean }) {
         </section>
       ) : (
         <div className="split">
-          <nav className="side card log-list" aria-label="Logs">
+          <nav className="side card log-list" aria-label={t("Logs")}>
             {files.map((f) => (
               <button
                 key={f.id}
@@ -246,7 +246,7 @@ export function Logs({ inPanel = false }: { inPanel?: boolean }) {
               </p>
             )}
 
-            <div ref={view} className="code mono log log-view" onScroll={onScroll} tabIndex={0} aria-label="Log lines">
+            <div ref={view} className="code mono log log-view" onScroll={onScroll} tabIndex={0} aria-label={t("Log lines")}>
               {shown.length === 0 ? (
                 <span className="muted">{lines.length === 0 ? "This log is empty." : "No lines match."}</span>
               ) : (

@@ -284,5 +284,15 @@
   "{name} must be one of {values}; using {fallback}.": "{name} debe ser uno de {values}; se usa {fallback}.",
   "{name}: {key} can't be used ({why}).": "{name}: {key} no se puede usar ({why}).",
   "{running} of {total} services running": "{running} de {total} servicios en marcha",
-  "{version} (default)": "{version} (predeterminada)"
+  "{version} (default)": "{version} (predeterminada)",
+  "Database server": "Servidor de base de datos",
+  "Every image comes out exactly this high, cut from the middle so nothing is stretched.": "Cada imagen sale exactamente con esta altura, recortada desde el centro para que nada se estire.",
+  "Focus the next part of the window": "Enfocar la siguiente parte de la ventana",
+  "Focus the previous part of the window": "Enfocar la parte anterior de la ventana",
+  "Letters, numbers and dashes. Spaces and other characters become dashes.": "Letras, números y guiones. Los espacios y otros caracteres se convierten en guiones.",
+  "Log lines": "Líneas del registro",
+  "Site list": "Lista de sitios",
+  "Tasks": "Tareas",
+  "Wider images are made this wide. Narrower ones keep their size unless you set a height.": "Las imágenes más anchas se reducen a este ancho. Las más estrechas mantienen su tamaño salvo que indiques una altura.",
+  "Wider videos are made this wide; the height follows, so nothing is stretched.": "Los vídeos más anchos se reducen a este ancho; la altura se ajusta, así que nada se estira."
 }

@@ -38,7 +38,7 @@ for (const file of ["src/lib/appearance.ts", "src/lib/viewOptions.ts", "src/scre
 const screens = readFileSync(join(root, "src/lib/screens.ts"), "utf8");
 add(new RegExp(STR, "g"), screens.slice(screens.indexOf("SCREENS = ["), screens.indexOf("] as const")));
 const card = readFileSync(join(root, "src/components/ServiceCard.tsx"), "utf8");
-add(new RegExp(String.raw`\w+: ` + STR, "g"), card.slice(card.indexOf("const STATUS"), card.indexOf("};")));
+add(new RegExp(String.raw`\w+: ` + STR, "g"), card.slice(card.indexOf("const SERVICE_STATE"), card.indexOf("};")));
 
 const core = join(root, "crates/stackyard-core/src");
 const modules = readFileSync(join(core, "modules.rs"), "utf8");

@@ -48,7 +48,17 @@ export function CommandPalette({
       .map((m) => m.c);
   }, [isThemes, isCommands, query, commands, places, themes]);
 
-  useEffect(() => input.current?.focus(), []);
+  // Closing puts focus back where it was, unless the command moved it.
+  const opener = useRef(document.activeElement as HTMLElement | null);
+  useEffect(() => {
+    const before = opener.current;
+    input.current?.focus();
+    return () =>
+      void requestAnimationFrame(() => {
+        const now = document.activeElement;
+        if ((!now || now === document.body) && before?.isConnected) before.focus();
+      });
+  }, []);
   // The theme picker shows the selected theme; closing without picking puts the chosen one back.
   useEffect(() => {
     if (isThemes) shown[selected]?.preview?.();

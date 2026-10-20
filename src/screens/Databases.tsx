@@ -105,7 +105,7 @@ export function Databases() {
           </p>
         </div>
         {servers.length > 1 && (
-          <div className="row" role="group" aria-label="Database server">
+          <div className="row" role="group" aria-label={t("Database server")}>
             {servers.map((k) => (
               <button key={k} type="button" className="tab" aria-pressed={kind === k} onClick={() => switchTo(k)}>
                 {KIND_NAMES[k]}
@@ -135,7 +135,7 @@ export function Databases() {
 
       {running && (
         <div className="split">
-          <nav className="side card stack db-list" aria-label="Databases">
+          <nav className="side card stack db-list" aria-label={t("Databases")}>
             {dbs.length === 0 && <p className="muted small">No databases yet.</p>}
             <div className="stack tight">
               {dbs.map((d) => (
@@ -176,7 +176,7 @@ export function Databases() {
             <section className="table-wrap card stack db-main" aria-label={selected}>
               <div className="row wrap between centered">
                 <h2 className="mono">{selected}</h2>
-                <div className="row wrap" role="group" aria-label="View">
+                <div className="row wrap" role="group" aria-label={t("View")}>
                   {(["Tables", "Query", "Backups"] as Tab[]).map((t) => (
                     <button key={t} type="button" className="tab" aria-pressed={tab === t} onClick={() => setTab(t)}>
                       {t}

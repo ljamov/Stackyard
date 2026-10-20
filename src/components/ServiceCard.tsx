@@ -2,7 +2,8 @@ import { api, type Service, type ServiceProgress } from "../lib/api";
 import type { ServicesHook } from "../lib/useServices";
 import { useT } from "../lib/i18n";
 
-const STATUS: Record<Service["state"], string> = {
+/** What each service state is called; translate with t(). */
+export const SERVICE_STATE: Record<Service["state"], string> = {
   stopped: "Stopped",
   running: "Running",
   restarting: "Restarting",
@@ -24,7 +25,7 @@ export function ServiceCard({
   const running = s.state === "running" || s.state === "restarting";
   const busy = hook.busy[s.id] || s.installing;
   const error = hook.errors[s.id];
-  const status = t(s.installing ? "Installing" : s.installed ? STATUS[s.state] : "Not installed");
+  const status = t(s.installing ? "Installing" : s.installed ? SERVICE_STATE[s.state] : "Not installed");
   const tone = s.state === "running" ? "ok" : s.state === "crashed" ? "error" : s.state === "restarting" ? "warn" : "";
 
   return (

@@ -160,7 +160,7 @@ export function AiTools() {
         </p>
       </section>
 
-      <section aria-label="AI coding tools" className="card">
+      <section aria-label={t("AI coding tools")} className="card">
         {tools.map((tool) => (
           <ToolRow
             key={tool.id}

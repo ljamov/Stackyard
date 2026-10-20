@@ -77,7 +77,7 @@ export function Runtimes() {
         </div>
       </header>
 
-      <div role="group" aria-label="Language" className="row wrap">
+      <div role="group" aria-label={t("Language")} className="row wrap">
         {shown.length === 0 && <p className="muted">All runtimes are switched off in Settings.</p>}
         {shown.map((r) => (
           <button
