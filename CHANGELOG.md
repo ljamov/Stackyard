@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.7.0
 
 - A **High contrast** theme in Settings › Appearance: black with bright borders, a thick focus
   outline and underlined links. **Match my computer** picks it when Windows or macOS is set to more
