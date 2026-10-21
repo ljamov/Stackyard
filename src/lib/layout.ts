@@ -93,6 +93,19 @@ export function openTab(screen: TabScreen) {
   });
 }
 
+/**
+ * Shows a screen in place of the shown one, the way the side bar opens them:
+ * a screen that already has a tab is just shown. openTab() keeps the shown one
+ * open beside it instead.
+ */
+export function showScreen(screen: TabScreen) {
+  setLayout(({ tabs, active }) => {
+    if (tabs.includes(screen)) return { active: screen };
+    if (!active || !tabs.includes(active)) return { tabs: [...tabs, screen], active: screen };
+    return { tabs: tabs.map((s) => (s === active ? screen : s)), active: screen };
+  });
+}
+
 /** Closes a tab; the one beside it is shown if it was the shown one. */
 export function closeTab(screen: TabScreen) {
   setLayout(({ tabs, active }) => {

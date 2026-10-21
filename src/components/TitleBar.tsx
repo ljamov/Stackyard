@@ -4,16 +4,19 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useT } from "../lib/i18n";
 import { Logo } from "./Logo";
 import { Icon } from "./Icon";
-import { openPalette } from "../lib/palette";
 import { withKey } from "../lib/keybindings";
+import { setLayout, useLayout } from "../lib/layout";
 
 /**
  * Stackyard draws its own title bar: the window has no system frame so it
  * can have rounded corners. Drag the bar to move the window, double-click
- * it to maximise.
+ * it to maximise. Beside the workbench it has the button that shows or hides
+ * the side bar, and the logo while the side bar is hidden.
  */
-export function TitleBar({ onMaximized, search = false }: { onMaximized(maximized: boolean): void; search?: boolean }) {
+export function TitleBar({ onMaximized, workbench = false }: { onMaximized(maximized: boolean): void; workbench?: boolean }) {
   const t = useT();
+  const { sideBar } = useLayout();
+  const named = !workbench || !sideBar;
   const [maximized, setMaximized] = useState(false);
   const inApp = isTauri();
 
@@ -41,22 +44,26 @@ export function TitleBar({ onMaximized, search = false }: { onMaximized(maximize
   const win = () => getCurrentWindow();
   return (
     <header className="titlebar" data-tauri-drag-region>
-      <span className="titlebar-name" data-tauri-drag-region>
-        <Logo size={16} />
-        Stackyard
-      </span>
-      {search && (
+      {workbench && (
         <button
           type="button"
-          className="command-center"
-          title={withKey(t("Search sites and commands"), "workbench.quickOpen")}
-          onClick={() => openPalette("quick")}
+          className="icon-btn titlebar-toggle"
+          aria-label={t("Show or hide the side bar")}
+          aria-pressed={sideBar}
+          title={withKey(t("Show or hide the side bar"), "view.explorer")}
+          onClick={() => setLayout((l) => ({ sideBar: !l.sideBar }))}
         >
-          <Icon name="search" />
-          <span>{t("Search sites and commands")}</span>
+          <Icon name="sidebar" />
         </button>
       )}
-      <span className="titlebar-fill" data-tauri-drag-region />
+      <span className="titlebar-name" data-tauri-drag-region>
+        {named && (
+          <>
+            <Logo size={16} />
+            Stackyard
+          </>
+        )}
+      </span>
       {inApp && (
         <div className="titlebar-buttons">
           <button type="button" className="titlebar-btn" aria-label={t("Minimise")} onClick={() => win().minimize()}>

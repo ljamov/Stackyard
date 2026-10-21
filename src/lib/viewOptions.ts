@@ -1,5 +1,6 @@
 // How the window is laid out and sized: the icon set, how dense lists and
-// buttons are, the zoom, and which side the side bar and the panel sit on.
+// buttons are, the zoom, which side the side bar and the panel sit on, and
+// whether the status bar shows.
 // Saved in settings.toml (see useUserFiles.ts) and also kept in the window's
 // own storage, read before the first paint.
 
@@ -19,6 +20,8 @@ export type ViewOptions = {
   zoom: number;
   sideBarPosition: SideBarPosition;
   panelPosition: PanelPosition;
+  /** The bar along the bottom of the window. */
+  statusBar: boolean;
 };
 
 export const ICON_THEMES: { id: IconTheme; label: string }[] = [
@@ -51,6 +54,7 @@ export const DEFAULT_VIEW: ViewOptions = {
   zoom: 100,
   sideBarPosition: "left",
   panelPosition: "bottom",
+  statusBar: true,
 };
 
 const KEY = "stackyard.view";
@@ -73,6 +77,7 @@ function load(): ViewOptions {
       zoom: clampZoom(saved.zoom) ?? DEFAULT_VIEW.zoom,
       sideBarPosition: oneOf(SIDE_BAR_POSITIONS, saved.sideBarPosition, DEFAULT_VIEW.sideBarPosition),
       panelPosition: oneOf(PANEL_POSITIONS, saved.panelPosition, DEFAULT_VIEW.panelPosition),
+      statusBar: typeof saved.statusBar === "boolean" ? saved.statusBar : DEFAULT_VIEW.statusBar,
     };
   } catch {
     return DEFAULT_VIEW;

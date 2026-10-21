@@ -6,8 +6,8 @@ import { createContext, useContext, useMemo } from "react";
 import { api, type Site } from "./api";
 import { ACCENTS, endPreview, previewTheme, setAppearance, THEMES, useAddedThemes, useAppearance } from "./appearance";
 import { importThemeFromFile } from "./themeImport";
-import { DEFAULT_VIEW, DENSITIES, ICON_THEMES, setViewOptions, useViewOptions, zoomBy } from "./viewOptions";
-import { closeTab, cycleTab, openTab, setLayout, togglePanelTab } from "./layout";
+import { currentViewOptions, DEFAULT_VIEW, DENSITIES, ICON_THEMES, setViewOptions, useViewOptions, zoomBy } from "./viewOptions";
+import { closeTab, cycleTab, openTab, setLayout, showScreen, togglePanelTab } from "./layout";
 import { openPalette } from "./palette";
 import { focusPart } from "./focus";
 import { checkForUpdate } from "./updates";
@@ -59,7 +59,13 @@ export function useWorkbenchCommands({
     const commands: Command[] = [
       { id: "workbench.commands", category: view, title: t("Show all commands"), run: () => openPalette("commands") },
       { id: "workbench.quickOpen", category: view, title: t("Go to a site or screen"), run: () => openPalette("quick") },
-      { id: "view.explorer", category: view, title: t("Show or hide the Explorer"), run: () => setLayout((l) => ({ sideBar: !l.sideBar })) },
+      { id: "view.explorer", category: view, title: t("Show or hide the side bar"), run: () => setLayout((l) => ({ sideBar: !l.sideBar })) },
+      {
+        id: "view.statusBar",
+        category: view,
+        title: t("Show or hide the status bar"),
+        run: () => setViewOptions({ statusBar: !currentViewOptions().statusBar }),
+      },
       { id: "view.panel", category: view, title: t("Show or hide the panel"), run: () => setLayout((l) => ({ panel: !l.panel })) },
       { id: "view.problems", category: view, title: t("Show problems"), run: () => togglePanelTab("problems") },
       ...(logsOn ? [{ id: "view.logs", category: view, title: t("Show or hide the Logs panel"), run: () => togglePanelTab("logs") }] : []),
@@ -73,7 +79,7 @@ export function useWorkbenchCommands({
             { id: "tab.previous", category: tabsCat, title: t("Previous tab"), run: () => cycleTab(-1) },
           ]
         : []),
-      ...screens.map((s) => ({ id: `open.${s}`, category: open, title: t(s), run: () => openTab(s) })),
+      ...screens.map((s) => ({ id: `open.${s}`, category: open, title: t(s), run: () => showScreen(s) })),
       ...installed.map((s) =>
         isRunning(s)
           ? { id: `service.stop.${s.id}`, category: svc, title: t("Stop {name}", { name: s.name }), run: () => services.stop(s.id) }
@@ -158,7 +164,7 @@ export function useWorkbenchCommands({
         detail: site.runtime,
         run: () => void api.openLocalPage(site.url),
       })),
-      ...screens.map((s) => ({ id: `place.screen.${s}`, category: open, title: t(s), run: () => openTab(s) })),
+      ...screens.map((s) => ({ id: `place.screen.${s}`, category: open, title: t(s), run: () => showScreen(s) })),
     ];
     // The theme picker: the shown theme first, so Escape and Enter on it change nothing.
     const allThemes = [

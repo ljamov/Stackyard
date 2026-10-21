@@ -6,7 +6,8 @@
 /** Token id → the CSS variable it is written to and what it colors. */
 export const TOKENS = {
   "window.background": { css: "--bg", description: "Behind the screens' content" },
-  "sideBar.background": { css: "--sidebar", description: "Title bar, sidebar, text fields and code blocks" },
+  "sideBar.background": { css: "--sidebar", description: "Title bar, sidebar and status bar" },
+  "input.background": { css: "--input", description: "Text fields, code blocks and keys" },
   "card.background": { css: "--surface", description: "Cards and buttons" },
   "card.raisedBackground": { css: "--surface-2", description: "Selected items, notices and table headers" },
   "border": { css: "--border", description: "Card and row borders" },
@@ -41,12 +42,14 @@ export type TokenId = keyof typeof TOKENS;
 export type ThemeColors = Record<TokenId, string>;
 
 export type ThemeId = "dark" | "light" | "high-contrast";
-export type Accent = "amber" | "blue" | "green" | "violet" | "rose" | "teal";
+export type AccentId = "amber" | "blue" | "green" | "violet" | "rose" | "teal";
+/** A built-in accent, or a color of one's own written as "#rrggbb". */
+export type Accent = AccentId | `#${string}`;
 
 /** An accent and its shades; `ink` is the darker one used for text on the light theme. */
 type AccentColors = { accent: string; soft: string; on: string; ink: string };
 
-export const ACCENT_COLORS: Record<Accent, AccentColors> = {
+export const ACCENT_COLORS: Record<AccentId, AccentColors> = {
   amber: { accent: "#f2b035", soft: "#f7cd72", on: "#1a1300", ink: "#8a5a00" },
   blue: { accent: "#5aa9ff", soft: "#8cc4ff", on: "#00172e", ink: "#1a5fb4" },
   green: { accent: "#4fd18b", soft: "#86e3b0", on: "#00200f", ink: "#187040" },
@@ -55,59 +58,82 @@ export const ACCENT_COLORS: Record<Accent, AccentColors> = {
   teal: { accent: "#3fd0c9", soft: "#7fe3de", on: "#00211f", ink: "#0f7570" },
 };
 
+/** Shown on the button that picks a color of one's own: every hue around a circle. */
+export const CUSTOM_SWATCH = "conic-gradient(#ff5f5f, #ffcf5f, #6bdc7a, #5fc6ff, #8a7dff, #ff6bd0, #ff5f5f)";
+
+/** Shown as an example where a color of one's own can be typed. */
+export const CUSTOM_ACCENT_EXAMPLE = "#3fa7d6";
+
+export const isPresetAccent = (value: unknown): value is AccentId =>
+  typeof value === "string" && Object.hasOwn(ACCENT_COLORS, value);
+
+/** A color of one's own: "#rgb" or "#rrggbb", returned as lowercase "#rrggbb", else null. */
+export function customAccent(value: unknown): `#${string}` | null {
+  if (typeof value !== "string") return null;
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim());
+  if (!m) return null;
+  const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join("") : m[1];
+  return `#${h.toLowerCase()}`;
+}
+
+export const isAccent = (value: unknown): value is Accent => isPresetAccent(value) || customAccent(value) === value;
+
 type BaseColors = Omit<ThemeColors, "accent" | "accent.soft" | "accent.foreground" | "textLink.foreground" | "focusBorder">;
 
 const LOGO = { "logo.primary": "#f2b035", "logo.secondary": "#f7cd72" };
 const CLOSE = { "titleBar.closeHover.background": "#c42b1c", "titleBar.closeHover.foreground": "#ffffff" };
 
 const BASE: Record<ThemeId, BaseColors> = {
+  // A warm sidebar beside neutral, softly raised content.
   dark: {
-    "window.background": "#111418",
-    "sideBar.background": "#0b0d10",
-    "card.background": "#181c22",
-    "card.raisedBackground": "#1f242c",
-    "border": "#262c35",
-    "border.strong": "#646d79",
-    "foreground": "#e8eaed",
-    "foreground.secondary": "#b4bcc6",
-    "foreground.muted": "#9aa3ae",
+    "window.background": "#232427",
+    "sideBar.background": "#1e1d1b",
+    "input.background": "#1c1d20",
+    "card.background": "#2b2c30",
+    "card.raisedBackground": "#35363b",
+    "border": "#38393e",
+    "border.strong": "#74757c",
+    "foreground": "#ececee",
+    "foreground.secondary": "#c9cacf",
+    "foreground.muted": "#a4a6ad",
     "foreground.strong": "#ffffff",
     "status.ok": "#6ee7a0",
     "status.warning": "#f7cd72",
     "status.error": "#ff8a80",
-    "status.idle": "#68717d",
+    "status.idle": "#7a828e",
     "widget.shadow": "rgba(0, 0, 0, 0.35)",
-    "activityBar.background": "#08090c",
-    "tab.inactiveBackground": "#0b0d10",
-    "statusBar.background": "#0b0d10",
-    "statusBar.foreground": "#b4bcc6",
+    "activityBar.background": "#1e1d1b",
+    "tab.inactiveBackground": "#1e1d1b",
+    "statusBar.background": "#1e1d1b",
+    "statusBar.foreground": "#c4c0b7",
     "activityBar.foreground": "#ffffff",
-    "activityBar.inactiveForeground": "#9aa3ae",
+    "activityBar.inactiveForeground": "#a19c93",
     ...CLOSE,
     ...LOGO,
   },
   light: {
-    "window.background": "#f5f6f8",
-    "sideBar.background": "#eaecf0",
+    "window.background": "#f7f7f8",
+    "sideBar.background": "#f1eee7",
+    "input.background": "#ffffff",
     "card.background": "#ffffff",
-    "card.raisedBackground": "#e2e6eb",
-    "border": "#dde1e6",
-    "border.strong": "#7a828c",
-    "foreground": "#171a1f",
-    "foreground.secondary": "#3c434d",
-    "foreground.muted": "#5d6671",
+    "card.raisedBackground": "#ececef",
+    "border": "#e4e4e7",
+    "border.strong": "#86878e",
+    "foreground": "#1b1b1d",
+    "foreground.secondary": "#3d3d42",
+    "foreground.muted": "#5d5f66",
     "foreground.strong": "#000000",
     "status.ok": "#157a46",
     "status.warning": "#8a5a00",
     "status.error": "#c0282d",
     "status.idle": "#7d858f",
     "widget.shadow": "rgba(0, 0, 0, 0.12)",
-    "activityBar.background": "#e2e6eb",
-    "tab.inactiveBackground": "#eaecf0",
-    "statusBar.background": "#e2e6eb",
-    "statusBar.foreground": "#3c434d",
+    "activityBar.background": "#f1eee7",
+    "tab.inactiveBackground": "#f1eee7",
+    "statusBar.background": "#f1eee7",
+    "statusBar.foreground": "#4f4a43",
     "activityBar.foreground": "#000000",
-    "activityBar.inactiveForeground": "#5d6671",
+    "activityBar.inactiveForeground": "#6b665d",
     ...CLOSE,
     ...LOGO,
   },
@@ -116,6 +142,7 @@ const BASE: Record<ThemeId, BaseColors> = {
   "high-contrast": {
     "window.background": "#000000",
     "sideBar.background": "#000000",
+    "input.background": "#000000",
     "card.background": "#000000",
     "card.raisedBackground": "#1a1a1a",
     "border": "#6fc3df",
@@ -140,12 +167,41 @@ const BASE: Record<ThemeId, BaseColors> = {
   },
 };
 
+/**
+ * The shades of a color of one's own, worked out for a theme so it passes the
+ * same contrast checks as the built-in accents: the color is darkened (light
+ * theme) or lightened (dark themes) only as far as it needs to be.
+ */
+function customAccentColors(theme: ThemeId, color: string, base: BaseColors): AccentColors {
+  const c = parse(color) ?? parse(ACCENT_COLORS.amber.accent)!;
+  const toward = theme === "light" ? BLACK : WHITE;
+  const reach = (on: string[], ratio: number) => {
+    for (let k = 0; k <= 1.0001; k += 0.02) {
+      const shade = hex(mix(toward, c, k));
+      if (on.every((bg) => contrast(shade, bg) >= ratio)) return shade;
+    }
+    return hex(toward);
+  };
+  const grounds = [base["window.background"], base["card.background"], base["sideBar.background"]];
+  const ink = reach(grounds, 4.5);
+  if (theme === "light") return { accent: ink, soft: hex(mix(c, WHITE, 0.65)), on: "#ffffff", ink };
+  const fill = reach([base["window.background"], base["card.background"]], 3);
+  const on = contrast("#000000", fill) >= contrast("#ffffff", fill) ? "#000000" : "#ffffff";
+  return { accent: fill, soft: hex(mix(c, WHITE, 0.65)), on, ink };
+}
+
+/** An accent's shades: a built-in one's, or a color of one's own worked out for the theme. */
+export function accentColors(theme: ThemeId, accent: Accent): AccentColors {
+  if (isPresetAccent(accent)) return ACCENT_COLORS[accent];
+  return customAccentColors(theme, customAccent(accent) ?? ACCENT_COLORS.amber.accent, BASE[theme]);
+}
+
 /** A theme's full set of colors with the chosen accent. */
 export function themeColors(theme: ThemeId, accent: Accent): ThemeColors {
-  const a = ACCENT_COLORS[accent];
+  const a = accentColors(theme, accent);
   // Accent-colored text needs the darker shade on light backgrounds and the
-  // lighter one on black.
-  const ink = theme === "light" ? a.ink : theme === "high-contrast" ? a.soft : a.accent;
+  // lighter one on black. A color of one's own has its readable shade worked out already.
+  const ink = !isPresetAccent(accent) || theme === "light" ? a.ink : theme === "high-contrast" ? a.soft : a.accent;
   // On white the bright accents are too faint for buttons and switches, so the
   // light theme fills them with the darker shade and white text.
   const light = theme === "light";
@@ -159,6 +215,19 @@ export function themeColors(theme: ThemeId, accent: Accent): ThemeColors {
   };
 }
 
+let painted: ThemeColors | null = null;
+const paintListeners = new Set<(c: ThemeColors) => void>();
+
+/** The colors on screen now, and a way to hear when they change (a theme preview too). */
+export function paintedColors(): ThemeColors | null {
+  return painted;
+}
+
+export function onPaint(listener: (c: ThemeColors) => void): () => void {
+  paintListeners.add(listener);
+  return () => void paintListeners.delete(listener);
+}
+
 /** Writes a theme's colors as CSS variables on the page. */
 export function applyTheme(theme: ThemeId, accent: Accent) {
   applyColors(themeColors(theme, accent), theme, accent);
@@ -170,6 +239,8 @@ export function applyTheme(theme: ThemeId, accent: Accent) {
  * styles.css.
  */
 export function applyColors(colors: ThemeColors, kind: ThemeId, accent: string) {
+  painted = colors;
+  paintListeners.forEach((l) => l(colors));
   const root = document.documentElement;
   for (const id of Object.keys(TOKENS) as TokenId[]) {
     root.style.setProperty(TOKENS[id].css, colors[id]);
@@ -189,6 +260,7 @@ export type AddedTheme = { id: string; name: string; kind: ThemeId; colors: Reco
 /** Where each token looks in a VS Code theme; the first key the theme has wins. */
 const VSCODE_KEYS: Record<TokenId, string[]> = {
   "window.background": ["editor.background"],
+  "input.background": ["input.background", "editorWidget.background"],
   "sideBar.background": ["sideBar.background", "editorGroupHeader.tabsBackground", "panel.background"],
   "card.background": ["editorWidget.background", "sideBarSectionHeader.background", "input.background"],
   "card.raisedBackground": ["list.inactiveSelectionBackground", "list.hoverBackground", "editor.lineHighlightBackground"],
@@ -288,6 +360,7 @@ export function addedThemeColors(theme: AddedTheme, accent: Accent): ThemeColors
   colors["window.background"] = hex(solidBg);
   colors["foreground"] = hex(fg);
   colors["sideBar.background"] = get("sideBar.background", () => solidBg);
+  colors["input.background"] = get("input.background", () => solidBg);
   colors["card.background"] = get("card.background", between(0.04));
   colors["card.raisedBackground"] = get("card.raisedBackground", between(0.1));
   colors["border"] = get("border", between(0.14));
@@ -329,4 +402,63 @@ export function addedThemeColors(theme: AddedTheme, accent: Accent): ThemeColors
     colors["foreground.muted"],
   );
   return colors;
+}
+
+/**
+ * The colors of the services' and runtimes' own logos (components/BrandIcon.tsx).
+ * They come from the Simple Icons set, which is public domain (CC0).
+ */
+const BRAND_COLORS: Record<string, string> = {
+  caddy: "#1f88c0",
+  mysql: "#4479a1",
+  mariadb: "#003545",
+  postgres: "#4169e1",
+  redis: "#ff4438",
+  meilisearch: "#ff5caa",
+  mongodb: "#47a248",
+  nats: "#27aae1",
+  php: "#777bb4",
+  node: "#5fa04e",
+  python: "#3776ab",
+  go: "#00add8",
+  java: "#e76f00",
+  wordpress: "#21759b",
+  woocommerce: "#96588a",
+  astro: "#bc52ee",
+  laravel: "#ff2d20",
+  symfony: "#000000",
+  codeigniter: "#ef4223",
+  cakephp: "#d33c43",
+  craftcms: "#e5422b",
+  yii: "#40b3d8",
+  drupal: "#0678be",
+  nextjs: "#000000",
+  nuxt: "#00dc82",
+  sveltekit: "#ff3e00",
+  remix: "#000000",
+  angular: "#0f0f11",
+  gatsby: "#663399",
+  createreactapp: "#61dafb",
+  vite: "#646cff",
+  express: "#000000",
+  django: "#092e20",
+  fastapi: "#009688",
+  flask: "#3babc3",
+  springboot: "#6db33f",
+  quarkus: "#4695eb",
+};
+
+/**
+ * A logo's color, made light or dark enough to stand out on `background`
+ * (3:1, like other icons). Null when the brand has no color here.
+ */
+export function brandColor(id: string, background: string): string | null {
+  const c = Object.hasOwn(BRAND_COLORS, id) ? parse(BRAND_COLORS[id]) : null;
+  if (!c) return null;
+  const toward = luminance(background) > 0.4 ? BLACK : WHITE;
+  for (let k = 0; k <= 1.0001; k += 0.05) {
+    const shade = hex(mix(toward, c, k));
+    if (contrast(shade, background) >= 3) return shade;
+  }
+  return hex(toward);
 }

@@ -2,15 +2,17 @@
 
 Both are in **Settings › Appearance**. They change only how the app looks; nothing is downloaded and
 nothing runs in the background, and the defaults (dark, amber, Stackyard icons, Default density,
-100% zoom, side bar on the left, panel at the bottom, English) are how Stackyard has always looked.
+100% zoom, side bar on the left, panel at the bottom, status bar shown, English).
 
 ## Theme and accent color
 
 - **Theme**: Dark, Light, High contrast, or **Match my computer**, which follows the light or dark
   setting of Windows, macOS or Linux and switches along with it. When the computer asks for more
   contrast (a Windows contrast theme, or **Increase contrast** on macOS), it picks High contrast.
-- **Accent color**: amber (the default), blue, green, violet, rose or teal. It colors buttons,
-  switches, links and highlights.
+- **Accent color**: amber (the default), blue, green, violet, rose or teal, or **Custom**: pick any
+  color, or type its hex code such as `#3fa7d6`. It colors buttons, switches, links and highlights.
+  A custom color is made a little darker or lighter where needed so text on it and in it stays
+  readable in every theme.
 
 High contrast is black with bright borders, a thick orange focus outline and underlined links, so
 nothing depends on telling two shades apart.
@@ -167,17 +169,18 @@ editor; Stackyard picks up a change made in an editor within a few seconds, with
 ```toml
 [interface]
 theme = "light"            # "dark", "light", "high-contrast", "system", or an added theme's file name
-accent = "teal"            # "amber", "blue", "green", "violet", "rose" or "teal"
+accent = "teal"            # "amber", "blue", "green", "violet", "rose", "teal", or a color like "#3fa7d6"
 language = "mk"            # a language code, or "system"
 iconTheme = "codicons"     # "stackyard" or "codicons"
 density = "compact"        # "compact", "default" or "comfortable"
 zoom = 110                 # 80 to 150, in steps of 10
 sideBarPosition = "right"  # "left" or "right"
 panelPosition = "right"    # "bottom" or "right"
+statusBar = false          # true or false
 ```
 
 A setting left out uses its default (dark, amber, English, Stackyard icons, Default density, 100%,
-left, bottom). An added theme is named by its file in the `themes` folder without `.json`: `theme =
+left, bottom, status bar shown). An added theme is named by its file in the `themes` folder without `.json`: `theme =
 "one-dark-pro"` for `themes/one-dark-pro.json`.
 
 **`keybindings.toml`** holds the shortcuts you changed, by command. Each line replaces that command's
