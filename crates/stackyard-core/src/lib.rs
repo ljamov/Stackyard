@@ -43,6 +43,7 @@ pub mod system;
 pub mod themes;
 pub mod videos;
 pub mod web;
+pub mod wordpress;
 
 pub use error::{Error, Result};
 

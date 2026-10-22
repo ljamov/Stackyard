@@ -337,24 +337,118 @@ impl Client {
                 "{file} is a PostgreSQL backup; restore it there"
             )));
         }
-        let target = into.unwrap_or(database);
-        check_user_database(target)?;
-        check_name(target)?;
+        self.load(into.unwrap_or(database), &path)
+    }
+
+    /// Dumps a database to `dest`, gzipped when its name ends in `.gz`,
+    /// plain SQL otherwise. `tables` limits it to those tables. The file
+    /// appears only once the dump is complete.
+    pub fn dump_to(&self, database: &str, tables: &[String], dest: &Path) -> Result<()> {
+        if self.pg.is_some() {
+            return Err(Error::Database(
+                "dumping to a file works for MySQL and MariaDB only".into(),
+            ));
+        }
+        check_user_database(database)?;
+        let context = Context::load(&self.home)?;
+        let dump = context.launch(Tool::Mysqldump, &self.home, Vec::new())?;
+        let mut command = client_command(&dump);
+        command
+            .args([
+                "--single-transaction",
+                "--routines",
+                "--triggers",
+                "--hex-blob",
+                "--skip-lock-tables",
+            ])
+            .arg(database)
+            .args(tables);
+        let io = |path: &Path| {
+            let path = path.to_owned();
+            move |source| Error::Io { path, source }
+        };
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(io(parent))?;
+        }
+        let partial = PathBuf::from(format!("{}.partial", dest.display()));
+        let mut child = command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(io(&dump.program))?;
+        let mut stdout = child.stdout.take().expect("piped");
+        let stderr = child.stderr.take().expect("piped");
+        let errors = std::thread::spawn(move || read_all(stderr));
+        let gzip = dest.extension().is_some_and(|e| e == "gz");
+        let written = (|| -> std::io::Result<()> {
+            let out = File::create(&partial)?;
+            if gzip {
+                let mut gz = flate2::write::GzEncoder::new(out, flate2::Compression::default());
+                std::io::copy(&mut stdout, &mut gz)?;
+                gz.finish()?.sync_all()
+            } else {
+                let mut out = std::io::BufWriter::new(out);
+                std::io::copy(&mut stdout, &mut out)?;
+                out.into_inner()?.sync_all()
+            }
+        })();
+        let status = child.wait().map_err(io(&dump.program))?;
+        let errors = errors.join().unwrap_or_default();
+        if let Err(source) = written {
+            let _ = std::fs::remove_file(&partial);
+            return Err(Error::Io {
+                path: partial,
+                source,
+            });
+        }
+        if !status.success() {
+            let _ = std::fs::remove_file(&partial);
+            return Err(client_error(&errors, &self.server));
+        }
+        std::fs::rename(&partial, dest).map_err(io(dest))
+    }
+
+    /// Loads a `.sql` or gzipped `.sql.gz` file into `database`, creating
+    /// it if needed. Tables in the file replace tables of the same name;
+    /// others are left alone.
+    pub fn load(&self, database: &str, file: &Path) -> Result<()> {
+        if self.pg.is_some() {
+            return Err(Error::Database(
+                "loading a SQL file works for MySQL and MariaDB only".into(),
+            ));
+        }
+        check_user_database(database)?;
+        check_name(database)?;
         self.query(
             None,
             &format!(
                 "CREATE DATABASE IF NOT EXISTS {} CHARACTER SET utf8mb4",
-                ident(target)
+                ident(database)
             ),
         )?;
+        let path = file.to_owned();
         let source = File::open(&path).map_err(|source| Error::Io {
             path: path.clone(),
             source,
         })?;
-        let mut sql = flate2::read::GzDecoder::new(BufReader::new(source));
+        let mut source = BufReader::new(source);
+        let gzipped = {
+            use std::io::BufRead;
+            source
+                .fill_buf()
+                .map(|b| b.starts_with(&[0x1f, 0x8b]))
+                .unwrap_or(false)
+        };
+        let mut sql: Box<dyn Read> = if gzipped {
+            Box::new(flate2::read::GzDecoder::new(source))
+        } else {
+            Box::new(source)
+        };
         let mut child = client_command(&self.mysql)
             .arg("--connect-timeout=5")
-            .arg(format!("--database={target}"))
+            .arg("--max-allowed-packet=1G")
+            .arg(format!("--database={database}"))
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -670,7 +764,7 @@ pub fn ident(name: &str) -> String {
 
 /// A string quoted for SQL in the servers' default mode, where a
 /// backslash escapes.
-fn literal(text: &str) -> String {
+pub(crate) fn literal(text: &str) -> String {
     let mut out = String::from("'");
     for c in text.chars() {
         match c {

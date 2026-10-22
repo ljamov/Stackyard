@@ -19,7 +19,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::{err, site_views, sites_changed, CmdResult, SiteView};
 
 /// A site by its domain, saved or parked.
-fn find_site(domain: &str) -> CmdResult<(Site, bool)> {
+pub(crate) fn find_site(domain: &str) -> CmdResult<(Site, bool)> {
     ServiceManager::open()
         .user_sites()
         .map_err(err)?

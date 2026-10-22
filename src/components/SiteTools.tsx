@@ -10,6 +10,7 @@ import {
 } from "../lib/api";
 import { useModules } from "../lib/modules";
 import { SiteRemote } from "./SiteRemote";
+import { WordPressTools } from "./wordpress/WordPressTools";
 
 function size(bytes: number) {
   if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -49,7 +50,9 @@ type Changed = (domain?: string) => void;
 /** The tools under a site's row on the Sites screen: its settings, backups, public link, servers and Git. */
 export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed }) {
   const { isOn } = useModules();
+  const wordpress = site.framework === "WordPress" || site.framework === "WooCommerce";
   const tabs = [
+    wordpress && isOn("wordpress") && "WordPress",
     isOn("sitesettings") && "Settings",
     (isOn("sitebackups") || isOn("sitetransfer")) && "Backups",
     isOn("share") && "Public link",
@@ -71,6 +74,7 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
           ))}
         </div>
       )}
+      {shown === "WordPress" && <WordPressTools site={site} />}
       {shown === "Settings" && <SettingsTab site={site} onChanged={onChanged} />}
       {shown === "Backups" && <BackupsTab site={site} onChanged={onChanged} />}
       {shown === "Public link" && <ShareTab site={site} />}

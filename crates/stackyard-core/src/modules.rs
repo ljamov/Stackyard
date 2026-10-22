@@ -281,6 +281,14 @@ pub const MODULES: &[ModuleDef] = &[
         true,
     ),
     module(
+        "wordpress",
+        "WordPress tools",
+        Feature,
+        "Plugins, themes, users, debug log, search and replace and WooCommerce tools for WordPress sites (WP-CLI is downloaded when you first use them)",
+        true,
+        true,
+    ),
+    module(
         "share",
         "Public links",
         Feature,
