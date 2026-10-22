@@ -11,7 +11,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 
 [![Latest release](https://img.shields.io/github/v/release/ljamov/Stackyard?color=F2B035&label=release)](https://github.com/ljamov/Stackyard/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/ljamov/Stackyard/ci.yml?branch=master&label=CI)](https://github.com/ljamov/Stackyard/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-1F242C)
 ![Built with Tauri 2 and Rust](https://img.shields.io/badge/built%20with-Tauri%202%20%2B%20Rust-F7CD72)
 
@@ -297,7 +297,11 @@ the layout, the checks CI runs and the few ground rules.
 
 ## License
 
-Stackyard is [MIT licensed](LICENSE). It bundles the JetBrains Mono font under the SIL Open Font
-License 1.1, and the [Codicons](https://github.com/microsoft/vscode-codicons) icon font by Microsoft
-under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (used when you pick the Codicons icon
-set). Runtimes and services that Stackyard downloads keep their own licenses.
+Copyright (c) 2026 Kristijan Ljamov. Stackyard is free software, licensed under the
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). You may use, change and share it; if
+you share a changed version, or let people use one over a network, you must make its source code
+available under the same licence.
+
+It bundles the JetBrains Mono font under the SIL Open Font License 1.1, and the
+[Codicons](https://github.com/microsoft/vscode-codicons) icon font by Microsoft under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (used when you pick the Codicons icon set). Runtimes and services that Stackyard downloads keep their own licenses.
