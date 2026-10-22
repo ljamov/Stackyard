@@ -9,7 +9,9 @@ import {
   addedThemeColors,
   applyColors,
   applyTheme,
+  isAccent,
   type Accent,
+  type AccentId,
   type AddedTheme,
   type ThemeColors,
   type ThemeId,
@@ -27,7 +29,7 @@ export const THEMES: { id: Theme; label: string }[] = [
 ];
 
 /** The swatch shown in Settings is the accent itself. */
-export const ACCENTS: { id: Accent; label: string; swatch: string }[] = [
+export const ACCENTS: { id: AccentId; label: string; swatch: string }[] = [
   { id: "amber", label: "Amber", swatch: ACCENT_COLORS.amber.accent },
   { id: "blue", label: "Blue", swatch: ACCENT_COLORS.blue.accent },
   { id: "green", label: "Green", swatch: ACCENT_COLORS.green.accent },
@@ -52,7 +54,7 @@ export function loadAppearance(): Appearance {
     return {
       // An added theme's id is checked once the themes folder has been read.
       theme: typeof saved.theme === "string" && saved.theme ? saved.theme : DEFAULT.theme,
-      accent: ACCENTS.some((a) => a.id === saved.accent) ? saved.accent! : DEFAULT.accent,
+      accent: isAccent(saved.accent) ? saved.accent : DEFAULT.accent,
     };
   } catch {
     return DEFAULT;

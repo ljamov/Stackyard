@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
+import { BrandIcon } from "../components/BrandIcon";
+import { frameworkBrand } from "../lib/brands";
 import { api, errorText, type RuntimeFamily, type Site, type SiteFile } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
@@ -484,6 +486,9 @@ function SiteRow({
   return (
     <tr>
       <td>
+        <div className="site-cell">
+        <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
+        <div>
         <button type="button" className="link mono" onClick={() => api.openLocalPage(site.url)}>
           {site.url}
         </button>
@@ -494,6 +499,8 @@ function SiteRow({
           <button type="button" className="link small" onClick={() => api.openLocalPage(site.local_url)}>
             {site.local_url.replace(/^https?:\/\//, "")}
           </button>
+        </div>
+        </div>
         </div>
       </td>
       <td>

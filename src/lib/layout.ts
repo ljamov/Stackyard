@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { isTabScreen, type TabScreen } from "./screens";
 
 export type Layout = {
+  /** The side bar with screen names; false narrows it to a rail of icons. */
   sideBar: boolean;
   sideBarWidth: number;
   panel: boolean;
@@ -90,6 +91,19 @@ export function openTab(screen: TabScreen) {
     if (tabs.includes(screen)) return { active: screen };
     const at = active ? tabs.indexOf(active) + 1 : tabs.length;
     return { tabs: [...tabs.slice(0, at), screen, ...tabs.slice(at)], active: screen };
+  });
+}
+
+/**
+ * Shows a screen in place of the shown one, the way the side bar opens them:
+ * a screen that already has a tab is just shown. openTab() keeps the shown one
+ * open beside it instead.
+ */
+export function showScreen(screen: TabScreen) {
+  setLayout(({ tabs, active }) => {
+    if (tabs.includes(screen)) return { active: screen };
+    if (!active || !tabs.includes(active)) return { tabs: [...tabs, screen], active: screen };
+    return { tabs: tabs.map((s) => (s === active ? screen : s)), active: screen };
   });
 }
 

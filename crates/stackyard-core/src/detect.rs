@@ -44,6 +44,23 @@ const PHP: &[(&str, &[&str], &str)] = &[
     ("Yii", &["yii", "web/index.php"], "web"),
     ("Drupal", &["web/core/lib/Drupal.php"], "web"),
     ("Drupal", &["core/lib/Drupal.php"], ""),
+    // A WordPress shop: WooCommerce is installed as a plugin.
+    (
+        "WooCommerce",
+        &[
+            "web/wp/wp-load.php",
+            "web/app/plugins/woocommerce/woocommerce.php",
+        ],
+        "web",
+    ),
+    (
+        "WooCommerce",
+        &[
+            "wp-load.php",
+            "wp-content/plugins/woocommerce/woocommerce.php",
+        ],
+        "",
+    ),
     ("WordPress", &["web/wp/wp-load.php"], "web"),
     ("WordPress", &["wp-load.php"], ""),
     ("PHP", &["public/index.php"], "public"),
@@ -172,6 +189,13 @@ mod tests {
         let wordpress = detect(&project(&[("wp-load.php", ""), ("index.php", "")]));
         assert_eq!(wordpress.framework, Some("WordPress"));
         assert_eq!(wordpress.root, PathBuf::new());
+
+        let shop = detect(&project(&[
+            ("wp-load.php", ""),
+            ("wp-content/plugins/woocommerce/woocommerce.php", ""),
+        ]));
+        assert_eq!(shop.framework, Some("WooCommerce"));
+        assert_eq!(shop.root, PathBuf::new());
 
         let plain = detect(&project(&[("index.php", "")]));
         assert_eq!(plain.framework, None);

@@ -12,10 +12,10 @@ const UI = 3;
 
 // [what, its token, the tokens it is drawn on, the ratio it needs]
 const PAIRS = [
-  ["text", "foreground", ["window.background", "card.background", "sideBar.background", "card.raisedBackground"], TEXT],
+  ["text", "foreground", ["window.background", "card.background", "sideBar.background", "card.raisedBackground", "input.background"], TEXT],
   ["labels", "foreground.secondary", ["window.background", "card.background", "sideBar.background", "card.raisedBackground"], TEXT],
   ["hints", "foreground.muted", ["window.background", "card.background", "sideBar.background", "card.raisedBackground"], TEXT],
-  ["selected item", "foreground.strong", ["card.raisedBackground"], TEXT],
+  ["selected item", "foreground.strong", ["card.raisedBackground", "sideBar.background"], TEXT],
   ["links", "textLink.foreground", ["window.background", "card.background", "sideBar.background"], TEXT],
   ["text on accent", "accent.foreground", ["accent"], TEXT],
   ["running", "status.ok", ["window.background", "card.background", "sideBar.background"], TEXT],
@@ -23,16 +23,15 @@ const PAIRS = [
   ["errors", "status.error", ["window.background", "card.background", "sideBar.background"], TEXT],
   ["stopped dot", "status.idle", ["window.background", "card.background", "sideBar.background"], UI],
   ["status bar", "statusBar.foreground", ["statusBar.background"], TEXT],
-  ["activity icons", "activityBar.inactiveForeground", ["activityBar.background"], UI],
-  ["shown activity icon", "activityBar.foreground", ["activityBar.background"], UI],
   ["focus outline", "focusBorder", ["window.background", "card.background", "sideBar.background"], UI],
-  ["field edges", "border.strong", ["window.background", "card.background", "sideBar.background"], UI],
-  ["accent controls", "accent", ["window.background", "card.background"], UI],
+  ["field edges", "border.strong", ["window.background", "card.background", "sideBar.background", "input.background"], UI],
+  ["accent controls", "accent", ["window.background", "card.background", "sideBar.background"], UI],
 ];
 
 const failed = [];
 for (const theme of ["dark", "light", "high-contrast"]) {
-  for (const accent of Object.keys(ACCENT_COLORS)) {
+  // The built-in accents, and colors of one's own from very dark to very light.
+  for (const accent of [...Object.keys(ACCENT_COLORS), "#102030", "#3fa7d6", "#808080", "#ffff00", "#ffffff", "#000000"]) {
     const colors = themeColors(theme, accent);
     for (const [what, fg, backgrounds, need] of PAIRS) {
       for (const bg of backgrounds) {

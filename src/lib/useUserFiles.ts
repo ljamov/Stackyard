@@ -1,7 +1,7 @@
 // Keeps the window in step with the two files people may edit by hand:
 //
 //   settings.toml     [interface]  theme, accent, language, iconTheme, density,
-//                                  zoom, sideBarPosition, panelPosition
+//                                  zoom, sideBarPosition, panelPosition, statusBar
 //   keybindings.toml  [keys]       "command.id" = ["ctrl+shift+e"]
 //
 // and reads the themes folder, where added color themes live.
@@ -37,6 +37,7 @@ import {
   ZOOM,
   type ViewOptions,
 } from "./viewOptions";
+import { CUSTOM_ACCENT_EXAMPLE, isAccent } from "./theme";
 import { currentKeyChanges, keyProblem, onKeyChange, replaceKeyChanges, type Changes } from "./keybindings";
 import { setProblems, type Problem } from "./problems";
 import { useI18n } from "./i18n";
@@ -50,17 +51,18 @@ type Found = Omit<Problem, "source">;
 /** The [interface] settings: what each may hold. Anything else is reported. */
 export const INTERFACE_SETTINGS = {
   theme: THEMES.map((t) => t.id), // or an added theme's id
-  accent: ACCENTS.map((a) => a.id),
+  accent: ACCENTS.map((a) => a.id), // or a color of one's own, "#rrggbb"
   language: null, // a language code, or "system"
   iconTheme: ICON_THEMES.map((x) => x.id),
   density: DENSITIES.map((x) => x.id),
   zoom: null, // a percentage, ZOOM.min to ZOOM.max in steps of ZOOM.step
   sideBarPosition: SIDE_BAR_POSITIONS.map((x) => x.id),
   panelPosition: PANEL_POSITIONS.map((x) => x.id),
+  statusBar: null, // true or false
 } as const;
 
 /** The view options as they are written in settings.toml, with their defaults. */
-const VIEW_KEYS = ["iconTheme", "density", "zoom", "sideBarPosition", "panelPosition"] as const;
+const VIEW_KEYS = ["iconTheme", "density", "zoom", "sideBarPosition", "panelPosition", "statusBar"] as const;
 
 const known = new Set(Object.keys(INTERFACE_SETTINGS));
 const list = (xs: readonly string[]) => xs.map((x) => `"${x}"`).join(", ");
@@ -79,7 +81,16 @@ function readSettings(file: InterfaceFile, languages: string[], themeIds: string
     return fallback;
   };
   const theme = pick<Theme>("theme", [...INTERFACE_SETTINGS.theme, ...themeIds], DEFAULT_APPEARANCE.theme);
-  const accent = pick<Accent>("accent", INTERFACE_SETTINGS.accent, DEFAULT_APPEARANCE.accent);
+  let accent: Accent = DEFAULT_APPEARANCE.accent;
+  if ("accent" in v) {
+    if (isAccent(v.accent)) accent = v.accent;
+    else
+      problems.push({
+        file: file.path,
+        message: "{name} must be one of {values}, or a color like {example}; using {fallback}.",
+        vars: { name: "interface.accent", values: list(INTERFACE_SETTINGS.accent), example: `"${CUSTOM_ACCENT_EXAMPLE}"`, fallback: `"${DEFAULT_APPEARANCE.accent}"` },
+      });
+  }
   let language = DEFAULT_LANGUAGE;
   if ("language" in v) {
     if (typeof v.language === "string" && (v.language === "system" || languages.includes(v.language))) {
@@ -98,7 +109,17 @@ function readSettings(file: InterfaceFile, languages: string[], themeIds: string
     zoom: DEFAULT_VIEW.zoom,
     sideBarPosition: pick("sideBarPosition", INTERFACE_SETTINGS.sideBarPosition, DEFAULT_VIEW.sideBarPosition),
     panelPosition: pick("panelPosition", INTERFACE_SETTINGS.panelPosition, DEFAULT_VIEW.panelPosition),
+    statusBar: DEFAULT_VIEW.statusBar,
   };
+  if ("statusBar" in v) {
+    if (typeof v.statusBar === "boolean") view.statusBar = v.statusBar;
+    else
+      problems.push({
+        file: file.path,
+        message: "{name} must be true or false; using {fallback}.",
+        vars: { name: "interface.statusBar", fallback: String(DEFAULT_VIEW.statusBar) },
+      });
+  }
   if ("zoom" in v) {
     if (clampZoom(v.zoom) === v.zoom) view.zoom = v.zoom as number;
     else

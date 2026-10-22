@@ -5,6 +5,8 @@ import { togglePanelTab, type PanelTab } from "../lib/layout";
 import { useUpdate } from "../lib/updates";
 import { useT } from "../lib/i18n";
 import { SERVICE_STATE } from "./ServiceCard";
+import { Icon } from "./Icon";
+import { setAppearance } from "../lib/appearance";
 
 /** The bar along the bottom: live state, each item opening where it is managed. */
 export function StatusBar({
@@ -77,9 +79,35 @@ export function StatusBar({
           aria-pressed={panel && panelTab === "logs"}
           onClick={() => togglePanelTab("logs")}
         >
+          <Icon name="logs" />
           {t("Logs")}
         </button>
       )}
+      <ThemeSwitch />
     </footer>
+  );
+}
+
+/** Switches between the light and dark themes; from any other theme it goes to the opposite kind. */
+function ThemeSwitch() {
+  const t = useT();
+  const [light, setLight] = useState(() => document.documentElement.dataset.theme === "light");
+  useEffect(() => {
+    const root = document.documentElement;
+    const watch = new MutationObserver(() => setLight(root.dataset.theme === "light"));
+    watch.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => watch.disconnect();
+  }, []);
+  const label = light ? t("Switch to the dark theme") : t("Switch to the light theme");
+  return (
+    <button
+      type="button"
+      className="status-item"
+      aria-label={label}
+      title={label}
+      onClick={() => setAppearance({ theme: light ? "dark" : "light" })}
+    >
+      <Icon name={light ? "moon" : "sun"} />
+    </button>
   );
 }

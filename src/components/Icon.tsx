@@ -18,7 +18,14 @@ const PATHS = {
   ai: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z",
   mcp: "M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4",
   logs: "M4 4.5h16v15H4zM7.5 9l3 3-3 3M12.5 15h4",
-  settings: "M4 6.5h9M17 6.5h3M4 12h3M11 12h9M4 17.5h11M19 17.5h1M15 4.5v4M9 10v4M17 15.5v4",
+  settings:
+    "M19 10.1L21.5 10.5L21.5 13.5L19 13.9L18.2 15.6L19.8 17.6L17.6 19.8L15.6 18.2L13.9 19L13.5 21.5L10.5 21.5L10.1 19L8.4 18.2L6.4 19.8L4.2 17.6L5.8 15.6L5 13.9L2.5 13.5L2.5 10.5L5 10.1L5.8 8.4L4.2 6.4L6.4 4.2L8.4 5.8L10.1 5L10.5 2.5L13.5 2.5L13.9 5L15.6 5.8L17.6 4.2L19.8 6.4L18.2 8.4zM12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z",
+  sidebar: "M4 5h16v14H4zM9.5 5v14",
+  plus: "M12 5v14M5 12h14",
+  sun: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4",
+  moon: "M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z",
+  terminal: "M3.5 5h17v14h-17zM7 9.5l3 2.5-3 2.5M12.5 15h4.5",
+  external: "M14 4.5h5.5V10M19.5 4.5 11 13M17.5 14v5.5h-13v-13H10",
   keyboard: "M3 6.5h18v11H3zM6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M8 14h8",
   search: "M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.5 15.5 20 20",
   play: "M8 5.5v13l10.5-6.5z",
@@ -48,6 +55,12 @@ const CODICONS: Record<IconName, string> = {
   play: "play",
   stop: "debug-stop",
   close: "close",
+  sidebar: "layout-sidebar-left",
+  plus: "add",
+  sun: "color-mode",
+  moon: "color-mode",
+  terminal: "terminal",
+  external: "link-external",
 };
 
 export function Icon({ name }: { name: IconName }) {

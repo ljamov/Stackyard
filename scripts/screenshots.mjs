@@ -18,7 +18,7 @@ const PORT = 1499;
 const URL = `http://127.0.0.1:${PORT}/`;
 const OUT = "docs/images";
 
-// Each shot: the sidebar entry to open, then what to do there first.
+// Each shot: the side bar entry to open, what to do there first, and what to undo after.
 const SHOTS = {
   dashboard: { screen: "Dashboard" },
   sites: {
@@ -31,14 +31,28 @@ const SHOTS = {
   servers: {
     screen: "Sites",
     prep: async (page) => {
-      await page.getByRole("button", { name: "Servers and Git for blog.stack" }).click();
+      const manage = page.getByRole("button", { name: "Manage blog.stack" });
+      await manage.click();
+      await sleep(300);
+      await page.getByRole("button", { name: "Servers & Git", exact: true }).click();
       await sleep(600);
-      await page.getByRole("button", { name: "Servers and Git for blog.stack" }).evaluate((b) => b.scrollIntoView({ block: "start" }));
+      await manage.evaluate((b) => b.scrollIntoView({ block: "start" }));
     },
   },
   services: { screen: "Services" },
   runtimes: { screen: "Runtimes" },
-  logs: { screen: "Logs", wait: 1500 },
+  // The Logs panel, opened from the status bar under Home.
+  logs: {
+    screen: "Dashboard",
+    wait: 1500,
+    prep: async (page) => {
+      await page.locator(".statusbar").getByRole("button", { name: "Logs" }).click();
+    },
+    // Closes the panel again for the shots after it.
+    after: async (page) => {
+      await page.locator(".statusbar").getByRole("button", { name: "Logs" }).click();
+    },
+  },
   databases: {
     screen: "Databases",
     prep: async (page) => {
@@ -95,6 +109,7 @@ try {
     await page.mouse.move(0, 799);
     await page.screenshot({ path: `${OUT}/${name}.png` });
     console.log(`${OUT}/${name}.png`);
+    if (shot.after) await shot.after(page);
   }
   await browser.close();
 } finally {
@@ -147,6 +162,6 @@ async function prepare(page) {
 }
 
 async function open(page, screen) {
-  await page.locator(`.activitybar [data-screen="${screen}"]`).click();
+  await page.locator(`.sidebar [data-screen="${screen}"]`).click();
   await sleep(300);
 }

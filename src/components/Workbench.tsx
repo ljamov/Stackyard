@@ -1,6 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { ActivityBar } from "./ActivityBar";
-import { Explorer } from "./Explorer";
+import { Sidebar } from "./Sidebar";
 import { Icon } from "./Icon";
 import { Sash } from "./Sash";
 import { StatusBar } from "./StatusBar";
@@ -25,7 +24,7 @@ import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
 import { SCREENS, isTabScreen, useScreenOn, type TabScreen } from "../lib/screens";
-import { closeTab, openTab, PANEL_HEIGHT, PANEL_WIDTH, setLayout, SIDE_BAR_WIDTH, togglePanelTab, useLayout } from "../lib/layout";
+import { closeTab, openTab, PANEL_HEIGHT, PANEL_WIDTH, setLayout, showScreen, SIDE_BAR_WIDTH, useLayout } from "../lib/layout";
 import { useViewOptions } from "../lib/viewOptions";
 import { CommandsProvider, useWorkbenchCommands } from "../lib/commands";
 import { dispatchKeys, withKey } from "../lib/keybindings";
@@ -41,7 +40,7 @@ const tabId = (s: TabScreen) => `tab-${s.replace(/\W+/g, "-")}`;
 function screen(s: TabScreen): ReactNode {
   switch (s) {
     case "Dashboard":
-      return <Dashboard onNavigate={(to) => isTabScreen(to) && openTab(to)} />;
+      return <Dashboard onNavigate={(to) => isTabScreen(to) && showScreen(to)} />;
     case "Sites":
       return <Sites />;
     case "Services":
@@ -68,9 +67,9 @@ function screen(s: TabScreen): ReactNode {
 }
 
 /**
- * The app's window below the title bar: activity bar, Explorer side bar, the
- * open screens as tabs, the Logs panel and the status bar. Its layout is kept
- * between runs (lib/layout.ts).
+ * The app's window below the title bar: the side bar, the shown screen (with
+ * a row of tabs once more than one is open), the panel with Problems and Logs,
+ * and the status bar. Its layout is kept between runs (lib/layout.ts).
  */
 export function Workbench() {
   const t = useT();
@@ -104,7 +103,6 @@ export function Workbench() {
     };
   }, [sites.reload]);
 
-  const toggleSideBar = () => setLayout((l) => ({ sideBar: !l.sideBar }));
   const togglePanel = () => setLayout((l) => ({ panel: !l.panel }));
 
   const palette = usePalette();
@@ -139,25 +137,15 @@ export function Workbench() {
   return (
     <CommandsProvider value={commands}>
       <div className="workbench" data-side={view.sideBarPosition}>
-        <ActivityBar
-          screens={screens.filter((s) => s !== "Keyboard shortcuts")}
+        <Sidebar
+          width={layout.sideBarWidth}
+          collapsed={!layout.sideBar}
+          screens={screens}
           active={active}
-          sideBar={layout.sideBar}
-          panel={panel && panelTab === "logs"}
-          logsOn={logsOn}
-          onOpen={openTab}
-          onToggleSideBar={toggleSideBar}
-          onTogglePanel={() => togglePanelTab("logs")}
+          sites={sites.data}
         />
         {layout.sideBar && (
           <>
-            <Explorer
-              width={layout.sideBarWidth}
-              services={services}
-              shownServices={shownServices}
-              sites={sites.data}
-              onOpen={openTab}
-            />
             <Sash
               orientation="vertical"
               value={layout.sideBarWidth}
@@ -170,7 +158,7 @@ export function Workbench() {
         )}
         <div className="editor-column" data-panel={view.panelPosition}>
           <div className="editor" data-part="editor">
-            {tabs.length > 0 && (
+            {tabs.length > 1 && (
               <div
                 ref={rovingGroup}
                 className="tabs"
@@ -220,14 +208,21 @@ export function Workbench() {
               </div>
             )}
             {active ? (
-              <main id="editor-content" className="content" role="tabpanel" aria-labelledby={tabId(active)} tabIndex={-1}>
+              <main
+                id="editor-content"
+                className="content"
+                role={tabs.length > 1 ? "tabpanel" : undefined}
+                aria-labelledby={tabs.length > 1 ? tabId(active) : undefined}
+                aria-label={tabs.length > 1 ? undefined : t(active)}
+                tabIndex={-1}
+              >
                 <UpdateNotice />
                 {screen(active)}
               </main>
             ) : (
               <main className="editor-empty" tabIndex={-1}>
                 <Logo size={64} />
-                <p>{t("Open a screen from the bar on the left.")}</p>
+                <p>{t("Open a screen from the side bar.")}</p>
               </main>
             )}
           </div>
@@ -312,15 +307,17 @@ export function Workbench() {
           )}
         </div>
       </div>
-      <StatusBar
+      {view.statusBar && (
+        <StatusBar
         shownServices={shownServices}
         siteCount={sites.data.length}
         logsOn={logsOn}
         panel={panel}
         panelTab={panelTab}
         problemCount={problems.length}
-        onOpen={openTab}
-      />
+        onOpen={showScreen}
+        />
+      )}
       {palette && <CommandPalette mode={palette} commands={commands} places={places} themes={themes} />}
     </CommandsProvider>
   );
