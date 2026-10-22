@@ -307,5 +307,10 @@
   "Your sites": "I tuoi siti",
   "{name} must be one of {values}, or a color like {example}; using {fallback}.": "{name} deve essere uno tra {values}, o un colore come {example}; uso {fallback}.",
   "{name} must be true or false; using {fallback}.": "{name} deve essere true o false; uso {fallback}.",
-  "{running} of {total} running": "{running} di {total} in esecuzione"
+  "{running} of {total} running": "{running} di {total} in esecuzione",
+  "A color of your own": "Un colore tuo",
+  "Color code": "Codice colore",
+  "Pick a color": "Scegli un colore",
+  "Show the status bar": "Mostra la barra di stato",
+  "Use a code like {example}": "Usa un codice come {example}"
 }

@@ -17,7 +17,10 @@ Update button, and the app shows its own version's section after it updates.
   (`statusBar = false` in settings.toml, or the palette).
 - Clicking a screen in the side bar shows it in place of the one shown; Ctrl+click opens it as a
   tab beside it. The row of tabs only shows while more than one screen is open.
-- Pick any accent color: `accent = "#3fa7d6"` in settings.toml (a picker in Settings comes next).
+- Pick any accent color: the rainbow swatch in Settings › Appearance opens a color picker and a box
+  for a hex code like `#3fa7d6`. Stackyard darkens or lightens it where needed so text stays readable.
+- **Show the status bar** switch in Settings › Appearance.
+- New app icon: the Stackyard bricks stepping down like an S.
 
 ## 0.7.0
 
