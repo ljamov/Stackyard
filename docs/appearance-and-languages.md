@@ -9,8 +9,8 @@ nothing runs in the background, and the defaults (dark, amber, Stackyard icons, 
 - **Theme**: Dark, Light, High contrast, or **Match my computer**, which follows the light or dark
   setting of Windows, macOS or Linux and switches along with it. When the computer asks for more
   contrast (a Windows contrast theme, or **Increase contrast** on macOS), it picks High contrast.
-- **Accent color**: amber (the default), blue, green, violet, rose or teal, or **Custom**: pick any
-  color, or type its hex code such as `#3fa7d6`. It colors buttons, switches, links and highlights.
+- **Accent color**: amber (the default), blue, green, violet, rose or teal, or a color of your own:
+  click the rainbow swatch after them, then pick a color or type its hex code such as `#3fa7d6`. It colors buttons, switches, links and highlights.
   A custom color is made a little darker or lighter where needed so text on it and in it stays
   readable in every theme.
 
@@ -76,6 +76,7 @@ out.
 - **Side bar position**: the side bar on the **Left** or the **Right**.
 - **Panel position**: the Logs and Problems panel at the **Bottom** or on the **Right**, beside the
   screen. On the right, drag the line beside it to change its width.
+- **Show the status bar**: switch the bar along the bottom of the window off or on.
 
 The palette has a command for each of these, for example **View: Move the side bar to the right**.
 

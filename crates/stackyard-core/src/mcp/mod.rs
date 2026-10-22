@@ -359,10 +359,13 @@ pub fn serve(
     let mut server = Server::new(home, program);
     let result = (|| {
         for line in input.lines() {
-            if let Some(answer) = server.handle_line(&line.map_err(io)?) {
+            let answer = server.handle_line(&line.map_err(io)?);
+            // Ready before the answer goes out: a change made as soon as the
+            // tool reads it must still be announced.
+            ready.store(server.initialized, Ordering::Relaxed);
+            if let Some(answer) = answer {
                 write_line(&output, &answer).map_err(io)?;
             }
-            ready.store(server.initialized, Ordering::Relaxed);
         }
         Ok(())
     })();

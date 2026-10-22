@@ -307,5 +307,10 @@
   "Your sites": "Твои сајтови",
   "{name} must be one of {values}, or a color like {example}; using {fallback}.": "{name} мора да биде едно од {values}, или боја како {example}; се користи {fallback}.",
   "{name} must be true or false; using {fallback}.": "{name} мора да биде true или false; се користи {fallback}.",
-  "{running} of {total} running": "{running} од {total} работат"
+  "{running} of {total} running": "{running} од {total} работат",
+  "A color of your own": "Своја боја",
+  "Color code": "Код на боја",
+  "Pick a color": "Избери боја",
+  "Show the status bar": "Прикажи ја статусната лента",
+  "Use a code like {example}": "Користи код како {example}"
 }

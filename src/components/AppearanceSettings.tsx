@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, errorText } from "../lib/api";
 import { ACCENTS, isBuiltInTheme, setAppearance, THEMES, useAddedThemes, useAppearance } from "../lib/appearance";
 import { importThemeFromFile, removeAddedTheme, useThemeImport } from "../lib/themeImport";
@@ -11,7 +11,8 @@ import {
   useViewOptions,
   ZOOM_LEVELS,
 } from "../lib/viewOptions";
-import { useI18n } from "../lib/i18n";
+import { useI18n, type Translate } from "../lib/i18n";
+import { CUSTOM_ACCENT_EXAMPLE, CUSTOM_SWATCH, customAccent, isPresetAccent, type Accent } from "../lib/theme";
 import { Icon } from "./Icon";
 
 /** A row of buttons of which one is pressed. */
@@ -43,6 +44,59 @@ function Choices<T extends string>({
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * A color of one's own, after the preset swatches: a color picker and a box
+ * for a hex code. Stackyard darkens or
+ * lightens it as needed so text and buttons stay readable.
+ */
+function CustomAccent({ accent, t }: { accent: Accent; t: Translate }) {
+  const own = isPresetAccent(accent) ? null : accent;
+  const [typed, setTyped] = useState(own ?? "");
+  useEffect(() => setTyped(own ?? ""), [own]);
+  const pick = (value: string) => {
+    const color = customAccent(value);
+    if (color) setAppearance({ accent: color });
+  };
+  const bad = typed.trim() !== "" && !customAccent(typed);
+  return (
+    <>
+      <button
+        type="button"
+        className="swatch"
+        aria-pressed={own !== null}
+        aria-label={t("A color of your own")}
+        title={t("A color of your own")}
+        onClick={() => pick(own ?? CUSTOM_ACCENT_EXAMPLE)}
+      >
+        <span style={{ background: CUSTOM_SWATCH }} />
+      </button>
+      {own && (
+        <span className="custom-accent">
+          <input type="color" value={own} aria-label={t("Pick a color")} onChange={(e) => pick(e.target.value)} />
+          <input
+            type="text"
+            className="mono"
+            value={typed}
+            spellCheck={false}
+            maxLength={7}
+            aria-label={t("Color code")}
+            aria-invalid={bad || undefined}
+            placeholder={CUSTOM_ACCENT_EXAMPLE}
+            onChange={(e) => {
+              setTyped(e.target.value);
+              // A full six-digit code applies at once; a short one on Enter or leaving the box.
+              if (/^#?[0-9a-f]{6}$/i.test(e.target.value.trim())) pick(e.target.value);
+            }}
+            onBlur={() => pick(typed)}
+            onKeyDown={(e) => e.key === "Enter" && pick(typed)}
+          />
+          {bad && <span className="error small">{t("Use a code like {example}", { example: CUSTOM_ACCENT_EXAMPLE })}</span>}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -153,6 +207,7 @@ export function AppearanceSettings() {
                 <span style={{ background: a.swatch }} />
               </button>
             ))}
+            <CustomAccent accent={accent} t={t} />
           </div>
         )}
       </div>
@@ -203,6 +258,18 @@ export function AppearanceSettings() {
         onPick={(panelPosition) => setViewOptions({ panelPosition })}
         translate={t}
       />
+
+      <div className="field">
+        <label className="switch">
+          <input
+            type="checkbox"
+            role="switch"
+            checked={view.statusBar}
+            onChange={(e) => setViewOptions({ statusBar: e.target.checked })}
+          />
+          {t("Show the status bar")}
+        </label>
+      </div>
 
       <div className="field narrow">
         <label htmlFor="s-lang">{t("Language")}</label>
