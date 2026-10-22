@@ -1026,6 +1026,7 @@ function browserApi(): Api {
     mod("sitesettings", "Site settings", "feature", "Per-site folder served, domain ending, HTTPS, environment variables, PHP settings and a start command", true, true),
     mod("sitebackups", "Site backups", "feature", "Back up a site's files and database in one zip, and restore it", true, true),
     mod("sitetransfer", "Site import and export", "feature", "Pack a site, with its database and settings, into one file to open on another computer", true, true),
+    mod("wordpress", "WordPress tools", "feature", "Plugins, themes, users, debug log, search and replace and WooCommerce tools for WordPress sites (WP-CLI is downloaded when you first use them)", true, true),
     mod("share", "Public links", "feature", "Share a local site at a temporary public address through Cloudflare's free quick tunnels (cloudflared is downloaded when you first use it)", false, true),
     mod("terminal", "Terminal", "feature", "A terminal in the window's panel that opens in a site's folder with its PHP and Node.js versions", true, true),
     mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),

@@ -548,3 +548,8 @@ details summary { cursor: pointer; color: var(--text-2); }
 .terminal-box { flex: 1; min-height: 0; padding: 0 8px 6px 16px; }
 .terminal-host, .terminal-host .xterm { height: 100%; }
 .terminal-host .xterm-viewport { scrollbar-width: thin; background-color: var(--bg) !important; }
+
+/* WordPress tools */
+.facts { margin: 0; }
+.facts dd { margin: 0; text-align: right; }
+.wp-log { max-height: 320px; padding: 8px 10px; border-radius: 4px; background: var(--input); }

@@ -405,6 +405,8 @@ jobs:
             grep -q "'DB_NAME', 'blog'" "$made/blog/wp-config.php"
             [ -f "$made/blog/wp-load.php" ]
             stackyard db | grep -q "blog"
+            echo "== the WordPress tab's tools on it, with WooCommerce"
+            STACKYARD_TEST_WP="$made/blog" cargo test -p stackyard-core -- --ignored wordpress_tools_on_a_real_site
             stackyard stop
           fi
       - name: Python and Go sites, with the servers Stackyard runs

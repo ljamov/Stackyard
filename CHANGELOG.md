@@ -6,6 +6,14 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- A **WordPress** tab in the tools of every WordPress site (Sites › Manage): an overview with disk
+  use, plugins and themes (switch on and off, update, install from wordpress.org), users (log in as
+  anyone with a one-time link, new passwords, new administrators), debug switches with `debug.log`
+  followed live, search and replace that keeps serialized data intact, database export, import and
+  upkeep, and WooCommerce tools (scheduled actions, payment methods in test mode, test orders and
+  customers) for stores with and without High-Performance Order Storage. WP-CLI is downloaded the
+  first time it is needed. A module you can switch off. See [docs/wordpress.md](docs/wordpress.md).
+
 - Stackyard is now licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) instead of
   MIT. Earlier releases stay under MIT.
 - A new look. A warm side bar with every screen by name, **New site**, your first few sites and

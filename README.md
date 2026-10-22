@@ -244,6 +244,7 @@ See [docs/mcp.md](docs/mcp.md).
 | [Sites, local domains and HTTPS](docs/sites.md) | Framework detection, parked folders, domain endings, what setup changes on each OS |
 | [Runtimes and the terminal](docs/runtimes.md) | Where versions come from, PATH shims, Stackyard Shell, Composer |
 | [Services](docs/services.md) | Every service in detail, the Databases and Logs screens, disk cleanup, background mode |
+| [WordPress and WooCommerce](docs/wordpress.md) | Plugins, themes, users, debug log, search and replace, WooCommerce tools |
 | [Site settings, backups and public links](docs/site-tools.md) | Per-site settings, backup and restore, moving a site to another computer, sharing it |
 | [Scheduled tasks](docs/scheduler.md) | Schedules, how tasks run, where output goes |
 | [Servers and Git](docs/remote.md) | SFTP, FTPS and FTP connections, uploads and downloads, passwords, Git |

@@ -39,6 +39,7 @@ mod perf;
 mod remote;
 mod sitetools;
 mod updates;
+mod wordpress;
 
 pub(crate) type CmdResult<T> = Result<T, String>;
 
@@ -587,6 +588,11 @@ fn stop_service(
 /// cannot be used to launch arbitrary programs or URLs.
 #[tauri::command]
 fn open_local_page(url: String) -> CmdResult<()> {
+    open_page(url)
+}
+
+/// Opens a page of a local site in the browser; other addresses are refused.
+pub(crate) fn open_page(url: String) -> CmdResult<()> {
     let endings = ServiceManager::open().endings().map_err(err)?;
     if !web::is_local_url(&url, &endings) {
         return Err(format!("not a local page: {url}"));
@@ -726,6 +732,11 @@ fn phpmyadmin_uninstall(app: AppHandle) -> CmdResult<PhpMyAdminView> {
 /// not running, then opens phpMyAdmin in the browser.
 #[tauri::command]
 async fn phpmyadmin_open(app: AppHandle) -> CmdResult<()> {
+    open_phpmyadmin(app, None).await
+}
+
+/// Starts what phpMyAdmin needs and opens it, at `database` when given.
+pub(crate) async fn open_phpmyadmin(app: AppHandle, database: Option<String>) -> CmdResult<()> {
     let engine = app.state::<Arc<Engine>>().inner().clone();
     let url = tauri::async_runtime::spawn_blocking(move || {
         let running = |id: &str| matches!(engine.state(id), ProcessState::Running { .. });
@@ -746,7 +757,16 @@ async fn phpmyadmin_open(app: AppHandle) -> CmdResult<()> {
     })
     .await
     .map_err(|e| e.to_string())??;
-    open_local_page(url)
+    match database.filter(|d| {
+        d.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    }) {
+        Some(db) => open_page(format!(
+            "{}/index.php?route=/database/structure&db={db}",
+            url.trim_end_matches('/')
+        )),
+        None => open_page(url),
+    }
 }
 
 #[tauri::command]
@@ -1921,6 +1941,30 @@ pub fn run() {
             console::console_write,
             console::console_resize,
             console::console_close,
+            wordpress::wp_overview,
+            wordpress::wp_disk_use,
+            wordpress::wp_core_update,
+            wordpress::wp_update_core,
+            wordpress::wp_extensions,
+            wordpress::wp_change_extension,
+            wordpress::wp_install_extension,
+            wordpress::wp_users,
+            wordpress::wp_add_admin,
+            wordpress::wp_set_password,
+            wordpress::wp_login_as,
+            wordpress::wp_set_debug,
+            wordpress::wp_log,
+            wordpress::wp_clear_log,
+            wordpress::wp_search_replace,
+            wordpress::wp_export_database,
+            wordpress::wp_import_database,
+            wordpress::wp_optimize_database,
+            wordpress::wp_clear_transients,
+            wordpress::wp_open_phpmyadmin,
+            wordpress::wp_woo,
+            wordpress::wp_woo_run_actions,
+            wordpress::wp_woo_test_mode,
+            wordpress::wp_woo_create,
             sitetools::site_settings,
             sitetools::save_site_settings,
             sitetools::site_backups,
