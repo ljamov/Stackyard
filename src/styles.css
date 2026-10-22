@@ -303,6 +303,15 @@ details summary { cursor: pointer; color: var(--text-2); }
 }
 .swatch span { width: 100%; height: 100%; border-radius: 50%; display: block; }
 .swatch[aria-pressed="true"] { border-color: var(--text); }
+.swatches { align-items: center; }
+.custom-accent { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.custom-accent input[type="color"] {
+  width: 34px; height: 30px; padding: 2px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--input); cursor: pointer;
+}
+.custom-accent input[type="text"] {
+  width: 96px; height: 30px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--input);
+}
+.custom-accent input[aria-invalid] { border-color: var(--error); }
 .field select.wide { max-width: 360px; }
 
 /* Workbench (components/Workbench.tsx): the side bar, then the content pane with
@@ -528,3 +537,14 @@ details summary { cursor: pointer; color: var(--text-2); }
 .theme-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-width: 480px; }
 .theme-row { display: flex; align-items: center; gap: 8px; }
 .theme-row .tab { flex: 1; text-align: left; }
+
+/* The Terminal tab (components/TerminalPane.tsx); xterm.js draws inside .terminal-box. */
+.panel-body.flush { padding: 0; gap: 0; }
+.terminal-pane { flex: 1 1 auto !important; min-height: 0; display: flex; flex-direction: column; }
+.terminal-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px 6px; }
+.terminal-bar select {
+  height: 26px; max-width: 260px; background: var(--input); border: 1px solid var(--border-strong); border-radius: 6px; padding: 0 6px; font-size: 12px;
+}
+.terminal-box { flex: 1; min-height: 0; padding: 0 8px 6px 16px; }
+.terminal-host, .terminal-host .xterm { height: 100%; }
+.terminal-host .xterm-viewport { scrollbar-width: thin; background-color: var(--bg) !important; }

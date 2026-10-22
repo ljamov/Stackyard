@@ -307,5 +307,17 @@
   "Your sites": "Tus sitios",
   "{name} must be one of {values}, or a color like {example}; using {fallback}.": "{name} debe ser uno de {values}, o un color como {example}; se usa {fallback}.",
   "{name} must be true or false; using {fallback}.": "{name} debe ser true o false; se usa {fallback}.",
-  "{running} of {total} running": "{running} de {total} en marcha"
+  "{running} of {total} running": "{running} de {total} en marcha",
+  "A color of your own": "Un color propio",
+  "Color code": "Código de color",
+  "Pick a color": "Elegir un color",
+  "Show the status bar": "Mostrar la barra de estado",
+  "Use a code like {example}": "Usa un código como {example}",
+  "A terminal in the window's panel that opens in a site's folder with its PHP and Node.js versions": "Una terminal en el panel de la ventana que se abre en la carpeta de un sitio con sus versiones de PHP y Node.js",
+  "Folder": "Carpeta",
+  "Home folder": "Carpeta personal",
+  "Open a terminal in {name}": "Abrir una terminal en {name}",
+  "Restart": "Reiniciar",
+  "Show or hide the terminal": "Mostrar u ocultar la terminal",
+  "Terminal": "Terminal"
 }

@@ -4,6 +4,7 @@ import { frameworkBrand } from "../lib/brands";
 import { api, errorText, type RuntimeFamily, type Site, type SiteFile } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
+import { openTerminal } from "../lib/terminal";
 import { SiteTools } from "../components/SiteTools";
 import { SiteVersions } from "../components/SiteVersions";
 import { useT } from "../lib/i18n";
@@ -483,24 +484,25 @@ function SiteRow({
   manageOpen: boolean | null;
   onManage: () => void;
 }) {
+  const { isOn } = useModules();
   return (
     <tr>
       <td>
         <div className="site-cell">
-        <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
-        <div>
-        <button type="button" className="link mono" onClick={() => api.openLocalPage(site.url)}>
-          {site.url}
-        </button>
-        <div className="muted small">
-          {site.https ? "HTTPS" : "HTTP only"}
-          {site.parked && " · parked"}
-          {" · "}
-          <button type="button" className="link small" onClick={() => api.openLocalPage(site.local_url)}>
-            {site.local_url.replace(/^https?:\/\//, "")}
-          </button>
-        </div>
-        </div>
+          <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
+          <div>
+            <button type="button" className="link mono" onClick={() => api.openLocalPage(site.url)}>
+              {site.url}
+            </button>
+            <div className="muted small">
+              {site.https ? "HTTPS" : "HTTP only"}
+              {site.parked && " · parked"}
+              {" · "}
+              <button type="button" className="link small" onClick={() => api.openLocalPage(site.local_url)}>
+                {site.local_url.replace(/^https?:\/\//, "")}
+              </button>
+            </div>
+          </div>
         </div>
       </td>
       <td>
@@ -511,6 +513,17 @@ function SiteRow({
       </td>
       <td className="mono muted small">{site.root}</td>
       <td className="right nowrap">
+        {isOn("terminal") && (
+          <button
+            type="button"
+            className="btn ghost small"
+            aria-label={`Open a terminal in ${site.domain}`}
+            title={`Open a terminal in ${site.domain}`}
+            onClick={() => openTerminal(site.path, site.domain)}
+          >
+            Terminal
+          </button>
+        )}
         {manageOpen !== null && (
           <button
             type="button"
