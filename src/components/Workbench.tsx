@@ -32,6 +32,8 @@ import { usePalette } from "../lib/palette";
 import { useProblems } from "../lib/problems";
 import { useUserFiles } from "../lib/useUserFiles";
 import { ProblemsList } from "./ProblemsList";
+import { TerminalPane } from "./TerminalPane";
+import { TERMINAL_COMMANDS } from "../lib/terminal";
 import { useT } from "../lib/i18n";
 import { rovingGroup, rovingKeys } from "../lib/focus";
 
@@ -83,13 +85,15 @@ export function Workbench() {
   const shownServices = services.services.filter((s) => isOn(s.id));
   const screens = SCREENS.filter(isTabScreen).filter(on);
   const logsOn = on("Logs");
+  const terminalOn = isOn("terminal");
   // Until the module switches load, every screen counts as off; keep the tabs.
   const loaded = modules.length > 0;
   const tabs = loaded ? layout.tabs.filter(on) : layout.tabs;
   const active = layout.active && tabs.includes(layout.active) ? layout.active : (tabs[0] ?? null);
   const panel = layout.panel;
-  // Logs switched off: the panel shows Problems.
-  const panelTab = layout.panelTab === "logs" && logsOn ? "logs" : "problems";
+  // Logs or Terminal switched off: the panel shows Problems.
+  const panelTab =
+    (layout.panelTab === "logs" && logsOn) || (layout.panelTab === "terminal" && terminalOn) ? layout.panelTab : "problems";
   const problems = useProblems();
   useUserFiles();
 
@@ -112,6 +116,7 @@ export function Workbench() {
     shownServices,
     sites: sites.data,
     logsOn,
+    terminalOn,
     tabs,
     active,
   });
@@ -122,7 +127,9 @@ export function Workbench() {
   useEffect(() => {
     const chord = { pending: null as string | null };
     function key(e: KeyboardEvent) {
-      const list = latest.current;
+      // Typing in the terminal: most keys belong to the shell.
+      const inTerminal = e.target instanceof Element && e.target.closest(".terminal-host");
+      const list = inTerminal ? latest.current.filter((c) => TERMINAL_COMMANDS.includes(c.id)) : latest.current;
       dispatchKeys(
         e,
         list.map((c) => c.id),
@@ -288,6 +295,20 @@ export function Workbench() {
                         {t("Logs")}
                       </button>
                     )}
+                    {terminalOn && (
+                      <button
+                        type="button"
+                        role="tab"
+                        id="panel-tab-terminal"
+                        className="panel-tab"
+                        data-roving
+                        aria-selected={panelTab === "terminal"}
+                        aria-controls="panel-body"
+                        onClick={() => setLayout({ panelTab: "terminal" })}
+                      >
+                        {t("Terminal")}
+                      </button>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -299,8 +320,19 @@ export function Workbench() {
                     <Icon name="close" />
                   </button>
                 </div>
-                <div id="panel-body" className="panel-body" role="tabpanel" aria-labelledby={`panel-tab-${panelTab}`}>
-                  {panelTab === "logs" ? <Logs inPanel /> : <ProblemsList problems={problems} />}
+                <div
+                  id="panel-body"
+                  className={panelTab === "terminal" ? "panel-body flush" : "panel-body"}
+                  role="tabpanel"
+                  aria-labelledby={`panel-tab-${panelTab}`}
+                >
+                  {panelTab === "logs" ? (
+                    <Logs inPanel />
+                  ) : panelTab === "terminal" ? (
+                    <TerminalPane sites={sites.data} />
+                  ) : (
+                    <ProblemsList problems={problems} />
+                  )}
                 </div>
               </section>
             </>
@@ -312,6 +344,7 @@ export function Workbench() {
         shownServices={shownServices}
         siteCount={sites.data.length}
         logsOn={logsOn}
+        terminalOn={terminalOn}
         panel={panel}
         panelTab={panelTab}
         problemCount={problems.length}

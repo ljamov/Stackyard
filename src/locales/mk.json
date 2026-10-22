@@ -312,5 +312,12 @@
   "Color code": "Код на боја",
   "Pick a color": "Избери боја",
   "Show the status bar": "Прикажи ја статусната лента",
-  "Use a code like {example}": "Користи код како {example}"
+  "Use a code like {example}": "Користи код како {example}",
+  "A terminal in the window's panel that opens in a site's folder with its PHP and Node.js versions": "Терминал во панелот на прозорецот што се отвора во папката на сајтот со неговите верзии на PHP и Node.js",
+  "Folder": "Папка",
+  "Home folder": "Домашна папка",
+  "Open a terminal in {name}": "Отвори терминал во {name}",
+  "Restart": "Рестартирај",
+  "Show or hide the terminal": "Прикажи или скриј го терминалот",
+  "Terminal": "Терминал"
 }

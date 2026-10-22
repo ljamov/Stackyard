@@ -7,12 +7,14 @@ import { useT } from "../lib/i18n";
 import { SERVICE_STATE } from "./ServiceCard";
 import { Icon } from "./Icon";
 import { setAppearance } from "../lib/appearance";
+import { withKey } from "../lib/keybindings";
 
 /** The bar along the bottom: live state, each item opening where it is managed. */
 export function StatusBar({
   shownServices,
   siteCount,
   logsOn,
+  terminalOn,
   panel,
   panelTab,
   problemCount,
@@ -21,6 +23,7 @@ export function StatusBar({
   shownServices: ServicesHook["services"];
   siteCount: number;
   logsOn: boolean;
+  terminalOn: boolean;
   panel: boolean;
   panelTab: PanelTab;
   problemCount: number;
@@ -81,6 +84,18 @@ export function StatusBar({
         >
           <Icon name="logs" />
           {t("Logs")}
+        </button>
+      )}
+      {terminalOn && (
+        <button
+          type="button"
+          className="status-item"
+          aria-pressed={panel && panelTab === "terminal"}
+          title={withKey(t("Terminal"), "view.terminal")}
+          onClick={() => togglePanelTab("terminal")}
+        >
+          <Icon name="terminal" />
+          {t("Terminal")}
         </button>
       )}
       <ThemeSwitch />

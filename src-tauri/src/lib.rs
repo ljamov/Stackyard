@@ -34,6 +34,7 @@ use stackyard_core::{
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
 
 mod ai;
+mod console;
 mod perf;
 mod remote;
 mod sitetools;
@@ -1055,7 +1056,7 @@ struct TerminalView {
 
 /// The `stackyard` program, which every terminal command leads back to.
 /// It ships next to the app.
-fn cli_program() -> Option<std::path::PathBuf> {
+pub(crate) fn cli_program() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let cli = exe.with_file_name(format!("stackyard{}", std::env::consts::EXE_SUFFIX));
     cli.is_file().then_some(cli)
@@ -1901,6 +1902,7 @@ pub fn run() {
         .manage(updates::Updates::new(just_updated))
         .manage(remote::RemoteState::default())
         .manage(ai::AiInstalls::default())
+        .manage(console::Consoles::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1915,6 +1917,10 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            console::console_open,
+            console::console_write,
+            console::console_resize,
+            console::console_close,
             sitetools::site_settings,
             sitetools::save_site_settings,
             sitetools::site_backups,

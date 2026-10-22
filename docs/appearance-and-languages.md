@@ -97,7 +97,8 @@ outside `theme.ts`.
 | Side bar button | Top left of the window (or **Ctrl+B**): narrows the side bar to just its icons, and back. Each icon names its screen when you point at it. |
 | Home | A greeting, a box that runs any command (it opens the command palette), then your services with their start and stop buttons, your sites and your runtimes. Services and runtimes show their own logos, and sites the logo of their framework (WordPress, WooCommerce, Laravel, Astro and others; a globe for the rest). |
 | Tabs | Screens opened with Ctrl+click stay open as tabs until you close them. Middle-click a tab to close it. The row of tabs only shows while more than one screen is open. |
-| Panel | **Problems** and **Logs** along the bottom, under whichever screen is open. |
+| Panel | **Problems**, **Logs** and **Terminal** along the bottom, under whichever screen is open. |
+| Terminal | A shell in the panel (PowerShell on Windows, your own shell on macOS and Linux). Open it with **Ctrl+`**, the **Terminal** button in the status bar, a site's **Terminal** button on the Sites screen, or **Open a terminal in …** in the palette; pick another folder from its **Folder** list. It starts in the site's folder with Stackyard's `php`, `node`, `composer` and other commands first on its PATH, so they run the versions that site uses. The shell keeps running while the panel is closed. Most keys go to the shell; **Ctrl+Shift+P**, **Ctrl+`**, **Ctrl+J**, **F6** and zoom still work. Switch it off with the **Terminal** module in Settings. |
 | Status bar | How many services are running and how many sites you have; click either to open its screen. When an update is out, it says so there too. On the right, **Logs** opens the panel and the sun or moon switches between the light and dark themes. Hide the whole bar with `statusBar = false` in settings.toml or **View: Show or hide the status bar** in the palette. |
 
 Drag the line beside the side bar or above the panel to resize it (it lights up in your accent color
@@ -121,6 +122,7 @@ the browser, switch theme or accent color, close tabs, check for updates.
 | Ctrl+P | Go to a site or screen |
 | Ctrl+B | Narrow the side bar to icons, or widen it again |
 | Ctrl+J | Show or hide the Logs panel |
+| Ctrl+` | Show or hide the terminal |
 | Ctrl+W | Close the tab |
 | Ctrl+Tab, Ctrl+PageDown | Next tab |
 | Ctrl+Shift+Tab, Ctrl+PageUp | Previous tab |

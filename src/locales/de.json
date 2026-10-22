@@ -312,5 +312,12 @@
   "Color code": "Farbcode",
   "Pick a color": "Farbe wählen",
   "Show the status bar": "Statusleiste anzeigen",
-  "Use a code like {example}": "Verwende einen Code wie {example}"
+  "Use a code like {example}": "Verwende einen Code wie {example}",
+  "A terminal in the window's panel that opens in a site's folder with its PHP and Node.js versions": "Ein Terminal im Bereich unten im Fenster, das im Ordner einer Website mit deren PHP- und Node.js-Version startet",
+  "Folder": "Ordner",
+  "Home folder": "Benutzerordner",
+  "Open a terminal in {name}": "Terminal in {name} öffnen",
+  "Restart": "Neu starten",
+  "Show or hide the terminal": "Terminal ein- oder ausblenden",
+  "Terminal": "Terminal"
 }

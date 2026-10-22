@@ -8,6 +8,7 @@ import { ACCENTS, endPreview, previewTheme, setAppearance, THEMES, useAddedTheme
 import { importThemeFromFile } from "./themeImport";
 import { currentViewOptions, DEFAULT_VIEW, DENSITIES, ICON_THEMES, setViewOptions, useViewOptions, zoomBy } from "./viewOptions";
 import { closeTab, cycleTab, openTab, setLayout, showScreen, togglePanelTab } from "./layout";
+import { openTerminal } from "./terminal";
 import { openPalette } from "./palette";
 import { focusPart } from "./focus";
 import { checkForUpdate } from "./updates";
@@ -33,6 +34,7 @@ export function useWorkbenchCommands({
   shownServices,
   sites,
   logsOn,
+  terminalOn,
   tabs,
   active,
 }: {
@@ -41,6 +43,7 @@ export function useWorkbenchCommands({
   shownServices: ServicesHook["services"];
   sites: Site[];
   logsOn: boolean;
+  terminalOn: boolean;
   tabs: TabScreen[];
   active: TabScreen | null;
 }): { commands: Command[]; places: Command[]; themes: Command[] } {
@@ -69,6 +72,7 @@ export function useWorkbenchCommands({
       { id: "view.panel", category: view, title: t("Show or hide the panel"), run: () => setLayout((l) => ({ panel: !l.panel })) },
       { id: "view.problems", category: view, title: t("Show problems"), run: () => togglePanelTab("problems") },
       ...(logsOn ? [{ id: "view.logs", category: view, title: t("Show or hide the Logs panel"), run: () => togglePanelTab("logs") }] : []),
+      ...(terminalOn ? [{ id: "view.terminal", category: view, title: t("Show or hide the terminal"), run: () => togglePanelTab("terminal") }] : []),
       ...(active ? [{ id: "tab.close", category: tabsCat, title: t("Close the tab"), run: () => closeTab(active) }] : []),
       ...(tabs.length
         ? [{ id: "tab.closeAll", category: tabsCat, title: t("Close all tabs"), run: () => setLayout({ tabs: [], active: null }) }]
@@ -111,6 +115,14 @@ export function useWorkbenchCommands({
         title: t("Open {name} in your browser", { name: site.domain }),
         run: () => void api.openLocalPage(site.url),
       })),
+      ...(terminalOn
+        ? sites.map((site) => ({
+            id: `site.terminal.${site.domain}`,
+            category: t("Sites"),
+            title: t("Open a terminal in {name}", { name: site.domain }),
+            run: () => openTerminal(site.path, site.domain),
+          }))
+        : []),
       { id: "workbench.colorTheme", category: t("Theme"), title: t("Pick a color theme"), run: () => openPalette("themes") },
       ...THEMES.map((th) => ({ id: `theme.${th.id}`, category: t("Theme"), title: t(th.label), run: () => setAppearance({ theme: th.id }) })),
       ...added.map((th) => ({ id: `theme.${th.id}`, category: t("Theme"), title: th.name, run: () => setAppearance({ theme: th.id }) })),
@@ -185,7 +197,7 @@ export function useWorkbenchCommands({
       },
     }));
     return { commands, places, themes };
-  }, [t, screens, services, shownServices, sites, logsOn, tabs, active, added, shownTheme, options]);
+  }, [t, screens, services, shownServices, sites, logsOn, terminalOn, tabs, active, added, shownTheme, options]);
 }
 
 const CommandsContext = createContext<Command[]>([]);
