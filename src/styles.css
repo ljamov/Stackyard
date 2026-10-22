@@ -537,3 +537,14 @@ details summary { cursor: pointer; color: var(--text-2); }
 .theme-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-width: 480px; }
 .theme-row { display: flex; align-items: center; gap: 8px; }
 .theme-row .tab { flex: 1; text-align: left; }
+
+/* The Terminal tab (components/TerminalPane.tsx); xterm.js draws inside .terminal-box. */
+.panel-body.flush { padding: 0; gap: 0; }
+.terminal-pane { flex: 1 1 auto !important; min-height: 0; display: flex; flex-direction: column; }
+.terminal-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px 6px; }
+.terminal-bar select {
+  height: 26px; max-width: 260px; background: var(--input); border: 1px solid var(--border-strong); border-radius: 6px; padding: 0 6px; font-size: 12px;
+}
+.terminal-box { flex: 1; min-height: 0; padding: 0 8px 6px 16px; }
+.terminal-host, .terminal-host .xterm { height: 100%; }
+.terminal-host .xterm-viewport { scrollbar-width: thin; background-color: var(--bg) !important; }

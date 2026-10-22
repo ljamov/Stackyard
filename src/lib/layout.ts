@@ -18,7 +18,7 @@ export type Layout = {
   active: TabScreen | null;
 };
 
-export type PanelTab = "problems" | "logs";
+export type PanelTab = "problems" | "logs" | "terminal";
 
 export const SIDE_BAR_WIDTH = { min: 170, max: 480 };
 export const PANEL_HEIGHT = { min: 120, max: 720 };
@@ -49,7 +49,7 @@ function loadLayout(): Layout {
       panel: typeof saved.panel === "boolean" ? saved.panel : DEFAULT.panel,
       panelHeight: clamp(saved.panelHeight, PANEL_HEIGHT, DEFAULT.panelHeight),
       panelWidth: clamp(saved.panelWidth, PANEL_WIDTH, DEFAULT.panelWidth),
-      panelTab: saved.panelTab === "problems" ? "problems" : DEFAULT.panelTab,
+      panelTab: saved.panelTab === "problems" || saved.panelTab === "terminal" ? saved.panelTab : DEFAULT.panelTab,
       tabs,
       active: isTabScreen(saved.active) && tabs.includes(saved.active) ? saved.active : (tabs[0] ?? null),
     };

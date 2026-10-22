@@ -14,6 +14,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "view.explorer": ["ctrl+b"],
   "view.panel": ["ctrl+j"],
   "view.problems": ["ctrl+shift+m"],
+  "view.terminal": ["ctrl+`"],
   "tab.close": ["ctrl+w"],
   "tab.next": ["ctrl+tab", "ctrl+pagedown"],
   "tab.previous": ["ctrl+shift+tab", "ctrl+pageup"],

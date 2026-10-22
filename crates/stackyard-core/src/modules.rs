@@ -289,6 +289,14 @@ pub const MODULES: &[ModuleDef] = &[
         true,
     ),
     module(
+        "terminal",
+        "Terminal",
+        Feature,
+        "A terminal in the window's panel that opens in a site's folder with its PHP and Node.js versions",
+        true,
+        true,
+    ),
+    module(
         "scheduler",
         "Task scheduler",
         Feature,

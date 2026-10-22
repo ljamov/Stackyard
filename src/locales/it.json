@@ -312,5 +312,12 @@
   "Color code": "Codice colore",
   "Pick a color": "Scegli un colore",
   "Show the status bar": "Mostra la barra di stato",
-  "Use a code like {example}": "Usa un codice come {example}"
+  "Use a code like {example}": "Usa un codice come {example}",
+  "A terminal in the window's panel that opens in a site's folder with its PHP and Node.js versions": "Un terminale nel pannello della finestra che si apre nella cartella di un sito con le sue versioni di PHP e Node.js",
+  "Folder": "Cartella",
+  "Home folder": "Cartella home",
+  "Open a terminal in {name}": "Apri un terminale in {name}",
+  "Restart": "Riavvia",
+  "Show or hide the terminal": "Mostra o nascondi il terminale",
+  "Terminal": "Terminale"
 }

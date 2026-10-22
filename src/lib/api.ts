@@ -602,6 +602,13 @@ export interface Api {
   setTerminal(on: boolean): Promise<TerminalStatus>;
   /** Fires when a terminal or an AI tool changed the sites. */
   onSitesChanged(handler: () => void): Promise<() => void>;
+  /** Starts a shell for the Terminal tab in `folder` (the home folder when null); returns its number. */
+  consoleOpen(folder: string | null, cols: number, rows: number): Promise<number>;
+  consoleWrite(id: number, data: string): Promise<void>;
+  consoleResize(id: number, cols: number, rows: number): Promise<void>;
+  consoleClose(id: number): Promise<void>;
+  onConsoleOutput(handler: (id: number, data: string) => void): Promise<() => void>;
+  onConsoleExit(handler: (id: number) => void): Promise<() => void>;
   updateStatus(): Promise<UpdateStatus>;
   checkForUpdate(): Promise<UpdateStatus>;
   /** Stops every service, installs the update and restarts Stackyard. */
@@ -799,6 +806,13 @@ const tauriApi: Api = {
   terminalStatus: () => invoke("terminal_status"),
   setTerminal: (on) => invoke("set_terminal", { on }),
   onSitesChanged: (handler) => listen("sites-changed", () => handler()),
+  consoleOpen: (folder, cols, rows) => invoke("console_open", { folder, cols, rows }),
+  consoleWrite: (id, data) => invoke("console_write", { id, data }),
+  consoleResize: (id, cols, rows) => invoke("console_resize", { id, cols, rows }),
+  consoleClose: (id) => invoke("console_close", { id }),
+  onConsoleOutput: (handler) =>
+    listen<{ id: number; data: string }>("console-output", (e) => handler(e.payload.id, e.payload.data)),
+  onConsoleExit: (handler) => listen<{ id: number }>("console-exit", (e) => handler(e.payload.id)),
   updateStatus: () => invoke("update_status"),
   checkForUpdate: () => invoke("check_for_update"),
   installUpdate: () => invoke("install_update"),
@@ -876,6 +890,11 @@ const tauriApi: Api = {
   gitPush: (site) => invoke("git_push", { site }),
   gitCommit: (site, message, name, email) => invoke("git_commit", { site, message, name, email }),
 };
+
+let consoleCount = 0;
+const consoleLine: Record<number, string> = {};
+const consolePrompt: Record<number, string> = {};
+const consoleOut = new Set<(id: number, data: string) => void>();
 
 function browserApi(): Api {
   const family = (kind: RuntimeKind, name: string, versions: string[], available: boolean): RuntimeFamily => ({
@@ -1008,6 +1027,7 @@ function browserApi(): Api {
     mod("sitebackups", "Site backups", "feature", "Back up a site's files and database in one zip, and restore it", true, true),
     mod("sitetransfer", "Site import and export", "feature", "Pack a site, with its database and settings, into one file to open on another computer", true, true),
     mod("share", "Public links", "feature", "Share a local site at a temporary public address through Cloudflare's free quick tunnels (cloudflared is downloaded when you first use it)", false, true),
+    mod("terminal", "Terminal", "feature", "A terminal in the window's panel that opens in a site's folder with its PHP and Node.js versions", true, true),
     mod("scheduler", "Task scheduler", "feature", "Run commands on a schedule in a project folder, like cron", false, true),
     mod("images", "Image optimizer", "feature", "Make WebP and AVIF copies of JPG and PNG images, and smaller JPGs and PNGs", true, true),
     mod("videos", "Video optimizer", "feature", "Make web-ready MP4, WebM and GIF copies of videos with FFmpeg (downloaded when you first use it)", true, true),
@@ -1498,6 +1518,39 @@ function browserApi(): Api {
       return terminal;
     },
     onSitesChanged: async () => () => {},
+    // The preview has no shell: the terminal repeats what is typed.
+    consoleOpen: async (folder) => {
+      const id = ++consoleCount;
+      consoleLine[id] = "";
+      const prompt = `${folder ?? "~"} $ `;
+      setTimeout(() => consoleOut.forEach((h) => h(id, `Stackyard preview: no real shell here.\r\n${prompt}`)), 50);
+      consolePrompt[id] = prompt;
+      return id;
+    },
+    consoleWrite: async (id, data) => {
+      for (const ch of data) {
+        if (ch === "\r") {
+          const typed = consoleLine[id];
+          consoleLine[id] = "";
+          consoleOut.forEach((h) => h(id, `\r\n${typed ? `${typed}\r\n` : ""}${consolePrompt[id]}`));
+        } else if (ch === "\u007f") {
+          if (consoleLine[id]) {
+            consoleLine[id] = consoleLine[id].slice(0, -1);
+            consoleOut.forEach((h) => h(id, "\b \b"));
+          }
+        } else if (ch >= " ") {
+          consoleLine[id] += ch;
+          consoleOut.forEach((h) => h(id, ch));
+        }
+      }
+    },
+    consoleResize: async () => {},
+    consoleClose: async () => {},
+    onConsoleOutput: async (handler) => {
+      consoleOut.add(handler);
+      return () => void consoleOut.delete(handler);
+    },
+    onConsoleExit: async () => () => {},
     updateStatus: async () => update,
     checkForUpdate: async () => {
       await new Promise((r) => setTimeout(r, 600));
