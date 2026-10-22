@@ -59,7 +59,7 @@ export function useWorkbenchCommands({
     const commands: Command[] = [
       { id: "workbench.commands", category: view, title: t("Show all commands"), run: () => openPalette("commands") },
       { id: "workbench.quickOpen", category: view, title: t("Go to a site or screen"), run: () => openPalette("quick") },
-      { id: "view.explorer", category: view, title: t("Show or hide the side bar"), run: () => setLayout((l) => ({ sideBar: !l.sideBar })) },
+      { id: "view.explorer", category: view, title: t("Expand or collapse the side bar"), run: () => setLayout((l) => ({ sideBar: !l.sideBar })) },
       {
         id: "view.statusBar",
         category: view,

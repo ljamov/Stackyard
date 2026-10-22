@@ -73,7 +73,7 @@ out.
   more room, **Default** is in between.
 - **Zoom**: 80% to 150% for the whole window. **Ctrl+=** zooms in, **Ctrl+-** out and **Ctrl+0**
   goes back to 100%.
-- **Side bar position**: the bar of icons and the Explorer on the **Left** or the **Right**.
+- **Side bar position**: the side bar on the **Left** or the **Right**.
 - **Panel position**: the Logs and Problems panel at the **Bottom** or on the **Right**, beside the
   screen. On the right, drag the line beside it to change its width.
 
@@ -92,15 +92,17 @@ outside `theme.ts`.
 
 | Part | What it does |
 | --- | --- |
-| Bar of icons on the left | The top icon shows or hides the Explorer. Each other icon opens a screen as a tab; the Logs icon near the bottom shows or hides the Logs panel. |
-| Explorer | Your services, each with a start or stop button, and your sites. Click a name to open its screen. |
-| Tabs | Every screen you open stays open as a tab until you close it. Middle-click a tab to close it. |
-| Logs panel | Every service's log along the bottom, under whichever screen is open. |
-| Status bar | How many services are running and how many sites you have; click either to open its screen. When an update is out, it says so there too. |
+| Side bar | The search button, **New site**, every screen by name, your first few sites (click one to open it in the browser) and **Settings** at the bottom. Click a screen to show it in place of the one shown; Ctrl+click or middle-click opens it as a tab beside it. |
+| Side bar button | Top left of the window (or **Ctrl+B**): narrows the side bar to just its icons, and back. Each icon names its screen when you point at it. |
+| Home | A greeting, a box that runs any command (it opens the command palette), then your services with their start and stop buttons, your sites and your runtimes. Services and runtimes show their own logos, and sites the logo of their framework (WordPress, WooCommerce, Laravel, Astro and others; a globe for the rest). |
+| Tabs | Screens opened with Ctrl+click stay open as tabs until you close them. Middle-click a tab to close it. The row of tabs only shows while more than one screen is open. |
+| Panel | **Problems** and **Logs** along the bottom, under whichever screen is open. |
+| Status bar | How many services are running and how many sites you have; click either to open its screen. When an update is out, it says so there too. On the right, **Logs** opens the panel and the sun or moon switches between the light and dark themes. Hide the whole bar with `statusBar = false` in settings.toml or **View: Show or hide the status bar** in the palette. |
 
-Drag the line beside the Explorer or above the Logs panel to resize it, or focus the line with Tab and
-use the arrow keys. Which parts show, their sizes and the open tabs are kept, so Stackyard opens the
-way you left it. In a narrow window the Explorer steps aside to leave room for the screen.
+Drag the line beside the side bar or above the panel to resize it (it lights up in your accent color
+under the pointer), or focus the line with Tab and use the arrow keys. Which parts show, their sizes
+and the open tabs are kept, so Stackyard opens the way you left it. In a narrow window the side bar
+narrows to its icons to leave room for the screen.
 
 ## Commands and shortcuts
 
@@ -109,14 +111,14 @@ the browser, switch theme or accent color, close tabs, check for updates.
 
 - **Ctrl+Shift+P** (or **F1**) opens the command palette. Type a few letters of a command, for
   example `start all` for "Start all services", then Enter. The commands you ran last come first.
-- **Ctrl+P**, or the search box at the top of the window, finds a site or a screen. Enter opens the
+- **Ctrl+P**, or the search button beside the logo in the side bar, finds a site or a screen. Enter opens the
   site in your browser or the screen as a tab. Type `>` first to search commands instead.
 
 | Shortcut (⌘ instead of Ctrl on a Mac) | Does |
 | --- | --- |
 | Ctrl+Shift+P, F1 | Show all commands |
 | Ctrl+P | Go to a site or screen |
-| Ctrl+B | Show or hide the Explorer |
+| Ctrl+B | Narrow the side bar to icons, or widen it again |
 | Ctrl+J | Show or hide the Logs panel |
 | Ctrl+W | Close the tab |
 | Ctrl+Tab, Ctrl+PageDown | Next tab |
@@ -133,15 +135,15 @@ the browser, switch theme or accent color, close tabs, check for updates.
 Everything in Stackyard can be reached without a mouse, and whatever has the keyboard focus gets a
 clear outline.
 
-- **F6** moves between the parts of the window: the icon bar, the Explorer, the open screen, the
-  panel and the status bar. **Shift+F6** goes back.
-- The icon bar and each row of tabs count as one stop for **Tab**. Inside them, the arrow keys move
-  between icons or tabs, **Home** and **End** jump to the first and last, and **Enter** or **Space**
+- **F6** moves between the parts of the window: the side bar, the open screen, the panel and the
+  status bar. **Shift+F6** goes back.
+- The side bar's screens and each row of tabs count as one stop for **Tab**. Inside them, the arrow
+  keys move between screens or tabs, **Home** and **End** jump to the first and last, and **Enter** or **Space**
   opens the one with the outline. **Delete** closes the tab with the outline.
 - **Tab** from a tab goes into the screen it shows.
 - The command palette puts the focus back where it was when you close it with **Escape**.
-- Screen readers hear each service's state in the Explorer, and are told when a service starts,
-  stops or crashes.
+- Screen readers hear each service's state on its box, and are told when a service starts, stops or
+  crashes.
 
 Every built-in theme, with every accent color, passes the WCAG AA contrast levels: 4.5:1 for text
 and 3:1 for field edges, focus outlines and status dots. `npm run build` checks this

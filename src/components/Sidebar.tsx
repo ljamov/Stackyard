@@ -36,14 +36,17 @@ const SITES_SHOWN = 5;
  * sites to open in the browser, and Settings at the bottom. A click shows a
  * screen in place of the shown one; Ctrl+click or a middle click opens it as
  * a tab beside it. The screens are one Tab stop; the arrow keys move between them.
+ * Collapsed (Ctrl+B) it is a rail of the same icons, each named in its tooltip.
  */
 export function Sidebar({
   width,
+  collapsed,
   screens,
   active,
   sites,
 }: {
   width: number;
+  collapsed: boolean;
   screens: TabScreen[];
   active: TabScreen | null;
   sites: Site[];
@@ -59,23 +62,29 @@ export function Sidebar({
       className="side-item"
       data-roving
       data-screen={s}
-      aria-label={extra ? `${t(s)}: ${extra}` : undefined}
+      aria-label={extra ? `${t(s)}: ${extra}` : collapsed ? t(s) : undefined}
       title={withKey(t(s), `open.${s}`)}
       aria-current={s === active ? "page" : undefined}
       onClick={(e) => open(s, e)}
       onAuxClick={(e) => e.button === 1 && openTab(s)}
     >
       <Icon name={SCREEN_ICON[s]} />
-      <span>{t(s)}</span>
+      <span className="side-label">{t(s)}</span>
       {extra && <span className="side-dot" aria-hidden="true" title={extra} />}
     </button>
   );
 
   return (
-    <aside className="sidebar" style={{ width }} aria-label={t("Side bar")} data-part="sidebar">
+    <aside
+      className="sidebar"
+      data-collapsed={collapsed || undefined}
+      style={collapsed ? undefined : { width }}
+      aria-label={t("Side bar")}
+      data-part="sidebar"
+    >
       <div className="side-brand">
         <Logo size={22} />
-        <span className="side-name">Stackyard</span>
+        <span className="side-name side-label">Stackyard</span>
         <button
           type="button"
           className="icon-btn"
@@ -88,11 +97,17 @@ export function Sidebar({
       </div>
 
       {screens.includes("Sites") && (
-        <button type="button" className="side-new" onClick={() => showScreen("Sites")}>
+        <button
+          type="button"
+          className="side-new"
+          aria-label={collapsed ? t("New site") : undefined}
+          title={collapsed ? t("New site") : undefined}
+          onClick={() => showScreen("Sites")}
+        >
           <span className="side-plus" aria-hidden="true">
             <Icon name="plus" />
           </span>
-          {t("New site")}
+          <span className="side-label">{t("New site")}</span>
         </button>
       )}
 
@@ -102,17 +117,20 @@ export function Sidebar({
 
       {sites.length > 0 && (
         <section className="side-sites" aria-labelledby="side-sites-h">
-          <h2 id="side-sites-h">{t("Your sites")}</h2>
+          <h2 id="side-sites-h" className={collapsed ? "sr-only" : undefined}>
+            {t("Your sites")}
+          </h2>
           {sites.slice(0, SITES_SHOWN).map((site) => (
             <button
               key={site.domain}
               type="button"
               className="side-site"
               title={t("Open {name} in your browser", { name: site.domain })}
+              aria-label={collapsed ? t("Open {name} in your browser", { name: site.domain }) : undefined}
               onClick={() => void api.openLocalPage(site.url)}
             >
               <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
-              <span>{site.domain}</span>
+              <span className="side-label">{site.domain}</span>
             </button>
           ))}
         </section>

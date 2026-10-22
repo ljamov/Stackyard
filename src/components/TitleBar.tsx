@@ -10,13 +10,12 @@ import { setLayout, useLayout } from "../lib/layout";
 /**
  * Stackyard draws its own title bar: the window has no system frame so it
  * can have rounded corners. Drag the bar to move the window, double-click
- * it to maximise. Beside the workbench it has the button that shows or hides
- * the side bar, and the logo while the side bar is hidden.
+ * it to maximise. Beside the workbench it has the button that narrows the
+ * side bar to icons and back; elsewhere (setup) it shows the logo and name.
  */
 export function TitleBar({ onMaximized, workbench = false }: { onMaximized(maximized: boolean): void; workbench?: boolean }) {
   const t = useT();
   const { sideBar } = useLayout();
-  const named = !workbench || !sideBar;
   const [maximized, setMaximized] = useState(false);
   const inApp = isTauri();
 
@@ -48,16 +47,16 @@ export function TitleBar({ onMaximized, workbench = false }: { onMaximized(maxim
         <button
           type="button"
           className="icon-btn titlebar-toggle"
-          aria-label={t("Show or hide the side bar")}
-          aria-pressed={sideBar}
-          title={withKey(t("Show or hide the side bar"), "view.explorer")}
+          aria-label={t("Expand or collapse the side bar")}
+          aria-expanded={sideBar}
+          title={withKey(t("Expand or collapse the side bar"), "view.explorer")}
           onClick={() => setLayout((l) => ({ sideBar: !l.sideBar }))}
         >
           <Icon name="sidebar" />
         </button>
       )}
       <span className="titlebar-name" data-tauri-drag-region>
-        {named && (
+        {!workbench && (
           <>
             <Logo size={16} />
             Stackyard

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { isTabScreen, type TabScreen } from "./screens";
 
 export type Layout = {
+  /** The side bar with screen names; false narrows it to a rail of icons. */
   sideBar: boolean;
   sideBarWidth: number;
   panel: boolean;

@@ -4,6 +4,21 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- A new look. A warm side bar with every screen by name, **New site**, your first few sites and
+  Settings at the bottom; the screen beside it sits on a rounded sheet with softer boxes.
+- **Home** greets you and has a box that runs any command, then your services, sites and runtimes.
+- Services and runtimes show their own logos, and sites the logo of their framework (WordPress,
+  WooCommerce, Laravel, Astro and more). WooCommerce shops are now detected as WooCommerce.
+- The button at the top left, or **Ctrl+B**, narrows the side bar to just its icons and back.
+- The lines beside the side bar and above the panel light up under the pointer; drag them to resize.
+- The status bar has a sun or moon to switch between light and dark, and can be hidden
+  (`statusBar = false` in settings.toml, or the palette).
+- Clicking a screen in the side bar shows it in place of the one shown; Ctrl+click opens it as a
+  tab beside it. The row of tabs only shows while more than one screen is open.
+- Pick any accent color: `accent = "#3fa7d6"` in settings.toml (a picker in Settings comes next).
+
 ## 0.7.0
 
 - A **High contrast** theme in Settings › Appearance: black with bright borders, a thick focus

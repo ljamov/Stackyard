@@ -137,9 +137,15 @@ export function Workbench() {
   return (
     <CommandsProvider value={commands}>
       <div className="workbench" data-side={view.sideBarPosition}>
+        <Sidebar
+          width={layout.sideBarWidth}
+          collapsed={!layout.sideBar}
+          screens={screens}
+          active={active}
+          sites={sites.data}
+        />
         {layout.sideBar && (
           <>
-            <Sidebar width={layout.sideBarWidth} screens={screens} active={active} sites={sites.data} />
             <Sash
               orientation="vertical"
               value={layout.sideBarWidth}

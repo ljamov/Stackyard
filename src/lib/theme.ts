@@ -30,12 +30,9 @@ export const TOKENS = {
   "widget.shadow": { css: "--shadow", description: "Shadow under pop-up help" },
   "logo.primary": { css: "--logo-1", description: "The logo's outer bars" },
   "logo.secondary": { css: "--logo-2", description: "The logo's middle bar" },
-  "activityBar.background": { css: "--activity-bg", description: "The bar of screen icons on the far left" },
   "tab.inactiveBackground": { css: "--tab-inactive", description: "The tab strip and the tabs not shown" },
   "statusBar.background": { css: "--statusbar", description: "The status bar along the bottom" },
   "statusBar.foreground": { css: "--statusbar-fg", description: "Words in the status bar" },
-  "activityBar.foreground": { css: "--activity-fg", description: "The shown screen's icon in the activity bar" },
-  "activityBar.inactiveForeground": { css: "--activity-inactive-fg", description: "The other icons in the activity bar" },
 } as const;
 
 export type TokenId = keyof typeof TOKENS;
@@ -102,12 +99,9 @@ const BASE: Record<ThemeId, BaseColors> = {
     "status.error": "#ff8a80",
     "status.idle": "#7a828e",
     "widget.shadow": "rgba(0, 0, 0, 0.35)",
-    "activityBar.background": "#1e1d1b",
     "tab.inactiveBackground": "#1e1d1b",
     "statusBar.background": "#1e1d1b",
     "statusBar.foreground": "#c4c0b7",
-    "activityBar.foreground": "#ffffff",
-    "activityBar.inactiveForeground": "#a19c93",
     ...CLOSE,
     ...LOGO,
   },
@@ -128,12 +122,9 @@ const BASE: Record<ThemeId, BaseColors> = {
     "status.error": "#c0282d",
     "status.idle": "#7d858f",
     "widget.shadow": "rgba(0, 0, 0, 0.12)",
-    "activityBar.background": "#f1eee7",
     "tab.inactiveBackground": "#f1eee7",
     "statusBar.background": "#f1eee7",
     "statusBar.foreground": "#4f4a43",
-    "activityBar.foreground": "#000000",
-    "activityBar.inactiveForeground": "#6b665d",
     ...CLOSE,
     ...LOGO,
   },
@@ -156,12 +147,9 @@ const BASE: Record<ThemeId, BaseColors> = {
     "status.error": "#ff7b72",
     "status.idle": "#bdbdbd",
     "widget.shadow": "rgba(0, 0, 0, 0)",
-    "activityBar.background": "#000000",
     "tab.inactiveBackground": "#000000",
     "statusBar.background": "#000000",
     "statusBar.foreground": "#ffffff",
-    "activityBar.foreground": "#ffffff",
-    "activityBar.inactiveForeground": "#d6d6d6",
     ...CLOSE,
     ...LOGO,
   },
@@ -284,12 +272,9 @@ const VSCODE_KEYS: Record<TokenId, string[]> = {
   "widget.shadow": ["widget.shadow"],
   "logo.primary": [],
   "logo.secondary": [],
-  "activityBar.background": ["activityBar.background"],
   "tab.inactiveBackground": ["tab.inactiveBackground", "editorGroupHeader.tabsBackground"],
   "statusBar.background": ["statusBar.background"],
   "statusBar.foreground": ["statusBar.foreground"],
-  "activityBar.foreground": ["activityBar.foreground"],
-  "activityBar.inactiveForeground": ["activityBar.inactiveForeground"],
 };
 
 type Rgba = [number, number, number, number];
@@ -385,7 +370,6 @@ export function addedThemeColors(theme: AddedTheme, accent: Accent): ThemeColors
   }
   const shadow = find("widget.shadow");
   if (shadow) colors["widget.shadow"] = `rgba(${shadow.slice(0, 3).join(", ")}, ${shadow[3].toFixed(2)})`;
-  colors["activityBar.background"] = get("activityBar.background", () => parse(colors["sideBar.background"])!);
   colors["tab.inactiveBackground"] = get("tab.inactiveBackground", () => parse(colors["sideBar.background"])!);
   colors["statusBar.background"] = get("statusBar.background", () => parse(colors["sideBar.background"])!);
   // Words on the bars must stay readable on whatever color the theme gives them.
@@ -395,12 +379,6 @@ export function addedThemeColors(theme: AddedTheme, accent: Accent): ThemeColors
     return contrast(value, on) >= 3 ? value : contrast("#ffffff", on) > contrast("#000000", on) ? "#ffffff" : "#000000";
   };
   colors["statusBar.foreground"] = readable("statusBar.foreground", colors["statusBar.background"], colors["foreground.secondary"]);
-  colors["activityBar.foreground"] = readable("activityBar.foreground", colors["activityBar.background"], colors["foreground.strong"]);
-  colors["activityBar.inactiveForeground"] = readable(
-    "activityBar.inactiveForeground",
-    colors["activityBar.background"],
-    colors["foreground.muted"],
-  );
   return colors;
 }
 

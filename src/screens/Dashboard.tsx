@@ -10,14 +10,14 @@ import { frameworkBrand } from "../lib/brands";
 import { openPalette } from "../lib/palette";
 import { keyLabel, keysFor, useKeyChanges } from "../lib/keybindings";
 import type { Screen } from "../lib/screens";
-import { useT } from "../lib/i18n";
+import { useT, type Translate } from "../lib/i18n";
 
 /** How many sites Home lists; the Sites screen has them all. */
 const SITES_SHOWN = 5;
 
-function greeting(hour: number): string {
-  if (hour < 5 || hour >= 18) return "Good evening.";
-  return hour < 12 ? "Good morning." : "Good afternoon.";
+function greeting(t: Translate, hour: number): string {
+  if (hour < 5 || hour >= 18) return t("Good evening.");
+  return hour < 12 ? t("Good morning.") : t("Good afternoon.");
 }
 
 /** Home: a greeting and the box that runs any command, then services, sites and runtimes. */
@@ -40,7 +40,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
         <h1>
           <Logo size={32} />
           <span>
-            {t(greeting(new Date().getHours()))} {t("What are we running?")}
+            {greeting(t, new Date().getHours())} {t("What are we running?")}
           </span>
         </h1>
         <button type="button" className="ask" onClick={() => openPalette("commands")}>
