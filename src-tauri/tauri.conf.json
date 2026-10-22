@@ -39,7 +39,8 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "Local development stack manager",
-    "copyright": "Copyright (c) 2026 Kristijan Ljamov"
+    "copyright": "Copyright (c) 2026 Kristijan Ljamov",
+    "license": "AGPL-3.0-only"
   },
   "plugins": {
     "updater": {

@@ -6,6 +6,8 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- Stackyard is now licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) instead of
+  MIT. Earlier releases stay under MIT.
 - A new look. A warm side bar with every screen by name, **New site**, your first few sites and
   Settings at the bottom; the screen beside it sits on a rounded sheet with softer boxes.
 - **Home** greets you and has a box that runs any command, then your services, sites and runtimes.

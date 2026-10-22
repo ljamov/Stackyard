@@ -74,4 +74,5 @@ npm run build              # type-checks the interface and builds it
   before it is unpacked.
 - **Stay on 127.0.0.1.** Services listen only on the local machine.
 
-By contributing you agree that your work is released under the [MIT License](LICENSE).
+By contributing you agree that your work is released under the
+[GNU Affero General Public License v3.0](LICENSE).
