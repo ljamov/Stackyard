@@ -111,6 +111,11 @@ pub fn save_site_settings(
     store.save().map_err(err)?;
     if after.domain() != before.domain() {
         crate::remote::site_renamed(&before.domain(), &after.domain());
+        stackyard_core::wordpress::env::rename(
+            &stackyard_core::paths::home(),
+            &before.domain(),
+            &after.domain(),
+        );
     }
     // PHP reads its settings only when it starts, so the site's own PHP
     // process starts again with the new ones.

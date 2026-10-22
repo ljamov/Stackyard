@@ -11,7 +11,7 @@ use russh::client::{self, Handle, KeyboardInteractiveAuthResponse};
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::FileAttributes;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use super::{io_error, partial_name, set_mtime, Connection, Entry, OnBytes, Remote};
 use crate::{paths, Error, Result};
@@ -291,14 +291,21 @@ impl Remote for Sftp {
     fn download(&mut self, remote: &str, local: &Path, on_bytes: OnBytes) -> Result<()> {
         let what = format!("Downloading {remote}");
         let mut source = self.step(&what, self.sftp.open(remote))?;
-        let modified = self
-            .step(&what, source.metadata())
-            .ok()
-            .and_then(|m| m.mtime);
+        let meta = self.step(&what, source.metadata()).ok();
+        let modified = meta.as_ref().and_then(|m| m.mtime).map(i64::from);
+        let size = meta.as_ref().and_then(|m| m.size);
         let part = partial_name(local);
-        let mut file = std::fs::File::create(&part).map_err(io_error(&part))?;
+        let (mut file, mut done) = super::open_partial(&part, size, modified)?;
+        if done > 0 {
+            let seek = self.runtime.block_on(async {
+                tokio::time::timeout(STEP_TIMEOUT, source.seek(std::io::SeekFrom::Start(done)))
+                    .await
+            });
+            if !matches!(seek, Ok(Ok(_))) {
+                (file, done) = super::open_partial(&part, None, None)?;
+            }
+        }
         let mut buf = vec![0u8; CHUNK];
-        let mut done = 0u64;
         let copied = loop {
             let read = self.runtime.block_on(async {
                 tokio::time::timeout(STEP_TIMEOUT, source.read(&mut buf)).await
@@ -325,12 +332,11 @@ impl Remote for Sftp {
             let _ = source.shutdown().await;
         });
         if let Err(e) = copied {
-            drop(file);
-            let _ = std::fs::remove_file(&part);
+            super::keep_partial(file, &part, modified);
             return Err(e);
         }
         if let Some(at) = modified {
-            set_mtime(&file, i64::from(at));
+            set_mtime(&file, at);
         }
         drop(file);
         std::fs::rename(&part, local).map_err(io_error(local))
@@ -407,5 +413,50 @@ impl Remote for Sftp {
 
     fn start_dir(&mut self) -> Result<String> {
         self.step("Finding the start folder", self.sftp.canonicalize("."))
+    }
+
+    fn exec(&mut self, command: &str, out: &mut dyn std::io::Write) -> Result<super::Exit> {
+        use russh::ChannelMsg;
+        const KEEP: usize = 8 * 1024;
+        let idle = Duration::from_secs(super::EXEC_IDLE);
+        self.runtime.block_on(async {
+            let mut channel = tokio::time::timeout(STEP_TIMEOUT, self.ssh.channel_open_session())
+                .await
+                .map_err(|_| fail("the server stopped answering"))?
+                .map_err(|e| fail(format!("could not open a session: {e}")))?;
+            channel
+                .exec(true, command)
+                .await
+                .map_err(|e| fail(format!("the server would not run the command: {e}")))?;
+            let mut code = None;
+            let mut errors: Vec<u8> = Vec::new();
+            loop {
+                let message = tokio::time::timeout(idle, channel.wait())
+                    .await
+                    .map_err(|_| fail("the command stopped answering"))?;
+                match message {
+                    Some(ChannelMsg::Data { data }) => {
+                        out.write_all(&data).map_err(|e| fail(e.to_string()))?
+                    }
+                    Some(ChannelMsg::ExtendedData { data, .. }) => {
+                        errors.extend_from_slice(&data);
+                        if errors.len() > KEEP {
+                            errors.drain(..errors.len() - KEEP);
+                        }
+                    }
+                    Some(ChannelMsg::ExitStatus { exit_status }) => code = Some(exit_status),
+                    Some(ChannelMsg::Failure) => {
+                        return Err(fail("the server refused to run commands (no shell access)"))
+                    }
+                    Some(_) => {}
+                    None => break,
+                }
+            }
+            Ok(super::Exit {
+                // No status at all: the server dropped the command (killed, or no shell).
+                code: code.unwrap_or(255),
+                errors: String::from_utf8_lossy(&errors).trim().to_string(),
+            })
+        })
     }
 }

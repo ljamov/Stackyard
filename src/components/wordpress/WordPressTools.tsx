@@ -8,6 +8,7 @@ import {
   type WpCoreUpdate,
   type WpDebug,
   type WpDiskUse,
+  type WpEnvironment,
   type WpExtension,
   type WpKind,
   type WpLog,
@@ -145,11 +146,14 @@ function OverviewTab({ site, overview }: { site: Site; overview: WpOverview }) {
   const { isOn } = useModules();
   const [disk, setDisk] = useState<WpDiskUse | null>(null);
   const [update, setUpdate] = useState<WpCoreUpdate | null>(null);
+  const [env, setEnv] = useState<WpEnvironment | null>(null);
   const action = useAction();
 
   useEffect(() => {
     wp.diskUse(site.domain).then(setDisk).catch(() => setDisk(null));
+    wp.environment(site.domain).then(setEnv).catch(() => setEnv(null));
   }, [site.domain]);
+  const live = env?.live;
 
   return (
     <div className="stack">
@@ -165,6 +169,18 @@ function OverviewTab({ site, overview }: { site: Site; overview: WpOverview }) {
           [t("Database"), `${overview.database ?? "?"} · ${t("tables start with {prefix}", { prefix: overview.prefix })}${overview.database_server ? ` · ${overview.database_server}` : ""}`],
           ...(overview.woocommerce ? ([[t("WooCommerce"), overview.woocommerce]] as [string, ReactNode][]) : []),
           [t("Environment"), overview.environment ?? t("not set")],
+          ...(live
+            ? ([
+                [
+                  t("Live site"),
+                  <>
+                    <span className="mono">{live.url}</span>
+                    {` · ${t("copied {date}", { date: new Date(live.synced_at * 1000).toLocaleString() })}`}
+                    {live.media === "from-live" ? ` · ${t("media loads from the live site")}` : ""}
+                  </>,
+                ],
+              ] as [string, ReactNode][])
+            : []),
           ...(overview.multisite ? ([[t("Multisite"), t("yes")]] as [string, ReactNode][]) : []),
           [
             t("Disk use"),

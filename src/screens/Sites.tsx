@@ -7,6 +7,7 @@ import { useModules } from "../lib/modules";
 import { openTerminal } from "../lib/terminal";
 import { SiteTools } from "../components/SiteTools";
 import { SiteVersions } from "../components/SiteVersions";
+import { CloneSite } from "../components/wordpress/CloneSite";
 import { useT } from "../lib/i18n";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
@@ -45,6 +46,7 @@ export function Sites() {
   const hasTools = ["sitesettings", "sitebackups", "sitetransfer", "share", "remote", "git"].some(isOn);
   const [managing, setManaging] = useState<string | null>(null);
   const [importing, setImporting] = useState<{ path: string; file: SiteFile } | null>(null);
+  const [cloning, setCloning] = useState(false);
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
   // What was typed, as typed; `name` is the address it makes. Rewriting the
@@ -196,12 +198,29 @@ export function Sites() {
           <h1>{t("Sites")}</h1>
           <p className="muted">{t("Local domains with HTTPS, each with its own runtime version.")}</p>
         </div>
-        {isOn("sitetransfer") && (
-          <button type="button" className="btn" onClick={pickImport}>
-            Import site…
-          </button>
-        )}
+        <div className="row">
+          {isOn("wordpress") && isOn("remote") && (
+            <button type="button" className="btn" onClick={() => setCloning(true)}>
+              {t("Clone from a live server…")}
+            </button>
+          )}
+          {isOn("sitetransfer") && (
+            <button type="button" className="btn" onClick={pickImport}>
+              Import site…
+            </button>
+          )}
+        </div>
       </header>
+      {cloning && (
+        <CloneSite
+          onClose={() => setCloning(false)}
+          onCloned={(domain) => {
+            setCloning(false);
+            setManaging(domain);
+            sites.reload();
+          }}
+        />
+      )}
       {importing && (
         <ImportSite
           path={importing.path}

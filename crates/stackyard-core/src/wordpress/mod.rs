@@ -9,6 +9,9 @@
 
 pub mod cli;
 pub mod config;
+pub mod env;
+pub mod helper;
+pub mod live;
 pub mod muplugin;
 pub mod php;
 pub mod replace;
@@ -219,7 +222,7 @@ fn write_text(path: &Path, text: &str) -> Result<()> {
 }
 
 /// `$wp_version = '6.8.3';` → `6.8.3`.
-fn php_variable(text: &str, name: &str) -> Option<String> {
+pub(crate) fn php_variable(text: &str, name: &str) -> Option<String> {
     let at = text.find(&format!("{name} "))?;
     let rest = text[at + name.len()..].trim_start().strip_prefix('=')?;
     let end = rest.find(';')?;

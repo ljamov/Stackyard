@@ -33,6 +33,9 @@ pub fn extract(archive: &Path, dest: &Path) -> Result<PathBuf> {
     if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
         let file = File::open(archive).map_err(|e| fail(e.to_string()))?;
         extract_tar(flate2::read::GzDecoder::new(file), dest).map_err(fail)?;
+    } else if name.ends_with(".tar") {
+        let file = File::open(archive).map_err(|e| fail(e.to_string()))?;
+        extract_tar(file, dest).map_err(fail)?;
     } else if name.ends_with(".tar.xz") {
         let file = File::open(archive).map_err(|e| fail(e.to_string()))?;
         extract_tar(liblzma::read::XzDecoder::new(file), dest).map_err(fail)?;
