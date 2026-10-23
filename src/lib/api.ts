@@ -1054,6 +1054,9 @@ function browserApi(): Api {
     await new Promise((r) => setTimeout(r, 300));
   }
   const starterHandlers = new Set<(p: StarterProgress) => void>();
+  // Like the app, a change to the sites tells every list of them.
+  const sitesHandlers = new Set<() => void>();
+  const sitesChanged = () => setTimeout(() => sitesHandlers.forEach((h) => h()), 0);
   const imageHandlers = new Set<(p: ImagesProgress) => void>();
   const videoHandlers = new Set<(p: VideosProgress) => void>();
   const ffmpegHandlers = new Set<(p: FfmpegProgress) => void>();
@@ -1447,6 +1450,7 @@ function browserApi(): Api {
         https,
       };
       sites = [site, ...sites];
+      sitesChanged();
       return sites;
     },
     listStarters: async () => [
@@ -1455,14 +1459,17 @@ function browserApi(): Api {
       { id: "astro", name: "Astro", description: "A new Astro site; Stackyard runs its dev server" },
     ],
     addStarterSite: async ({ name, starter, path, https }) => {
-      for (const message of ["Downloading… 40%", "Downloading… 100%", "Setting it up…"]) {
+      const what = { wordpress: "WordPress", laravel: "Laravel", astro: "Astro" }[starter] ?? starter;
+      const steps = [`Finding the latest ${what}…`, ...[10, 35, 60, 85, 100].map((p) => `Downloading ${what}… ${p}%`), `Unpacking ${what}…`, "Making the database…"];
+      for (const message of steps) {
         starterHandlers.forEach((h) => h({ name, message }));
-        await new Promise((r) => setTimeout(r, 400));
+        await new Promise((r) => setTimeout(r, 500));
       }
       const runtime = starter === "astro" ? "Node 22" : "PHP 8.4";
       const all = await mock.addSite({ name, path: path || `C:\\stackyard\\www\\${name}`, runtime, https });
       const label = { wordpress: "WordPress", laravel: "Laravel", astro: "Astro" }[starter] ?? null;
       sites = all.map((s) => (s.name === name ? { ...s, framework: label } : s));
+      sitesChanged();
       return sites;
     },
     pickImages: async () => {
@@ -1589,6 +1596,7 @@ function browserApi(): Api {
     },
     removeSite: async (name) => {
       sites = sites.filter((s) => s.domain !== name && s.name !== name);
+      sitesChanged();
       return sites;
     },
     listParked: async () => parked,
@@ -1655,7 +1663,12 @@ function browserApi(): Api {
       terminal = { ...terminal, on, places: on ? ["~/.zshrc"] : [] };
       return terminal;
     },
-    onSitesChanged: async () => () => {},
+    onSitesChanged: async (handler) => {
+      // Its own entry each time, as with the app's events, even for the same function.
+      const entry = () => handler();
+      sitesHandlers.add(entry);
+      return () => sitesHandlers.delete(entry);
+    },
     // The preview has no shell: the terminal answers a few commands from the
     // sample data and repeats anything else.
     consoleOpen: async (folder) => {
@@ -1977,9 +1990,14 @@ function browserApi(): Api {
     },
     pickFiles: async () => [],
     pickSaveFile: async (_title, name) => `/home/you/Downloads/${name}`,
-    siteThumbnail: async (domain) => {
+    siteThumbnail: async (domain, refresh) => {
       const site = sites.find((s) => s.domain === domain);
-      return site?.framework === "WordPress" ? `${import.meta.env.BASE_URL}preview/site.jpg` : null;
+      if (site?.framework === "WordPress") return `${import.meta.env.BASE_URL}preview/site.jpg`;
+      if (refresh) {
+        await new Promise((r) => setTimeout(r, 600));
+        throw `No picture of ${domain}: start the web server (Caddy) first`;
+      }
+      return null;
     },
     siteDatabase: async (domain) => mockSiteDb(domain),
     startSiteDatabase: async (domain) => {

@@ -1,7 +1,7 @@
 # WordPress and WooCommerce
 
-Every WordPress site gets a **WordPress** tab in its tools: open **Sites**, click **Manage** on the
-site's row, then **WordPress**. It covers the everyday jobs that would otherwise need wp-admin or a
+Every WordPress site gets a **WordPress** tab in its tools: open **Sites**, click **Manage** (the
+sliders button) on the site's row, then **WordPress**. It covers the everyday jobs that would otherwise need wp-admin or a
 terminal. It is a module (Settings › Modules › *WordPress tools*); switched off, the tab is gone and
 nothing is downloaded.
 
@@ -242,8 +242,7 @@ Pushing to or pulling from the live site is never offered to them.
 
 ## Overview
 
-The top of the tab works like Local or WordPress Studio: a picture of the site's home page, its
-name and address, the WooCommerce, WordPress and PHP versions, whether its database server runs,
+The top of the tab works like Local or WordPress Studio: the site's name and address, the WooCommerce, WordPress and PHP versions, whether its database server runs,
 and the two buttons used most, **Open site** and **WP Admin**. Under it:
 
 - **Site details**: the domain, the HTTPS certificate, the web server, PHP version, the database
@@ -260,12 +259,14 @@ and the two buttons used most, **Open site** and **WP Admin**. Under it:
 
 ### The site's picture
 
-The picture is a screenshot of the home page taken while the web server runs, by a Chromium
-browser already on the computer (Microsoft Edge, which every Windows has, or Google Chrome,
-Chromium or Brave) running hidden. It is shrunk to a small JPEG in `cache/thumbnails` and taken
-again when it is a day old; **New picture** (over the picture) takes one now. Without such a
-browser, or before the web server first runs, the picture is the active theme's own
-`screenshot.png`. The Sites list shows the same picture for every site.
+The picture at the top of the site's tab is a screenshot of the home page taken while the web
+server runs, by a Chromium browser already on the computer (Microsoft Edge, which every Windows
+has, or Google Chrome, Chromium or Brave) running hidden. It is shrunk to a small JPEG in
+`cache/thumbnails` and taken again when it is a day old; **New picture** (over the picture) takes
+one now, and says why when it can't. A page that comes out blank is tried once more with longer to
+load, and otherwise no picture is kept. Without such a browser, or before the web server first
+runs, the picture is the active theme's own `screenshot.png`, and without that the WordPress logo.
+The Sites list shows the same picture for every site.
 
 ### The database server
 

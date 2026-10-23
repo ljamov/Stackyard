@@ -18,7 +18,6 @@ import {
 } from "../../lib/wordpress";
 import { EnvironmentsTab } from "./Environments";
 import { Icon } from "../Icon";
-import { SiteThumb } from "../SiteThumb";
 import { AutostartCheck, SiteDatabaseNotice, useSiteDatabase } from "../SiteDatabase";
 import "../site-views.css";
 
@@ -124,8 +123,8 @@ export function WordPressTools({ site }: { site: Site }) {
   const shown = tabs.includes(tab) ? tab : "Overview";
   return (
     <div className="wp-view">
+      {/* The site's picture is in its tab's header, above these tabs. */}
       <header className="wp-hero">
-        <SiteThumb site={site} large />
         <div className="wp-hero-main">
           <div className="wp-hero-title">
             <h2>{site.name}</h2>

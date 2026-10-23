@@ -3,7 +3,7 @@ import { Icon, type IconName } from "./Icon";
 import { Logo } from "./Logo";
 import { BrandIcon } from "./BrandIcon";
 import type { Site } from "../lib/api";
-import { frameworkBrand } from "../lib/brands";
+import { siteBrand } from "../lib/brands";
 import { openPalette } from "../lib/palette";
 import { openTab, showNewSite, showScreen, siteTab, type TabId } from "../lib/layout";
 import { useUpdate } from "../lib/updates";
@@ -130,7 +130,7 @@ export function Sidebar({
               aria-current={active === siteTab(site.domain) ? "page" : undefined}
               onClick={() => openTab(siteTab(site.domain))}
             >
-              <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
+              <BrandIcon id={siteBrand(site) ?? ""} fallback="sites" />
               <span className="side-label">{site.domain}</span>
             </button>
           ))}

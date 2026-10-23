@@ -32,7 +32,8 @@ fn read_url(path: &Path) -> Option<String> {
 /// A picture of the site's home page, as a `data:` URL; `None` when there
 /// is none to show. A missing or day-old picture is taken again while the
 /// web server runs (or always with `refresh`); a WordPress site without
-/// one shows its theme's picture.
+/// one shows its theme's picture. With `refresh`, failing to take one is an
+/// error that says why, so the person who asked knows what to fix.
 #[tauri::command]
 pub async fn site_thumbnail(
     app: AppHandle,
@@ -42,6 +43,12 @@ pub async fn site_thumbnail(
     let engine = app.state::<Arc<Engine>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let home = paths::home();
+        // Pictures kept by earlier versions could be blank white boxes.
+        if let Some((path, _)) = thumbnails::cached(&home, &domain) {
+            if std::fs::read(&path).is_ok_and(|b| thumbnails::is_blank(&b)) {
+                thumbnails::forget(&home, &domain);
+            }
+        }
         let cached = thumbnails::cached(&home, &domain);
         if let Some((path, true)) = &cached {
             if !refresh {
@@ -49,25 +56,38 @@ pub async fn site_thumbnail(
             }
         }
         // A site without its database would only show its error page.
-        let serving = matches!(engine.state("caddy"), ProcessState::Running { .. })
-            && status_of(&engine, &domain)
-                .ok()
-                .flatten()
-                .is_none_or(|db| db.running);
-        if serving {
-            if let Some(browser) = thumbnails::browser() {
-                let url = site_views()?
-                    .into_iter()
-                    .find(|s| s.domain == domain)
-                    .map(|s| s.local_url)
-                    .ok_or_else(|| format!("no site named {domain}"))?;
-                let _one = TAKING.lock().unwrap_or_else(|e| e.into_inner());
-                match thumbnails::capture(&home, &browser, &domain, &url) {
-                    Ok(path) => return Ok(read_url(&path)),
-                    Err(e) => eprintln!("picture of {domain}: {e}"),
+        let caddy = matches!(engine.state("caddy"), ProcessState::Running { .. });
+        let database = status_of(&engine, &domain)
+            .ok()
+            .flatten()
+            .is_none_or(|db| db.running);
+        let why = if !caddy {
+            "start the web server (Caddy) first".to_string()
+        } else if !database {
+            "start the site's database server first".to_string()
+        } else if let Some(browser) = thumbnails::browser() {
+            let url = site_views()?
+                .into_iter()
+                .find(|s| s.domain == domain)
+                .map(|s| s.local_url)
+                .ok_or_else(|| format!("no site named {domain}"))?;
+            let _one = TAKING.lock().unwrap_or_else(|e| e.into_inner());
+            match thumbnails::capture(&home, &browser, &domain, &url) {
+                Ok(path) => return Ok(read_url(&path)),
+                Err(e) => {
+                    eprintln!("picture of {domain}: {e}");
+                    e.to_string()
                 }
             }
+        } else {
+            "no Edge, Chrome, Chromium or Brave was found to take it".to_string()
+        };
+        // Asked for a new picture: say why there is none.
+        if refresh {
+            return Err(format!("No picture of {domain}: {why}"));
         }
+        // A blank page leaves no picture behind; look again.
+        let cached = thumbnails::cached(&home, &domain);
         if let Some((path, _)) = cached {
             return Ok(read_url(&path));
         }

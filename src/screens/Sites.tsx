@@ -2,16 +2,15 @@ import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { api, errorText, siteAddress, type PackProgress, type RuntimeFamily, type Site, type SiteFile, type SystemStatus } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
-import { openTerminal } from "../lib/terminal";
-import { openTab, setLayout, siteTab, useLayout } from "../lib/layout";
+import { closeTab, openTab, setLayout, siteTab, useLayout } from "../lib/layout";
 import { Icon } from "../components/Icon";
 import { SiteVersions } from "../components/SiteVersions";
 import { SiteThumb } from "../components/SiteThumb";
 import { SiteDatabaseLine } from "../components/SiteDatabase";
 import { CloneSite } from "../components/wordpress/CloneSite";
 import { useT } from "../lib/i18n";
-import { Progress, packState } from "../components/Progress";
-import { editorName, useCodeEditors } from "../lib/editors";
+import { Progress, packState, type ProgressState } from "../components/Progress";
+import { SiteActions } from "../components/SiteActions";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
 
@@ -26,6 +25,12 @@ function runtimeOptions(families: RuntimeFamily[], isOn: (id: string) => boolean
       })),
     );
   return [{ value: "Auto", label: "Detect from the folder" }, ...options, { value: "Static", label: "Static files" }];
+}
+
+/** A starter's step ("Downloading WordPress… 40%") as words and a bar. */
+function starterState(message: string): ProgressState {
+  const m = /^(.*?)\s*(\d{1,3})%$/.exec(message);
+  return m ? { text: m[1], percent: Math.min(100, Number(m[2])) } : { text: message, percent: null };
 }
 
 /** "My Blog 2" → "my-blog-2": what a typed name becomes in the site's address. */
@@ -66,6 +71,8 @@ export function Sites() {
   const [starter, setStarter] = useState("");
   const [making, setMaking] = useState<string | null>(null);
   const [made, setMade] = useState<Site | null>(null);
+  // The address being made, for the progress box.
+  const [makingDomain, setMakingDomain] = useState("");
   const chosenStarter = starters.data.find((s) => s.id === starter);
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
@@ -121,9 +128,11 @@ export function Sites() {
     e.preventDefault();
     await saveTld();
     setMade(null);
+    setMakingDomain(name + tldDraft);
     let ok: boolean;
     if (chosenStarter) {
-      setMaking(`Making the ${chosenStarter.name} site…`);
+      setMaking(t("Getting ready to make the {name} site…", { name: chosenStarter.name }));
+      setMakingDomain(name + tldDraft);
       let list: Site[] = [];
       ok = await attempt(async () => {
         list = await api.addStarterSite({ name, starter: chosenStarter.id, path: path.trim(), https });
@@ -132,7 +141,10 @@ export function Sites() {
       if (ok) setMade(list.find((s) => s.name === name) ?? null);
     } else {
       // An empty folder means a new folder in the sites folder, made by the app.
+      setMaking(t("Making the folder and adding the site…"));
       ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https }));
+      setMaking(null);
+      if (ok) setMade((await api.listSites()).find((s) => s.name === name) ?? null);
     }
     if (ok) {
       setTypedName("");
@@ -160,7 +172,7 @@ export function Sites() {
   }
 
   async function remove(domain: string) {
-    await attempt(() => api.removeSite(domain));
+    if (await attempt(() => api.removeSite(domain))) closeTab(siteTab(domain));
     sites.reload();
     system.reload();
   }
@@ -276,9 +288,14 @@ export function Sites() {
             <span className="mono">{made.domain}</span> is ready.
             {made.framework === "WordPress" && " Open it to finish WordPress's install (site title and your login)."}
           </span>
-          <button type="button" className="btn small" onClick={() => api.openLocalPage(made.url)}>
-            Open
-          </button>
+          <span className="row">
+            <button type="button" className="btn small" onClick={() => openTab(siteTab(made.domain))}>
+              {t("Manage")}
+            </button>
+            <button type="button" className="btn small primary" onClick={() => api.openLocalPage(made.url)}>
+              {t("Open")}
+            </button>
+          </span>
         </p>
       )}
 
@@ -390,9 +407,13 @@ export function Sites() {
               {chosenStarter && " A starter needs a new or empty folder."}
             </span>
             {making && (
-              <p className="muted small" role="status">
-                {making}
-              </p>
+              <div className="new-site-progress">
+                <strong>{t("Creating {site}", { site: makingDomain })}</strong>
+                <Progress label={t("Creating {site}", { site: makingDomain })} state={starterState(making)} />
+                {chosenStarter && (
+                  <span className="muted small">{t("Downloads and setup can take a few minutes. You can keep using Stackyard.")}</span>
+                )}
+              </div>
             )}
             <div className="row between centered">
               <label className="check">
@@ -505,9 +526,6 @@ function SiteRow({
   onOpen: (open: () => Promise<unknown>) => void;
   system: SystemStatus | null;
 }) {
-  const t = useT();
-  const { isOn } = useModules();
-  const editor = editorName(useCodeEditors());
   const address = siteAddress(site, system);
   return (
     <tr>
@@ -534,55 +552,7 @@ function SiteRow({
       </td>
       <td className="mono muted small">{site.root}</td>
       <td className="right nowrap">
-        <div className="row-actions">
-        {isOn("terminal") && (
-          <button
-            type="button"
-            className="btn ghost small"
-            aria-label={`Open a terminal in ${site.domain}`}
-            title={`Open a terminal in ${site.domain}`}
-            onClick={() => openTerminal(site.path, site.domain)}
-          >
-            Terminal
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn ghost small"
-          aria-label={t("Open the folder of {site}", { site: site.domain })}
-          title={site.path}
-          onClick={() => onOpen(() => api.openSiteFolder(site.domain))}
-        >
-          {t("Open folder")}
-        </button>
-        <button
-          type="button"
-          className="btn ghost small"
-          aria-label={t("Open {site} in {editor}", { site: site.domain, editor })}
-          title={t("Open the folder in {editor}; pick another editor in Settings", { editor })}
-          onClick={() => onOpen(() => api.openSiteInEditor(site.domain))}
-        >
-          {t("Open in {editor}", { editor })}
-        </button>
-        <button
-          type="button"
-          className="btn ghost small"
-          aria-label={`Manage ${site.domain}`}
-          title={`Open ${site.domain} in a tab, with its settings, backups and tools`}
-          onClick={() => openTab(siteTab(site.domain))}
-        >
-          Manage
-        </button>
-        <button
-          type="button"
-          className="btn ghost small"
-          aria-label={`Remove ${site.domain}`}
-          title={t("Take {site} off the list; its folder and files stay", { site: site.domain })}
-          onClick={() => onRemove(site.domain)}
-        >
-          Remove
-        </button>
-        </div>
+        <SiteActions site={site} manage onRun={onOpen} onRemove={() => onRemove(site.domain)} />
       </td>
     </tr>
   );

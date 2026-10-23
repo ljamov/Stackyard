@@ -101,14 +101,30 @@ pub fn browser() -> Option<PathBuf> {
 }
 
 /// Takes a screenshot of `url` with `browser` and keeps it as the
-/// picture of `domain`.
+/// picture of `domain`. A page that comes out blank (still loading, or
+/// white with next to nothing on it) is tried once more with longer to
+/// load; if it is still blank no picture is kept, so the site's logo shows.
 pub fn capture(home: &Path, browser: &Path, domain: &str, url: &str) -> Result<PathBuf> {
     let dir = dir(home);
-    let io = |path: &Path| {
-        let path = path.to_path_buf();
-        move |source| Error::Io { path, source }
-    };
-    std::fs::create_dir_all(&dir).map_err(io(&dir))?;
+    std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
+        path: dir.clone(),
+        source,
+    })?;
+    let dest = file(home, domain);
+    let mut bytes = shoot(&dir, browser, url, 8_000)?;
+    if is_blank(&bytes) {
+        bytes = shoot(&dir, browser, url, 20_000)?;
+        if is_blank(&bytes) {
+            forget(home, domain);
+            return Err(Error::Shell("the page came out blank".into()));
+        }
+    }
+    save_small(&bytes, &dest)?;
+    Ok(dest)
+}
+
+/// One headless screenshot of `url`, letting the page load for `budget_ms`.
+fn shoot(dir: &Path, browser: &Path, url: &str, budget_ms: u32) -> Result<Vec<u8>> {
     let shot = dir.join(format!("{}.png", std::process::id()));
     let _ = std::fs::remove_file(&shot);
     let mut command = Command::new(browser);
@@ -125,7 +141,7 @@ pub fn capture(home: &Path, browser: &Path, domain: &str, url: &str) -> Result<P
         .arg("--ignore-certificate-errors")
         .arg(format!("--user-data-dir={}", dir.join("profile").display()))
         .arg("--window-size=1280,800")
-        .arg("--virtual-time-budget=8000")
+        .arg(format!("--virtual-time-budget={budget_ms}"))
         .arg(format!("--screenshot={}", shot.display()))
         .arg(url)
         .stdin(Stdio::null())
@@ -154,11 +170,34 @@ pub fn capture(home: &Path, browser: &Path, domain: &str, url: &str) -> Result<P
         }
         std::thread::sleep(Duration::from_millis(200));
     }
-    let bytes = std::fs::read(&shot).map_err(io(&shot))?;
+    let bytes = std::fs::read(&shot).map_err(|source| Error::Io {
+        path: shot.clone(),
+        source,
+    })?;
     let _ = std::fs::remove_file(&shot);
-    let dest = file(home, domain);
-    save_small(&bytes, &dest)?;
-    Ok(dest)
+    Ok(bytes)
+}
+
+/// Whether a screenshot is one colour all over, give or take a few specks:
+/// in a thumbnail that is only a white (or grey) box. Unreadable counts as blank.
+pub fn is_blank(bytes: &[u8]) -> bool {
+    let Ok(img) = image::load_from_memory(bytes) else {
+        return true;
+    };
+    let img = img.to_rgb8();
+    let Some(&first) = img.pixels().next() else {
+        return true;
+    };
+    let differs = |p: &image::Rgb<u8>| {
+        p.0.iter()
+            .zip(first.0)
+            .map(|(a, b)| a.abs_diff(b) as u32)
+            .sum::<u32>()
+            > 24
+    };
+    let other = img.pixels().filter(|p| differs(p)).count();
+    // Under half a percent: a word or two of text on an empty page.
+    other * 200 < img.pixels().len()
 }
 
 /// Shrinks an image (PNG, JPEG or WebP) to the picture size, cropping to
@@ -219,6 +258,27 @@ mod tests {
         let jpeg = small_jpeg(&png, WIDTH, HEIGHT).unwrap();
         let back = image::load_from_memory(&jpeg).unwrap();
         assert_eq!((back.width(), back.height()), (WIDTH, HEIGHT));
+    }
+
+    #[test]
+    fn tells_a_blank_page_from_a_real_one() {
+        let png = |img: image::RgbImage| {
+            let mut out = Vec::new();
+            img.write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
+                .unwrap();
+            out
+        };
+        let white = image::RgbImage::from_pixel(400, 250, image::Rgb([255, 255, 255]));
+        assert!(is_blank(&png(white.clone())));
+        // A header bar across the top of a white page is a page.
+        let mut page = white;
+        for y in 0..40 {
+            for x in 0..400 {
+                page.put_pixel(x, y, image::Rgb([30, 60, 120]));
+            }
+        }
+        assert!(!is_blank(&png(page)));
+        assert!(is_blank(b"not a picture"));
     }
 
     #[test]

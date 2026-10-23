@@ -1,3 +1,4 @@
+import "./site-views.css";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   api,
@@ -51,9 +52,9 @@ export function SiteRemote({ site }: { site: Site }) {
   return (
     <div className="stack remote-panel">
       {tabs.length > 1 && (
-        <div className="row wrap" role="group" aria-label="Connect with">
+        <div className="wp-tabs" role="tablist" aria-label="Connect with">
           {tabs.map((t) => (
-            <button key={t} type="button" className="tab" aria-pressed={shown === t} onClick={() => setTab(t)}>
+            <button key={t} type="button" role="tab" className="wp-tab" aria-selected={shown === t} onClick={() => setTab(t)}>
               {t}
             </button>
           ))}

@@ -1,9 +1,16 @@
 # Site settings, backups, moving sites and public links
 
-Open a site's tools with **Manage** on its row on the Sites screen, or by clicking the site in the
-side bar: the site opens in a tab of its own, with its addresses, folder and versions at the top and
-its tools under them. Each part is a module of its own, so any of them can be switched off in
-Settings › Modules.
+Each row on the Sites screen ends in square buttons, named in a tooltip when you point at them:
+**Terminal**, **Open folder**, **Open in** your code editor, **Manage** and **Remove** (the site's
+folder and files stay). Open a site's tools with **Manage**, or by clicking the site in the side
+bar: the site opens in a tab of its own. At the top are its picture, **Open in browser** and the
+same buttons; under them its addresses, folder and versions; then its tools as a row of tabs
+(WordPress, Settings, Backups, Public link, Servers & Git). Each part is a module of its own, so any
+of them can be switched off in Settings › Modules.
+
+The picture is a screenshot of the site's home page (see [the WordPress guide](wordpress.md#the-sites-picture)
+for how it is taken). Until there is one, the site's logo stands in: its framework's, or else its
+runtime's. The camera button over the picture takes a new one, and says why when it can't.
 
 ## Settings
 

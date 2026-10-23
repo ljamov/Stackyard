@@ -6,7 +6,7 @@ import { BrandIcon } from "../components/BrandIcon";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
 import { useModules } from "../lib/modules";
-import { frameworkBrand } from "../lib/brands";
+import { siteBrand } from "../lib/brands";
 import { openPalette } from "../lib/palette";
 import { openTab, showNewSite, siteTab } from "../lib/layout";
 import { keyLabel, keysFor, useKeyChanges } from "../lib/keybindings";
@@ -106,7 +106,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
           )}
           {sites.data.slice(0, SITES_SHOWN).map((site) => (
             <div key={site.domain} className="item">
-              <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
+              <BrandIcon id={siteBrand(site) ?? ""} fallback="sites" />
               <div className="grow">
                 <button
                   type="button"

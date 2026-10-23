@@ -138,8 +138,29 @@ td { padding: 8px 14px; border-top: 1px solid var(--border); }
 .tab[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); font-weight: 500; }
 /* Buttons in a table row or a card's corner: side by side with room between them. */
 .row-actions { display: inline-flex; justify-content: flex-end; align-items: center; gap: 8px; }
-/* Sites rows have five buttons: they wrap onto a second line rather than push the table wider. */
-.sites-table .row-actions { flex-wrap: wrap; max-width: 320px; }
+/* Square buttons with only an icon (components/IconButton.tsx), named in a tooltip. */
+.icon-actions { display: inline-flex; justify-content: flex-end; align-items: center; gap: 6px; }
+.icon-action {
+  flex: none; width: 32px; height: 32px; padding: 0; display: grid; place-items: center; cursor: pointer;
+  border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2);
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+.icon-action svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.icon-action .codicon[class*="codicon-"] { font-size: 16px; }
+.icon-action:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 8%, var(--surface)); border-color: color-mix(in srgb, var(--text) 30%, var(--border-strong)); color: var(--text-strong); }
+.icon-action:active:not(:disabled) { background: color-mix(in srgb, var(--text) 13%, var(--surface)); }
+.icon-action.danger:hover:not(:disabled) { color: var(--error); border-color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--surface)); }
+.icon-action:disabled { opacity: 0.45; cursor: not-allowed; }
+.icon-action[aria-busy="true"] { opacity: 1; cursor: progress; animation: icon-busy 1s ease-in-out infinite alternate; }
+@keyframes icon-busy { from { color: var(--muted); } to { color: var(--accent-ink); } }
+:root[data-density="compact"] .icon-action { width: 28px; height: 28px; }
+:root[data-density="comfortable"] .icon-action { width: 36px; height: 36px; }
+.hover-tip {
+  position: fixed; z-index: 1000; transform: translateX(-50%); pointer-events: none; white-space: nowrap; max-width: 360px;
+  overflow: hidden; text-overflow: ellipsis; padding: 5px 9px; border-radius: 5px; font-size: 12px; line-height: 1.4;
+  background: var(--text-strong); color: var(--bg); box-shadow: 0 4px 14px var(--shadow);
+}
+.hover-tip.above { transform: translate(-50%, -100%); }
 
 /* Form controls. Every text box, list, check box, radio button and slider in the
    app gets the same look here, wherever it sits; the rules further down only

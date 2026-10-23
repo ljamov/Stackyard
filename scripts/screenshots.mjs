@@ -35,9 +35,8 @@ const SHOTS = {
   servers: {
     screen: "Sites",
     prep: async (page) => {
-      await page.getByRole("button", { name: "Manage blog.stack" }).click();
-      await sleep(300);
-      await page.getByRole("button", { name: "Servers & Git", exact: true }).click();
+      await manage(page, "blog.stack");
+      await page.getByRole("tab", { name: "Servers & Git", exact: true }).click();
       await sleep(600);
     },
     after: closeTab,
@@ -46,9 +45,8 @@ const SHOTS = {
   wordpress: {
     screen: "Sites",
     prep: async (page) => {
-      await page.getByRole("button", { name: "Manage legacy.stack" }).click();
-      await sleep(300);
-      await page.getByRole("button", { name: "WordPress", exact: true }).click();
+      await manage(page, "legacy.stack");
+      await page.getByRole("tab", { name: "WordPress", exact: true }).click();
       await sleep(600);
       await page.getByRole("tab", { name: "Environments", exact: true }).click();
       await sleep(800);
@@ -220,4 +218,10 @@ async function open(page, screen) {
 async function closeTab(page) {
   await page.locator(".tab-item[data-active] .tab-close").click({ force: true });
   await sleep(200);
+}
+
+// Opens a site in its own tab with the Manage button on its row.
+async function manage(page, domain) {
+  await page.getByRole("group", { name: `Actions for ${domain}` }).getByRole("button", { name: "Manage" }).click();
+  await sleep(300);
 }
