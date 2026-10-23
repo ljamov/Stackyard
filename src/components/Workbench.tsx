@@ -17,6 +17,10 @@ import { Images } from "../screens/Images";
 import { Videos } from "../screens/Videos";
 import { AiTools } from "../screens/AiTools";
 import { KeyboardShortcuts } from "../screens/KeyboardShortcuts";
+import { ServicePage } from "../screens/ServicePage";
+import { SitePage } from "../screens/SitePage";
+import { BrandIcon } from "./BrandIcon";
+import { frameworkBrand } from "../lib/brands";
 import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 import { api } from "../lib/api";
@@ -24,7 +28,7 @@ import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
 import { SCREENS, isTabScreen, useScreenOn, type TabScreen } from "../lib/screens";
-import { closeTab, openTab, PANEL_HEIGHT, PANEL_WIDTH, setLayout, showScreen, SIDE_BAR_WIDTH, useLayout } from "../lib/layout";
+import { closeTab, openTab, PANEL_HEIGHT, setLayout, showScreen, SIDE_BAR_WIDTH, useLayout, type TabId } from "../lib/layout";
 import { useViewOptions } from "../lib/viewOptions";
 import { CommandsProvider, useWorkbenchCommands } from "../lib/commands";
 import { dispatchKeys, withKey } from "../lib/keybindings";
@@ -37,10 +41,12 @@ import { TERMINAL_COMMANDS } from "../lib/terminal";
 import { useT } from "../lib/i18n";
 import { rovingGroup, rovingKeys } from "../lib/focus";
 
-const tabId = (s: TabScreen) => `tab-${s.replace(/\W+/g, "-")}`;
+const tabId = (s: TabId) => `tab-${s.replace(/\W+/g, "-")}`;
 
-function screen(s: TabScreen): ReactNode {
-  switch (s) {
+function screen(s: TabId): ReactNode {
+  if (s.startsWith("service:")) return <ServicePage key={s} id={s.slice("service:".length)} />;
+  if (s.startsWith("site:")) return <SitePage key={s} domain={s.slice("site:".length)} />;
+  switch (s as TabScreen) {
     case "Dashboard":
       return <Dashboard onNavigate={(to) => isTabScreen(to) && showScreen(to)} />;
     case "Sites":
@@ -70,14 +76,13 @@ function screen(s: TabScreen): ReactNode {
 
 /**
  * The app's window below the title bar: the side bar, the shown screen (with
- * a row of tabs once more than one is open), the panel with Problems and Logs,
- * and the status bar. Its layout is kept between runs (lib/layout.ts).
+ * a row of tabs once more than one is open), the panel with Problems, Logs and
+ * Terminal across the whole width under both, and the status bar. Its layout is kept between runs (lib/layout.ts).
  */
 export function Workbench() {
   const t = useT();
   const layout = useLayout();
   const view = useViewOptions();
-  const panelRight = view.panelPosition === "right";
   const on = useScreenOn();
   const { modules, isOn } = useModules();
   const services = useServices();
@@ -88,7 +93,25 @@ export function Workbench() {
   const terminalOn = isOn("terminal");
   // Until the module switches load, every screen counts as off; keep the tabs.
   const loaded = modules.length > 0;
-  const tabs = loaded ? layout.tabs.filter(on) : layout.tabs;
+  const tabOn = (id: TabId) =>
+    isTabScreen(id) ? on(id) : id.startsWith("service:") ? isOn(id.slice("service:".length)) : true;
+  const tabs = loaded ? layout.tabs.filter(tabOn) : layout.tabs;
+  // A service or site tab always shows the row of tabs, so it can be closed.
+  const showTabs = tabs.length > 1 || tabs.some((x) => !isTabScreen(x));
+  /** A tab's name: the screen's, the service's or the site's. */
+  const tabTitle = (id: TabId): string =>
+    id.startsWith("service:")
+      ? (services.services.find((x) => `service:${x.id}` === id)?.name ?? id.slice("service:".length))
+      : id.startsWith("site:")
+        ? id.slice("site:".length)
+        : t(id);
+  /** The logo before a service's or site's tab name. */
+  const tabIcon = (id: TabId): ReactNode => {
+    if (id.startsWith("service:")) return <BrandIcon id={id.slice("service:".length)} />;
+    if (!id.startsWith("site:")) return null;
+    const site = sites.data.find((x) => `site:${x.domain}` === id);
+    return <BrandIcon id={frameworkBrand(site?.framework ?? null) ?? ""} fallback="sites" />;
+  };
   const active = layout.active && tabs.includes(layout.active) ? layout.active : (tabs[0] ?? null);
   const panel = layout.panel;
   // Logs or Terminal switched off: the panel shows Problems.
@@ -143,212 +166,193 @@ export function Workbench() {
 
   return (
     <CommandsProvider value={commands}>
-      <div className="workbench" data-side={view.sideBarPosition}>
-        <Sidebar
-          width={layout.sideBarWidth}
-          collapsed={!layout.sideBar}
-          screens={screens}
-          active={active}
-          sites={sites.data}
-        />
-        {layout.sideBar && (
-          <>
-            <Sash
-              orientation="vertical"
-              value={layout.sideBarWidth}
-              {...SIDE_BAR_WIDTH}
-              invert={view.sideBarPosition === "right"}
-              onChange={(sideBarWidth) => setLayout({ sideBarWidth })}
-              label={t("Resize the side bar")}
-            />
-          </>
-        )}
-        <div className="editor-column" data-panel={view.panelPosition}>
-          <div className="editor" data-part="editor">
-            {tabs.length > 1 && (
-              <div
-                ref={rovingGroup}
-                className="tabs"
-                role="tablist"
-                aria-label={t("Open screens")}
-                onKeyDown={(e) => {
-                  rovingKeys(e, "horizontal");
-                  const s = (e.target as HTMLElement).dataset.tab as TabScreen | undefined;
-                  if (s && e.key === "Delete") {
-                    e.preventDefault();
-                    closeTab(s);
-                    // Focus stays in the tabs, on the one shown next.
-                    requestAnimationFrame(() =>
-                      document.querySelector<HTMLElement>('.tabs [data-roving][tabindex="0"], .editor-empty')?.focus(),
-                    );
-                  }
-                }}
-              >
-                {tabs.map((s) => (
-                  <div key={s} className="tab-item" data-active={s === active || undefined}>
-                    <button
-                      type="button"
-                      role="tab"
-                      id={tabId(s)}
-                      className="tab-label"
-                      data-roving
-                      data-tab={s}
-                      aria-selected={s === active}
-                      aria-controls={s === active ? "editor-content" : undefined}
-                      onClick={() => openTab(s)}
-                      onAuxClick={(e) => e.button === 1 && closeTab(s)}
-                    >
-                      {t(s)}
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-btn tab-close"
-                      tabIndex={-1}
-                      aria-label={t("Close {name}", { name: t(s) })}
-                      title={withKey(t("Close {name}", { name: t(s) }), "tab.close")}
-                      onClick={() => closeTab(s)}
-                    >
-                      <Icon name="close" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            {active ? (
-              <main
-                id="editor-content"
-                className="content"
-                role={tabs.length > 1 ? "tabpanel" : undefined}
-                aria-labelledby={tabs.length > 1 ? tabId(active) : undefined}
-                aria-label={tabs.length > 1 ? undefined : t(active)}
-                tabIndex={-1}
-              >
-                <UpdateNotice />
-                {screen(active)}
-              </main>
-            ) : (
-              <main className="editor-empty" tabIndex={-1}>
-                <Logo size={64} />
-                <p>{t("Open a screen from the side bar.")}</p>
-              </main>
-            )}
-          </div>
-          {panel && (
+      <div className="workbench-area">
+        <div className="workbench" data-side={view.sideBarPosition}>
+          <Sidebar width={layout.sideBarWidth} collapsed={!layout.sideBar} screens={screens} active={active} sites={sites.data} />
+          {layout.sideBar && (
             <>
-              {panelRight ? (
-                <Sash
-                  orientation="vertical"
-                  value={layout.panelWidth}
-                  {...PANEL_WIDTH}
-                  invert
-                  onChange={(panelWidth) => setLayout({ panelWidth })}
-                  label={t("Resize the panel")}
-                />
-              ) : (
-                <Sash
-                  orientation="horizontal"
-                  value={layout.panelHeight}
-                  {...PANEL_HEIGHT}
-                  invert
-                  onChange={(panelHeight) => setLayout({ panelHeight })}
-                  label={t("Resize the panel")}
-                />
-              )}
-              <section
-                className="panel"
-                style={panelRight ? { width: layout.panelWidth } : { height: layout.panelHeight }}
-                aria-label={t("Panel")}
-                data-part="panel"
-              >
-                <div className="panel-header">
-                  <div
-                    ref={rovingGroup}
-                    className="panel-tabs"
-                    role="tablist"
-                    aria-label={t("Panel")}
-                    onKeyDown={(e) => rovingKeys(e, "horizontal")}
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      id="panel-tab-problems"
-                      className="panel-tab"
-                      data-roving
-                      aria-selected={panelTab === "problems"}
-                      aria-controls="panel-body"
-                      onClick={() => setLayout({ panelTab: "problems" })}
-                    >
-                      {t("Problems")}
-                      {problems.length > 0 && <span className="count">{problems.length}</span>}
-                    </button>
-                    {logsOn && (
-                      <button
-                        type="button"
-                        role="tab"
-                        id="panel-tab-logs"
-                        className="panel-tab"
-                        data-roving
-                        aria-selected={panelTab === "logs"}
-                        aria-controls="panel-body"
-                        onClick={() => setLayout({ panelTab: "logs" })}
-                      >
-                        {t("Logs")}
-                      </button>
-                    )}
-                    {terminalOn && (
-                      <button
-                        type="button"
-                        role="tab"
-                        id="panel-tab-terminal"
-                        className="panel-tab"
-                        data-roving
-                        aria-selected={panelTab === "terminal"}
-                        aria-controls="panel-body"
-                        onClick={() => setLayout({ panelTab: "terminal" })}
-                      >
-                        {t("Terminal")}
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    aria-label={t("Hide the panel")}
-                    title={withKey(t("Hide the panel"), "view.panel")}
-                    onClick={togglePanel}
-                  >
-                    <Icon name="close" />
-                  </button>
-                </div>
-                <div
-                  id="panel-body"
-                  className={panelTab === "terminal" ? "panel-body flush" : "panel-body"}
-                  role="tabpanel"
-                  aria-labelledby={`panel-tab-${panelTab}`}
-                >
-                  {panelTab === "logs" ? (
-                    <Logs inPanel />
-                  ) : panelTab === "terminal" ? (
-                    <TerminalPane sites={sites.data} />
-                  ) : (
-                    <ProblemsList problems={problems} />
-                  )}
-                </div>
-              </section>
+              <Sash
+                orientation="vertical"
+                value={layout.sideBarWidth}
+                {...SIDE_BAR_WIDTH}
+                invert={view.sideBarPosition === "right"}
+                onChange={(sideBarWidth) => setLayout({ sideBarWidth })}
+                label={t("Resize the side bar")}
+              />
             </>
           )}
+          <div className="editor-column">
+            <div className="editor" data-part="editor">
+              {showTabs && (
+                <div
+                  ref={rovingGroup}
+                  className="tabs"
+                  role="tablist"
+                  aria-label={t("Open screens")}
+                  onKeyDown={(e) => {
+                    rovingKeys(e, "horizontal");
+                    const s = (e.target as HTMLElement).dataset.tab as TabId | undefined;
+                    if (s && e.key === "Delete") {
+                      e.preventDefault();
+                      closeTab(s);
+                      // Focus stays in the tabs, on the one shown next.
+                      requestAnimationFrame(() =>
+                        document.querySelector<HTMLElement>('.tabs [data-roving][tabindex="0"], .editor-empty')?.focus(),
+                      );
+                    }
+                  }}
+                >
+                  {tabs.map((s) => (
+                    <div key={s} className="tab-item" data-active={s === active || undefined}>
+                      <button
+                        type="button"
+                        role="tab"
+                        id={tabId(s)}
+                        className="tab-label"
+                        data-roving
+                        data-tab={s}
+                        aria-selected={s === active}
+                        aria-controls={s === active ? "editor-content" : undefined}
+                        onClick={() => openTab(s)}
+                        onAuxClick={(e) => e.button === 1 && closeTab(s)}
+                      >
+                        {tabIcon(s)}
+                        {tabTitle(s)}
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn tab-close"
+                        tabIndex={-1}
+                        aria-label={t("Close {name}", { name: tabTitle(s) })}
+                        title={withKey(t("Close {name}", { name: tabTitle(s) }), "tab.close")}
+                        onClick={() => closeTab(s)}
+                      >
+                        <Icon name="close" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {active ? (
+                <main
+                  id="editor-content"
+                  className="content"
+                  role={showTabs ? "tabpanel" : undefined}
+                  aria-labelledby={showTabs ? tabId(active) : undefined}
+                  aria-label={showTabs ? undefined : tabTitle(active)}
+                  tabIndex={-1}
+                >
+                  <UpdateNotice />
+                  {screen(active)}
+                </main>
+              ) : (
+                <main className="editor-empty" tabIndex={-1}>
+                  <Logo size={64} />
+                  <p>{t("Open a screen from the side bar.")}</p>
+                </main>
+              )}
+            </div>
+          </div>
         </div>
+        {panel && (
+          <>
+            <Sash
+              orientation="horizontal"
+              value={layout.panelHeight}
+              {...PANEL_HEIGHT}
+              invert
+              onChange={(panelHeight) => setLayout({ panelHeight })}
+              label={t("Resize the panel")}
+            />
+            <section className="panel" style={{ height: layout.panelHeight }} aria-label={t("Panel")} data-part="panel">
+              <div className="panel-header">
+                <div
+                  ref={rovingGroup}
+                  className="panel-tabs"
+                  role="tablist"
+                  aria-label={t("Panel")}
+                  onKeyDown={(e) => rovingKeys(e, "horizontal")}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    id="panel-tab-problems"
+                    className="panel-tab"
+                    data-roving
+                    aria-selected={panelTab === "problems"}
+                    aria-controls="panel-body"
+                    onClick={() => setLayout({ panelTab: "problems" })}
+                  >
+                    {t("Problems")}
+                    {problems.length > 0 && <span className="count">{problems.length}</span>}
+                  </button>
+                  {logsOn && (
+                    <button
+                      type="button"
+                      role="tab"
+                      id="panel-tab-logs"
+                      className="panel-tab"
+                      data-roving
+                      aria-selected={panelTab === "logs"}
+                      aria-controls="panel-body"
+                      onClick={() => setLayout({ panelTab: "logs" })}
+                    >
+                      {t("Logs")}
+                    </button>
+                  )}
+                  {terminalOn && (
+                    <button
+                      type="button"
+                      role="tab"
+                      id="panel-tab-terminal"
+                      className="panel-tab"
+                      data-roving
+                      aria-selected={panelTab === "terminal"}
+                      aria-controls="panel-body"
+                      onClick={() => setLayout({ panelTab: "terminal" })}
+                    >
+                      {t("Terminal")}
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label={t("Hide the panel")}
+                  title={withKey(t("Hide the panel"), "view.panel")}
+                  onClick={togglePanel}
+                >
+                  <Icon name="close" />
+                </button>
+              </div>
+              <div
+                id="panel-body"
+                className={panelTab === "terminal" ? "panel-body flush" : "panel-body"}
+                role="tabpanel"
+                aria-labelledby={`panel-tab-${panelTab}`}
+              >
+                {panelTab === "logs" ? (
+                  <Logs inPanel />
+                ) : panelTab === "terminal" ? (
+                  <TerminalPane sites={sites.data} />
+                ) : (
+                  <ProblemsList problems={problems} />
+                )}
+              </div>
+            </section>
+          </>
+        )}
       </div>
       {view.statusBar && (
         <StatusBar
-        shownServices={shownServices}
-        siteCount={sites.data.length}
-        logsOn={logsOn}
-        terminalOn={terminalOn}
-        panel={panel}
-        panelTab={panelTab}
-        problemCount={problems.length}
-        onOpen={showScreen}
+          shownServices={shownServices}
+          siteCount={sites.data.length}
+          logsOn={logsOn}
+          terminalOn={terminalOn}
+          panel={panel}
+          panelTab={panelTab}
+          problemCount={problems.length}
+          onOpen={showScreen}
         />
       )}
       {palette && <CommandPalette mode={palette} commands={commands} places={places} themes={themes} />}

@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useT } from "../lib/i18n";
 import { Logo } from "./Logo";
 import { Icon } from "./Icon";
+import { ThemeSwitch } from "./ThemeSwitch";
 import { withKey } from "../lib/keybindings";
 import { setLayout, useLayout } from "../lib/layout";
 
@@ -12,6 +13,8 @@ import { setLayout, useLayout } from "../lib/layout";
  * can have rounded corners. Drag the bar to move the window, double-click
  * it to maximise. Beside the workbench it has the button that narrows the
  * side bar to icons and back; elsewhere (setup) it shows the logo and name.
+ * On the right, before the window buttons, the sun or moon switches between
+ * the light and dark themes.
  */
 export function TitleBar({ onMaximized, workbench = false }: { onMaximized(maximized: boolean): void; workbench?: boolean }) {
   const t = useT();
@@ -63,6 +66,7 @@ export function TitleBar({ onMaximized, workbench = false }: { onMaximized(maxim
           </>
         )}
       </span>
+      <ThemeSwitch className="icon-btn titlebar-theme" />
       {inApp && (
         <div className="titlebar-buttons">
           <button type="button" className="titlebar-btn" aria-label={t("Minimise")} onClick={() => win().minimize()}>

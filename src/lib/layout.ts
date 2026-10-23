@@ -4,25 +4,34 @@
 import { useEffect, useState } from "react";
 import { isTabScreen, type TabScreen } from "./screens";
 
+/**
+ * What a tab shows: a screen, one service ("service:mysql") or one site
+ * ("site:blog.stack"), each of which can be open in a tab of its own.
+ */
+export type TabId = TabScreen | `service:${string}` | `site:${string}`;
+
+export const serviceTab = (id: string): TabId => `service:${id}`;
+export const siteTab = (domain: string): TabId => `site:${domain}`;
+
+export const isTabId = (x: unknown): x is TabId =>
+  isTabScreen(x) || (typeof x === "string" && /^(service|site):./.test(x));
+
 export type Layout = {
   /** The side bar with screen names; false narrows it to a rail of icons. */
   sideBar: boolean;
   sideBarWidth: number;
   panel: boolean;
   panelHeight: number;
-  /** The panel's width when it sits on the right (Settings › Appearance). */
-  panelWidth: number;
   /** What the bottom panel shows. */
   panelTab: PanelTab;
-  tabs: TabScreen[];
-  active: TabScreen | null;
+  tabs: TabId[];
+  active: TabId | null;
 };
 
 export type PanelTab = "problems" | "logs" | "terminal";
 
 export const SIDE_BAR_WIDTH = { min: 170, max: 480 };
 export const PANEL_HEIGHT = { min: 120, max: 720 };
-export const PANEL_WIDTH = { min: 240, max: 960 };
 
 const KEY = "stackyard.layout";
 const DEFAULT: Layout = {
@@ -30,7 +39,6 @@ const DEFAULT: Layout = {
   sideBarWidth: 240,
   panel: false,
   panelHeight: 260,
-  panelWidth: 420,
   panelTab: "logs",
   tabs: ["Dashboard"],
   active: "Dashboard",
@@ -42,16 +50,15 @@ const clamp = (n: unknown, { min, max }: { min: number; max: number }, fallback:
 function loadLayout(): Layout {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Record<keyof Layout, unknown>>;
-    const tabs = Array.isArray(saved.tabs) ? [...new Set(saved.tabs.filter(isTabScreen))] : DEFAULT.tabs;
+    const tabs = Array.isArray(saved.tabs) ? [...new Set(saved.tabs.filter(isTabId))] : DEFAULT.tabs;
     return {
       sideBar: typeof saved.sideBar === "boolean" ? saved.sideBar : DEFAULT.sideBar,
       sideBarWidth: clamp(saved.sideBarWidth, SIDE_BAR_WIDTH, DEFAULT.sideBarWidth),
       panel: typeof saved.panel === "boolean" ? saved.panel : DEFAULT.panel,
       panelHeight: clamp(saved.panelHeight, PANEL_HEIGHT, DEFAULT.panelHeight),
-      panelWidth: clamp(saved.panelWidth, PANEL_WIDTH, DEFAULT.panelWidth),
       panelTab: saved.panelTab === "problems" || saved.panelTab === "terminal" ? saved.panelTab : DEFAULT.panelTab,
       tabs,
-      active: isTabScreen(saved.active) && tabs.includes(saved.active) ? saved.active : (tabs[0] ?? null),
+      active: isTabId(saved.active) && tabs.includes(saved.active) ? saved.active : (tabs[0] ?? null),
     };
   } catch {
     return DEFAULT;
@@ -85,8 +92,8 @@ export function togglePanelTab(tab: PanelTab) {
   setLayout(({ panel, panelTab }) => (panel && panelTab === tab ? { panel: false } : { panel: true, panelTab: tab }));
 }
 
-/** Shows a screen, opening its tab after the current one if it isn't open. */
-export function openTab(screen: TabScreen) {
+/** Shows a screen, service or site, opening its tab after the current one if it isn't open. */
+export function openTab(screen: TabId) {
   setLayout(({ tabs, active }) => {
     if (tabs.includes(screen)) return { active: screen };
     const at = active ? tabs.indexOf(active) + 1 : tabs.length;
@@ -99,7 +106,7 @@ export function openTab(screen: TabScreen) {
  * a screen that already has a tab is just shown. openTab() keeps the shown one
  * open beside it instead.
  */
-export function showScreen(screen: TabScreen) {
+export function showScreen(screen: TabId) {
   setLayout(({ tabs, active }) => {
     if (tabs.includes(screen)) return { active: screen };
     if (!active || !tabs.includes(active)) return { tabs: [...tabs, screen], active: screen };
@@ -108,7 +115,7 @@ export function showScreen(screen: TabScreen) {
 }
 
 /** Closes a tab; the one beside it is shown if it was the shown one. */
-export function closeTab(screen: TabScreen) {
+export function closeTab(screen: TabId) {
   setLayout(({ tabs, active }) => {
     const at = tabs.indexOf(screen);
     const rest = tabs.filter((s) => s !== screen);

@@ -31,12 +31,13 @@ export function Services() {
         ))}
       </div>
 
-      {logService && <LogPanel id={logService.id} name={logService.name} onClose={() => setLogFor(null)} />}
+      {logService && <ServiceLog id={logService.id} name={logService.name} onClose={() => setLogFor(null)} />}
     </>
   );
 }
 
-function LogPanel({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
+/** A service's own log, read again every two seconds; `onClose` adds a Close button. */
+export function ServiceLog({ id, name, onClose }: { id: string; name: string; onClose?: () => void }) {
   const t = useT();
   const [lines, setLines] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -60,9 +61,11 @@ function LogPanel({ id, name, onClose }: { id: string; name: string; onClose: ()
     <section aria-label={t("{name} log", { name })} className="card stack">
       <div className="row between">
         <h2>{t("{name} log", { name })}</h2>
-        <button type="button" className="btn ghost small" onClick={onClose}>
-          {t("Close")}
-        </button>
+        {onClose && (
+          <button type="button" className="btn ghost small" onClick={onClose}>
+            {t("Close")}
+          </button>
+        )}
       </div>
       {error && <p className="error small">{error}</p>}
       <pre className="code mono small log">{lines.length ? lines.join("\n") : t("Nothing logged yet.")}</pre>

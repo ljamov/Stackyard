@@ -7,13 +7,14 @@ import { api, type Site } from "./api";
 import { ACCENTS, endPreview, previewTheme, setAppearance, THEMES, useAddedThemes, useAppearance } from "./appearance";
 import { importThemeFromFile } from "./themeImport";
 import { currentViewOptions, DEFAULT_VIEW, DENSITIES, ICON_THEMES, setViewOptions, useViewOptions, zoomBy } from "./viewOptions";
-import { closeTab, cycleTab, openTab, setLayout, showScreen, togglePanelTab } from "./layout";
+import { closeTab, cycleTab, openTab, setLayout, showScreen, siteTab, togglePanelTab } from "./layout";
 import { openTerminal } from "./terminal";
 import { openPalette } from "./palette";
 import { focusPart } from "./focus";
 import { checkForUpdate } from "./updates";
 import type { ServicesHook } from "./useServices";
 import type { TabScreen } from "./screens";
+import type { TabId } from "./layout";
 import { useT } from "./i18n";
 
 export type Command = {
@@ -44,8 +45,8 @@ export function useWorkbenchCommands({
   sites: Site[];
   logsOn: boolean;
   terminalOn: boolean;
-  tabs: TabScreen[];
-  active: TabScreen | null;
+  tabs: TabId[];
+  active: TabId | null;
 }): { commands: Command[]; places: Command[]; themes: Command[] } {
   const t = useT();
   const added = useAddedThemes();
@@ -146,12 +147,6 @@ export function useWorkbenchCommands({
         title: options.sideBarPosition === "left" ? t("Move the side bar to the right") : t("Move the side bar to the left"),
         run: () => setViewOptions({ sideBarPosition: options.sideBarPosition === "left" ? "right" : "left" }),
       },
-      {
-        id: "view.panelPosition",
-        category: view,
-        title: options.panelPosition === "bottom" ? t("Move the panel to the right") : t("Move the panel to the bottom"),
-        run: () => setViewOptions({ panelPosition: options.panelPosition === "bottom" ? "right" : "bottom" }),
-      },
       ...DENSITIES.map((d) => ({ id: `density.${d.id}`, category: t("Density"), title: t(d.label), run: () => setViewOptions({ density: d.id }) })),
       ...ICON_THEMES.map((i) => ({ id: `icons.${i.id}`, category: t("Icons"), title: t(i.label), run: () => setViewOptions({ iconTheme: i.id }) })),
       ...ACCENTS.map((a) => ({ id: `accent.${a.id}`, category: t("Accent color"), title: t(a.label), run: () => setAppearance({ accent: a.id }) })),
@@ -174,7 +169,7 @@ export function useWorkbenchCommands({
         category: t("Sites"),
         title: site.domain,
         detail: site.runtime,
-        run: () => void api.openLocalPage(site.url),
+        run: () => openTab(siteTab(site.domain)),
       })),
       ...screens.map((s) => ({ id: `place.screen.${s}`, category: open, title: t(s), run: () => showScreen(s) })),
     ];
