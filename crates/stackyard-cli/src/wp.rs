@@ -87,6 +87,9 @@ pub struct CloneArgs {
     /// Serve the copy over plain HTTP
     #[arg(long)]
     no_https: bool,
+    /// When a site of this name exists, back it up and replace it with the copy
+    #[arg(long)]
+    replace: bool,
 }
 
 #[derive(Subcommand)]
@@ -342,6 +345,7 @@ fn clone(args: CloneArgs) -> Result<()> {
             Media::Download
         },
         https: !args.no_https,
+        replace: args.replace,
         ..CloneOptions::default()
     };
     let cloned = live::clone(&home, &sessions, &source, &options, &mut progress());

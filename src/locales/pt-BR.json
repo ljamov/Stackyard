@@ -765,5 +765,10 @@
   "New prefix": "Novo prefixo",
   "Renaming the tables to {prefix}…": "Renomeando as tabelas para {prefix}…",
   "The tables now start with {prefix}. The database as it was is backed up as {file} (Databases screen).": "As tabelas agora começam com {prefix}. O banco de dados como estava foi salvo como {file} (tela Bancos de dados).",
-  "Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.": "Letras, números e sublinhados, ex.: shop_. Todas as tabelas são renomeadas, com as funções e configurações de usuário que levam o prefixo, e o wp-config.php é atualizado. Antes é feito um backup."
+  "Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.": "Letras, números e sublinhados, ex.: shop_. Todas as tabelas são renomeadas, com as funções e configurações de usuário que levam o prefixo, e o wp-config.php é atualizado. Antes é feito um backup.",
+  "Stackyard found the server, but needs the live site's address to read its database. Type it above, e.g. https://example.com, and press Look for WordPress again.": "O Stackyard encontrou o servidor, mas precisa do endereço do site ao vivo para ler o banco de dados. Digite-o acima, por ex. https://example.com, e clique de novo em Procurar o WordPress.",
+  "A site named {domain} already exists.": "Já existe um site chamado {domain}.",
+  "Replace it with the copy. Stackyard backs it up first (files and database), so you can restore it under Manage › Backups.": "Substituir pela cópia. O Stackyard faz um backup antes (arquivos e banco de dados), para você restaurá-lo em Gerenciar › Backups.",
+  "Use {name} instead": "Usar {name}",
+  "Replace and clone": "Substituir e clonar"
 }

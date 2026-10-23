@@ -23,6 +23,17 @@ Update button, and the app shows its own version's section after it updates.
   (C:\stackyard\www on Windows). The site was taken off the list and then came straight back as a
   parked site. Removed sites now stay off the list; their folder and files are kept. Parked sites
   have a Remove button too, and an error from Remove or Open now scrolls into view.
+- **Clone from a live server finds the site's address by itself.** When the server can't run
+  Stackyard's PHP helper from the command line (FTP, file-transfer-only SFTP, or SSH without a
+  usable `php`), Stackyard reads the address from the live database or tries the domains in the
+  WordPress folder's path and the server's name. Only when none answers does it ask, as a note
+  under the **Live site's address** box instead of an error.
+- SSH servers are no longer taken for shell-less ones when they print a greeting before each
+  command, or when `php` is missing from a non-interactive login's PATH or is the CGI build
+  (Stackyard also looks in /usr/local/bin, /usr/bin and the cPanel, CloudLinux and Plesk PHP folders).
+- **Cloning onto a name that is taken** no longer stops with "a site named … already exists".
+  Stackyard offers to **replace** that site (it backs up its files and database first, restorable
+  under Manage › Backups) or to use the next free name. `stackyard wp clone --replace` does the same.
 
 ## 0.10.0
 

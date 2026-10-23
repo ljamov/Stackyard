@@ -147,6 +147,10 @@ pub struct CloneOptions {
     /// address, folder and database are named after it.
     #[serde(default)]
     pub staging_of: Option<String>,
+    /// When a site of this name already exists, back it up and put the
+    /// copy in its place (its folder and database are replaced).
+    #[serde(default)]
+    pub replace: bool,
 }
 
 fn yes() -> bool {
@@ -213,6 +217,8 @@ pub(super) struct Server<'a> {
     pub(super) db: DbSettings,
     pub(super) shell: bool,
     pub(super) php_cli: bool,
+    /// The server's command-line PHP, when `php_cli`.
+    pub(super) php_bin: String,
     pub(super) dump_tool: Option<String>,
     /// The dump tool takes `--column-statistics=0` (MySQL 8's does, and
     /// needs it against MariaDB and older servers).
@@ -221,6 +227,73 @@ pub(super) struct Server<'a> {
     pub(super) siteurl: Option<String>,
     pub(super) helper: Option<Helper>,
     pub(super) http: ureq::Agent,
+}
+
+/// The end of the message that asks for the live site's address; the
+/// clone screen looks for it to point at the address box.
+pub const NEED_ADDRESS: &str =
+    "Type it in the Live site's address box, e.g. https://example.com, and look again.";
+
+/// Prints `SYPHP=<path>` for the first command-line PHP that runs.
+const FIND_PHP: &str = r#"for p in php php-cli /usr/local/bin/php /usr/bin/php /opt/cpanel/ea-php*/root/usr/bin/php /opt/alt/php*/usr/bin/php /opt/plesk/php/*/bin/php; do v=$("$p" -q -r 'echo "SYPHP:".PHP_VERSION;' 2>/dev/null) || continue; case "$v" in *SYPHP:[0-9]*) echo "SYPHP=$(command -v "$p" || echo "$p")"; exit 0;; esac; done; exit 1"#;
+
+/// The first line that is an absolute path, past any greeting.
+fn first_path(out: &str) -> Option<String> {
+    out.lines()
+        .map(str::trim)
+        .find(|l| l.starts_with('/'))
+        .map(str::to_string)
+}
+
+/// Whether `text` reads like a public domain, e.g. `example.com`.
+fn looks_like_domain(text: &str) -> bool {
+    let labels: Vec<&str> = text.split('.').collect();
+    labels.len() >= 2
+        && labels.iter().all(|l| {
+            !l.is_empty()
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        && labels
+            .last()
+            .is_some_and(|tld| tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_alphabetic()))
+        && !matches!(
+            labels.last().copied(),
+            Some("php" | "html" | "local" | "stack" | "test" | "localhost" | "internal" | "lan")
+        )
+}
+
+/// Domains named in a WordPress folder's path (e.g. `/home/u/domains/example.com/public_html/blog`),
+/// last first, and the part of the path under the web folder (`/blog`).
+fn path_domains(root: &str) -> (Vec<String>, String) {
+    let parts: Vec<&str> = root.split('/').filter(|p| !p.is_empty()).collect();
+    let web = parts.iter().rposition(|p| {
+        matches!(
+            *p,
+            "public_html" | "httpdocs" | "htdocs" | "www" | "html" | "web" | "public"
+        )
+    });
+    let sub: String = match web {
+        Some(at) => parts[at + 1..].iter().map(|p| format!("/{p}")).collect(),
+        None => String::new(),
+    };
+    let mut domains: Vec<String> = parts
+        .iter()
+        .map(|p| p.to_ascii_lowercase())
+        .filter(|p| looks_like_domain(p))
+        .collect();
+    domains.reverse();
+    // A domain-named folder under the web folder is usually its own site.
+    let sub = match web {
+        Some(at)
+            if parts.len() > at + 1 && looks_like_domain(&parts[at + 1].to_ascii_lowercase()) =>
+        {
+            parts[at + 2..].iter().map(|p| format!("/{p}")).collect()
+        }
+        _ => sub,
+    };
+    (domains, sub)
 }
 
 /// Quotes text for a POSIX shell.
@@ -385,9 +458,10 @@ impl<'a> Server<'a> {
         })?;
         let config = WpConfig::read(&config_text);
         let db = db_settings(&config)?;
+        // Some servers print a greeting before every command's output.
         let shell = connection.protocol == remote::Protocol::Sftp
             && exec_text(sessions, connection, "echo stackyard")
-                .is_ok_and(|(ok, out)| ok && out == "stackyard");
+                .is_ok_and(|(ok, out)| ok && out.lines().any(|l| l.trim() == "stackyard"));
         let mut server = Server {
             sessions,
             connection: connection.clone(),
@@ -395,6 +469,7 @@ impl<'a> Server<'a> {
             db,
             shell,
             php_cli: false,
+            php_bin: "php".into(),
             dump_tool: None,
             dump_skips_statistics: false,
             siteurl: url
@@ -414,13 +489,24 @@ impl<'a> Server<'a> {
                  \"$t\" --help 2>/dev/null | grep -q column-statistics && echo column-statistics; exit 0",
             )
             .ok()
-            .filter(|(ok, out)| *ok && out.starts_with('/'));
+            .filter(|(ok, _)| *ok);
             if let Some((_, out)) = found {
-                server.dump_tool = out.lines().next().map(str::to_string);
-                server.dump_skips_statistics = out.lines().any(|l| l == "column-statistics");
+                server.dump_tool = first_path(&out);
+                server.dump_skips_statistics = out.lines().any(|l| l.trim() == "column-statistics");
             }
-            server.php_cli = exec_text(sessions, connection, "php -r 'echo PHP_VERSION;'")
-                .is_ok_and(|(ok, out)| ok && out.starts_with(|c: char| c.is_ascii_digit()));
+            // `php` is often missing from the PATH a non-interactive login
+            // gets, or is the CGI build that prints headers first (`-q`).
+            if let Some(php) = exec_text(sessions, connection, &format!("sh -c {}", sh(FIND_PHP)))
+                .ok()
+                .filter(|(ok, _)| *ok)
+                .and_then(|(_, out)| {
+                    out.lines()
+                        .find_map(|l| l.strip_prefix("SYPHP=").map(str::to_string))
+                })
+            {
+                server.php_cli = true;
+                server.php_bin = php;
+            }
         }
         Ok(server)
     }
@@ -438,13 +524,19 @@ impl<'a> Server<'a> {
         self.upload_helper_with(temp, false)
     }
 
-    /// Uploads a fresh helper; `write` lets it load SQL files.
+    /// Uploads a fresh helper; `write` lets it load SQL files. When the
+    /// helper must be reached over the site's address and none was given,
+    /// the addresses the server suggests are tried.
     pub(super) fn upload_helper_with(&mut self, temp: &Path, write: bool) -> Result<()> {
-        if !self.php_cli && self.siteurl.is_none() {
-            return Err(fail(
-                "this server has no shell Stackyard can use, so the database comes through the site's own address; enter the live site's address",
-            ));
-        }
+        let guesses = if !self.php_cli && self.siteurl.is_none() {
+            let guesses = self.address_guesses();
+            if guesses.is_empty() {
+                return Err(self.address_needed(&[]));
+            }
+            guesses
+        } else {
+            Vec::new()
+        };
         let until = env::now() + helper::LIFETIME_SECS;
         let made = if write {
             helper::make_writing(&self.db, until)?
@@ -463,7 +555,121 @@ impl<'a> Server<'a> {
             ))
         })?;
         self.helper = Some(made);
+        if !guesses.is_empty() && !self.reach_at(&guesses) {
+            self.remove_helper();
+            return Err(self.address_needed(&guesses));
+        }
         Ok(())
+    }
+
+    /// Keeps the first of `guesses` where the uploaded helper answers.
+    fn reach_at(&mut self, guesses: &[String]) -> bool {
+        for guess in guesses {
+            self.siteurl = Some(guess.clone());
+            if self.read_info().is_ok() {
+                return true;
+            }
+        }
+        self.siteurl = None;
+        false
+    }
+
+    /// Why the live site's address must be typed in, in words for the
+    /// person cloning.
+    fn address_needed(&self, tried: &[String]) -> Error {
+        let why = if self.shell {
+            "This server runs commands but has no command-line PHP Stackyard can use"
+        } else if self.connection.protocol == remote::Protocol::Sftp {
+            "This server allows file transfer only, not commands"
+        } else {
+            "This is an FTP connection, which can't run commands"
+        };
+        let tried = if tried.is_empty() {
+            String::new()
+        } else {
+            format!(" Stackyard tried {} without finding it.", tried.join(", "))
+        };
+        fail(format!(
+            "{why}, so the database is read through the live site's own address.{tried} {NEED_ADDRESS}"
+        ))
+    }
+
+    /// Addresses WordPress may live at, best first: the live database's own
+    /// `siteurl` when the server can run the `mysql` client, then domains in
+    /// the WordPress folder's path and the connection's host and name.
+    fn address_guesses(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut push = |url: String| {
+            if !out.contains(&url) {
+                out.push(url);
+            }
+        };
+        if self.shell {
+            if let Some(url) = self.database_siteurl() {
+                push(url);
+            }
+        }
+        let (domains, sub) = path_domains(&self.root);
+        let host = self.connection.host.trim().to_ascii_lowercase();
+        let host = ["ftp.", "ftps.", "sftp.", "ssh."]
+            .iter()
+            .find_map(|p| host.strip_prefix(p))
+            .unwrap_or(&host)
+            .to_string();
+        let name = self.connection.name.trim().to_ascii_lowercase();
+        let mut names: Vec<String> = domains;
+        for d in [host, name] {
+            if looks_like_domain(&d) && !names.contains(&d) {
+                names.push(d);
+            }
+        }
+        for d in names.iter().take(3) {
+            let bare = d.strip_prefix("www.").unwrap_or(d);
+            push(format!("https://{bare}{sub}"));
+            push(format!("https://www.{bare}{sub}"));
+            push(format!("http://{bare}{sub}"));
+        }
+        out.truncate(8);
+        out
+    }
+
+    /// The live database's `siteurl`, read with the server's `mysql` client.
+    fn database_siteurl(&self) -> Option<String> {
+        let prefix = &self.db.prefix;
+        if !prefix
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            return None;
+        }
+        let client = exec_text(
+            self.sessions,
+            &self.connection,
+            "command -v mariadb || command -v mysql",
+        )
+        .ok()
+        .filter(|(ok, _)| *ok)
+        .and_then(|(_, out)| first_path(&out))?;
+        let query = format!(
+            "SELECT option_value FROM `{prefix}options` WHERE option_name IN ('siteurl', 'home') ORDER BY option_name = 'home'"
+        );
+        let command = format!(
+            "MYSQL_PWD={} {} -N -B {} -u {} {} -e {}",
+            sh(&self.db.password),
+            sh(&client),
+            host_options(&self.db.host),
+            sh(&self.db.user),
+            sh(&self.db.name),
+            sh(&query),
+        );
+        let (ok, out) = exec_text(self.sessions, &self.connection, &command).ok()?;
+        ok.then(|| {
+            out.lines()
+                .map(str::trim)
+                .find(|l| l.starts_with("http://") || l.starts_with("https://"))
+                .map(|l| l.trim_end_matches('/').to_string())
+        })
+        .flatten()
     }
 
     /// Runs the helper with these arguments, writing its answer to `out`.
@@ -478,8 +684,9 @@ impl<'a> Server<'a> {
             .ok_or_else(|| fail("the helper is not on the server"))?;
         if self.php_cli {
             let mut command = format!(
-                "cd {} && php -d display_errors=0 {}",
+                "cd {} && {} -q -d display_errors=0 {}",
                 sh(&self.root),
+                sh(&self.php_bin),
                 sh(&helper.file)
             );
             for (key, value) in args {
@@ -546,6 +753,16 @@ impl<'a> Server<'a> {
             Err(e) if self.php_cli && self.siteurl.is_some() => {
                 self.php_cli = false;
                 self.read_info().map_err(|_| e)
+            }
+            Err(e) if self.php_cli => {
+                self.php_cli = false;
+                let guesses = self.address_guesses();
+                if self.reach_at(&guesses) {
+                    self.read_info()
+                } else {
+                    self.php_cli = true;
+                    Err(e)
+                }
             }
             other => other,
         }
@@ -687,6 +904,73 @@ pub fn inspect(
             let _ = std::fs::remove_dir_all(&temp);
             result
         }
+    }
+}
+
+/// Backs `old` up, then takes it away so a clone can take its place: its
+/// database (when it is the one the clone makes) is dropped, its folder
+/// emptied when the clone goes into it, and it leaves the sites list.
+/// Answers a note naming the backup.
+fn replace_site(
+    home: &Path,
+    store: &mut SiteStore,
+    old: &Site,
+    folder: &Path,
+    database: &str,
+    progress: OnProgress,
+) -> Result<String> {
+    let domain = old.domain();
+    say(
+        progress,
+        Stage::Connecting,
+        format!("Backing up {domain} before replacing it…"),
+    )?;
+    let backup = crate::sitepack::backup(home, old, &mut |_| {})?;
+    if let Some(warning) = &backup.warning {
+        return Err(fail(format!(
+            "{domain} was not replaced: its backup could not include the database ({warning}). The files' backup is at {}.",
+            backup.path.display()
+        )));
+    }
+    let backed_up_db = crate::sitepack::site_database(old).map(|d| d.name);
+    if backed_up_db.as_deref() == Some(database) {
+        let client = Client::open(home)?;
+        if client.databases()?.iter().any(|d| d.name == database) {
+            client.drop(database)?;
+        }
+    }
+    if same_folder(&old.path, folder) && folder.is_dir() {
+        let entries = std::fs::read_dir(folder).map_err(io(folder))?;
+        for entry in entries {
+            let path = entry.map_err(io(folder))?.path();
+            let removed = if path.is_dir() && !path.is_symlink() {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_file(&path)
+            };
+            removed.map_err(|e| {
+                fail(format!(
+                    "could not empty {} to replace {domain} ({e}); close programs using it and clone again. The backup is at {}.",
+                    folder.display(),
+                    backup.path.display()
+                ))
+            })?;
+        }
+    }
+    store.remove(&domain)?;
+    store.save()?;
+    env::forget(home, &domain);
+    crate::thumbnails::forget(home, &domain);
+    Ok(format!(
+        "The earlier {domain} was backed up to {} before it was replaced; restore it under Manage › Backups.",
+        backup.path.display()
+    ))
+}
+
+fn same_folder(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
     }
 }
 
@@ -1123,15 +1407,29 @@ pub fn clone(
         None => domain::normalize_tld(&settings.tld)?,
     };
     let domain_name = domain::site_domain(&name, &tld);
-    if store.list().iter().any(|s| s.domain() == domain_name) {
-        return Err(Error::SiteExists(domain_name));
-    }
     let folder = options
         .folder
         .clone()
         .filter(|p| !p.as_os_str().is_empty())
         .map(|p| crate::paths::expand_home(&p))
         .unwrap_or_else(|| settings.sites_folder(home).join(&name));
+    let existing = store
+        .list()
+        .iter()
+        .find(|s| s.domain() == domain_name)
+        .cloned();
+    let replaced_note = match existing {
+        Some(old) if options.replace && parent.is_none() => Some(replace_site(
+            home,
+            &mut store,
+            &old,
+            &folder,
+            &crate::starters::database_name(&name),
+            progress,
+        )?),
+        Some(_) => return Err(Error::SiteExists(domain_name)),
+        None => None,
+    };
     let source_key = match source {
         Source::Server(c) => format!(
             "{}://{}@{}:{}{}",
@@ -1188,7 +1486,7 @@ pub fn clone(
         settings: SiteSettings::default(),
     }
     .url();
-    let mut notes = Vec::new();
+    let mut notes: Vec<String> = replaced_note.into_iter().collect();
     let mut replaced = 0;
     let live = match source {
         Source::Server(connection) => {
@@ -1386,12 +1684,6 @@ fn clone_from_server<'a>(
         &mut roots,
     )?;
     let s = server.insert(opened);
-    if !s.php_cli && s.dump_tool.is_none() && s.siteurl.is_none() {
-        // Without a shell the helper is reached over the site's address.
-        return Err(fail(
-            "enter the live site's address, so Stackyard can reach its helper there",
-        ));
-    }
     s.upload_helper(&work.dir)?;
     let info = s.info()?;
     if s.siteurl.is_none() {
@@ -1981,6 +2273,35 @@ pub fn discard(home: &Path, name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_domains_in_server_paths() {
+        assert_eq!(
+            path_domains("/home/u/domains/example.com/public_html"),
+            (vec!["example.com".to_string()], String::new())
+        );
+        assert_eq!(
+            path_domains("/home/u/public_html/blog"),
+            (vec![], "/blog".to_string())
+        );
+        assert_eq!(
+            path_domains("/home/u/public_html/Shop.example.org/wp"),
+            (vec!["shop.example.org".to_string()], "/wp".to_string())
+        );
+        assert_eq!(
+            path_domains("/var/www/example.mk"),
+            (vec!["example.mk".to_string()], String::new())
+        );
+        assert!(looks_like_domain("tranzit.mk"));
+        assert!(!looks_like_domain("192.168.1.10"));
+        assert!(!looks_like_domain("wp-config.php"));
+        assert!(!looks_like_domain("tranzit.stack"));
+        assert!(!looks_like_domain("Live"));
+        assert_eq!(
+            first_path("Welcome!\n/usr/bin/mysqldump\n"),
+            Some("/usr/bin/mysqldump".into())
+        );
+    }
 
     #[test]
     fn quotes_for_the_shell() {
