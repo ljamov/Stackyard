@@ -580,8 +580,12 @@ mod tests {
         }
 
         let spec = manager.spec("meilisearch").unwrap();
-        assert_eq!(spec.ports, vec![7700]);
-        assert!(spec.args.contains(&"127.0.0.1:7700".to_string()));
+        // 7700, or the next free port when something on this computer holds it.
+        let [port] = spec.ports[..] else {
+            panic!("one port expected: {:?}", spec.ports)
+        };
+        assert!(port >= 7700);
+        assert!(spec.args.contains(&format!("127.0.0.1:{port}")));
         assert!(spec
             .args
             .contains(&slash(&home.join("data/meilisearch/data.ms"))));
