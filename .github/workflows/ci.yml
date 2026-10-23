@@ -422,10 +422,11 @@ jobs:
             sql live_blog -e "UPDATE wp_options SET option_value = 'http://127.0.0.1:8099' WHERE option_name IN ('home', 'siteurl')"
             sudo sed -i -e "s/'DB_NAME', 'blog'/'DB_NAME', 'live_blog'/" -e "s/'DB_USER', 'root'/'DB_USER', 'liveuser'/" \
               -e "s/'DB_PASSWORD', ''/'DB_PASSWORD', 'Live-pass-1'/" /home/live/public_html/wp-config.php
-            printf 'Port 2222\nListenAddress 127.0.0.1\nPasswordAuthentication yes\nKbdInteractiveAuthentication no\nUsePAM yes\nSubsystem sftp internal-sftp\nPidFile /tmp/sshd-live.pid\n' > "$RUNNER_TEMP/sshd.conf"
-            sudo mkdir -p /run/sshd && sudo ssh-keygen -A >/dev/null && sudo /usr/sbin/sshd -f "$RUNNER_TEMP/sshd.conf"
-            printf 'listen=YES\nlisten_address=127.0.0.1\nlisten_port=2121\nanonymous_enable=NO\nlocal_enable=YES\nwrite_enable=YES\npasv_min_port=40000\npasv_max_port=40100\nseccomp_sandbox=NO\nbackground=YES\npam_service_name=vsftpd\n' > "$RUNNER_TEMP/vsftpd.conf"
-            sudo /usr/sbin/vsftpd "$RUNNER_TEMP/vsftpd.conf"
+            # sshd and vsftpd only read config files owned by root.
+            printf 'Port 2222\nListenAddress 127.0.0.1\nPasswordAuthentication yes\nKbdInteractiveAuthentication no\nUsePAM yes\nSubsystem sftp internal-sftp\nPidFile /tmp/sshd-live.pid\n' | sudo tee /etc/ssh/sshd-live.conf >/dev/null
+            sudo mkdir -p /run/sshd && sudo ssh-keygen -A >/dev/null && sudo /usr/sbin/sshd -f /etc/ssh/sshd-live.conf
+            printf 'listen=YES\nlisten_address=127.0.0.1\nlisten_port=2121\nanonymous_enable=NO\nlocal_enable=YES\nwrite_enable=YES\npasv_min_port=40000\npasv_max_port=40100\nseccomp_sandbox=NO\nbackground=YES\npam_service_name=vsftpd\n' | sudo tee /etc/vsftpd-live.conf >/dev/null
+            sudo /usr/sbin/vsftpd /etc/vsftpd-live.conf
             sudo -u live bash -c 'cd /home/live/public_html && nohup php -S 127.0.0.1:8099 >/tmp/live-php.log 2>&1 &'
             for _ in $(seq 20); do curl -fs -o /dev/null http://127.0.0.1:8099/ && break; sleep 1; done
             (cd /home/live && sudo zip -qr "$RUNNER_TEMP/live-files.zip" public_html -x 'public_html/wp-content/uploads/*')
