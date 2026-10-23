@@ -43,8 +43,8 @@ pub(super) fn asset_names(p: Platform) -> Vec<String> {
 }
 
 pub(super) fn resolve(http: &Http, platform: Platform) -> Result<Release> {
-    let latest = super::github::latest(http, REPO)?;
-    super::github::release(&latest, "SeaweedFS", &asset_names(platform), platform)
+    // New releases sometimes go out before every platform's file is up.
+    super::github::newest_with(http, REPO, "SeaweedFS", &asset_names(platform), platform)
 }
 
 pub(super) fn spec(ctx: &Context) -> Result<ProcessSpec> {
