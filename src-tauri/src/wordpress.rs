@@ -70,9 +70,13 @@ pub async fn wp_update_core(domain: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn wp_extensions(domain: String, kind: Kind) -> CmdResult<Vec<Extension>> {
+pub async fn wp_extensions(
+    domain: String,
+    kind: Kind,
+    check_updates: bool,
+) -> CmdResult<Vec<Extension>> {
     with_site(domain, move |home, wp| {
-        wordpress::extensions(home, wp, kind)
+        wordpress::extensions(home, wp, kind, check_updates)
     })
     .await
 }
@@ -86,7 +90,7 @@ pub async fn wp_change_extension(
 ) -> CmdResult<Vec<Extension>> {
     with_site(domain, move |home, wp| {
         wordpress::change_extension(home, wp, kind, &name, action)?;
-        wordpress::extensions(home, wp, kind)
+        wordpress::extensions(home, wp, kind, false)
     })
     .await
 }
@@ -100,7 +104,7 @@ pub async fn wp_install_extension(
 ) -> CmdResult<Vec<Extension>> {
     with_site(domain, move |home, wp| {
         wordpress::install_extension(home, wp, kind, &slug, activate)?;
-        wordpress::extensions(home, wp, kind)
+        wordpress::extensions(home, wp, kind, false)
     })
     .await
 }

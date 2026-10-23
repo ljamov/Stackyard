@@ -46,9 +46,9 @@ const SHOTS = {
       await sleep(300);
       await page.getByRole("button", { name: "WordPress", exact: true }).click();
       await sleep(600);
-      await page.getByRole("button", { name: "Environments", exact: true }).click();
+      await page.getByRole("tab", { name: "Environments", exact: true }).click();
       await sleep(800);
-      await manage.evaluate((b) => b.scrollIntoView({ block: "start" }));
+      await page.locator(".wp-view").evaluate((b) => b.scrollIntoView({ block: "start" }));
     },
     after: async (page) => {
       await page.getByRole("button", { name: "Close", exact: true }).first().click().catch(() => {});

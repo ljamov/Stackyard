@@ -37,6 +37,7 @@ mod ai;
 mod console;
 mod perf;
 mod remote;
+mod sitepics;
 mod sitetools;
 mod updates;
 mod wordpress;
@@ -1704,6 +1705,7 @@ fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
     store.save().map_err(err)?;
     remote::site_removed(&removed.domain());
     stackyard_core::wordpress::env::forget(&paths::home(), &removed.domain());
+    stackyard_core::thumbnails::forget(&paths::home(), &removed.domain());
     let _ = stackyard_core::share::stop(app.state::<Arc<Engine>>().supervisor(), &removed);
     sites_changed(&app);
     site_views()
@@ -1965,6 +1967,11 @@ pub fn run() {
             console::console_write,
             console::console_resize,
             console::console_close,
+            sitepics::site_thumbnail,
+            sitepics::wp_theme_screenshot,
+            sitepics::site_database,
+            sitepics::start_site_database,
+            sitepics::set_site_database_autostart,
             wordpress::wp_overview,
             wordpress::wp_disk_use,
             wordpress::wp_core_update,

@@ -178,6 +178,21 @@ export type Site = {
   versions: SiteVersion[];
 };
 
+/** The database a site uses and the server that holds it. */
+export type SiteDb = {
+  database: string;
+  /** `mysql`, `mariadb` or `postgres`; null when no installed server has it yet. */
+  service: string | null;
+  service_name: string | null;
+  installed: boolean;
+  running: boolean;
+  /** Another server on the same port that has to stop first, by name. */
+  blocked_by: string | null;
+  blocked_by_id: string | null;
+  /** Started along with the web server. */
+  start_with_web: boolean;
+};
+
 export type SiteVersion = {
   kind: RuntimeKind;
   version: string;
@@ -675,6 +690,11 @@ export interface Api {
   pickFiles(title: string, start?: string, multiple?: boolean): Promise<string[]>;
   /** Opens the system's save dialog; null when cancelled. */
   pickSaveFile(title: string, name: string): Promise<string | null>;
+  /** A picture of the site's home page as a data: URL; null when there is none. */
+  siteThumbnail(domain: string, refresh: boolean): Promise<string | null>;
+  siteDatabase(domain: string): Promise<SiteDb | null>;
+  startSiteDatabase(domain: string): Promise<SiteDb | null>;
+  setSiteDatabaseAutostart(domain: string, on: boolean): Promise<SiteDb | null>;
   siteSettings(domain: string): Promise<SiteSettingsInfo>;
   saveSiteSettings(domain: string, tld: string, https: boolean, settings: SiteSettings): Promise<{ sites: Site[]; domain: string }>;
   siteBackups(domain: string): Promise<SiteBackup[]>;
@@ -867,6 +887,10 @@ const tauriApi: Api = {
   },
   pickSaveFile: async (title, name) =>
     saveDialog({ title, defaultPath: name, filters: [{ name: "Stackyard site", extensions: ["zip"] }] }),
+  siteThumbnail: (domain, refresh) => invoke("site_thumbnail", { domain, refresh }),
+  siteDatabase: (domain) => invoke("site_database", { domain }),
+  startSiteDatabase: (domain) => invoke("start_site_database", { domain }),
+  setSiteDatabaseAutostart: (domain, on) => invoke("set_site_database_autostart", { domain, on }),
   siteSettings: (domain) => invoke("site_settings", { domain }),
   saveSiteSettings: (domain, tld, https, settings) => invoke("save_site_settings", { domain, tld, https, settings }),
   siteBackups: (domain) => invoke("site_backups", { domain }),
@@ -1136,6 +1160,24 @@ function browserApi(): Api {
     sample("legacy", "PHP 7.4", "WordPress", false, "PHP 7.4 is not installed"),
   ];
   let parked = ["~/Code"];
+  const autostart = new Set<string>();
+  /** The sample WordPress site keeps its database in MySQL; the others have none. */
+  const mockSiteDb = (domain: string): SiteDb | null => {
+    if (sites.find((s) => s.domain === domain)?.framework !== "WordPress") return null;
+    const holder = services.find((s) => s.id === "mysql")!;
+    const other = services.find((s) => s.id !== holder.id && s.ports.includes(3306) && s.state === "running");
+    const running = holder.state === "running";
+    return {
+      database: "legacy",
+      service: holder.id,
+      service_name: holder.name,
+      installed: holder.installed !== null,
+      running,
+      blocked_by: running ? null : (other?.name ?? null),
+      blocked_by_id: running ? null : (other?.id ?? null),
+      start_with_web: autostart.has(domain),
+    };
+  };
   let system: SystemStatus = {
     needed: ["Send .stack names to Stackyard", "Trust Stackyard's local HTTPS certificate"],
     waiting_for_certificate: false,
@@ -1863,6 +1905,24 @@ function browserApi(): Api {
     },
     pickFiles: async () => [],
     pickSaveFile: async (_title, name) => `/home/you/Downloads/${name}`,
+    siteThumbnail: async (domain) => {
+      const site = sites.find((s) => s.domain === domain);
+      return site?.framework === "WordPress" ? `${import.meta.env.BASE_URL}preview/site.jpg` : null;
+    },
+    siteDatabase: async (domain) => mockSiteDb(domain),
+    startSiteDatabase: async (domain) => {
+      const db = mockSiteDb(domain);
+      if (db?.service) {
+        services = services.map((s) => (s.ports.includes(3306) && s.id !== db.service ? { ...s, state: "stopped" } : s) as Service);
+        updateService(db.service, (s) => ({ ...s, state: "running", pid: (nextPid += 37) }) as Service);
+      }
+      return mockSiteDb(domain);
+    },
+    setSiteDatabaseAutostart: async (domain, on) => {
+      if (on) autostart.add(domain);
+      else autostart.delete(domain);
+      return mockSiteDb(domain);
+    },
     siteSettings: async (domain) => {
       const site = sites.find((s) => s.domain === domain);
       if (!site) throw `no site named ${domain}`;

@@ -8,7 +8,8 @@ nothing is downloaded.
 Plugins, themes, users and the WooCommerce actions use [WP-CLI](https://wp-cli.org), WordPress's
 own command-line tool. Stackyard downloads it the first time one of them is used (one file, about
 7 MB, into `tools/wp-cli` in Stackyard's folder), checked against the SHA-512 checksum WP-CLI
-publishes next to it, and runs it with the site's own PHP version. MySQL or MariaDB must be running.
+publishes next to it, and runs it with the site's own PHP version. The database server that holds
+the site's database must be running (see [The database server](#the-database-server)).
 
 ## Clone a live site
 
@@ -241,20 +242,60 @@ Pushing to or pulling from the live site is never offered to them.
 
 ## Overview
 
-The WordPress, PHP and database versions, WooCommerce's version, the environment
-(`WP_ENVIRONMENT_TYPE`), and how much disk the site, its media, plugins, themes and database take.
-Warnings appear when `wp-config.php` points at another database server than Stackyard's, or shows
-errors on the pages. A cloned site also shows its live site's address and when it was copied. **Check for a WordPress update** asks wordpress.org and offers the update.
+The top of the tab works like Local or WordPress Studio: a picture of the site's home page, its
+name and address, the WooCommerce, WordPress and PHP versions, whether its database server runs,
+and the two buttons used most, **Open site** and **WP Admin**. Under it:
+
+- **Site details**: the domain, the HTTPS certificate, the web server, PHP version, the database
+  (its name, the server that holds it and whether that server runs), the table prefix, the
+  WordPress and WooCommerce versions, the environment (`WP_ENVIRONMENT_TYPE`), and how much disk
+  the site, its media, plugins, themes and database take. Warnings appear when `wp-config.php`
+  points at another database server than Stackyard's, or shows errors on the pages. A cloned site
+  also shows its live site's address and when it was copied. **Check for a WordPress update** asks
+  wordpress.org and offers the update.
+- **Customize**: shortcuts into wp-admin. A block theme gets the Site editor, Styles and Patterns;
+  a classic theme gets the Customizer, Menus and Widgets. Every site gets Pages, Posts, Media,
+  Settings and Permalinks.
+- **Tools**: the Plugins, Themes, Users and Debug tabs, and the mail Mailpit caught.
+
+### The site's picture
+
+The picture is a screenshot of the home page taken while the web server runs, by a Chromium
+browser already on the computer (Microsoft Edge, which every Windows has, or Google Chrome,
+Chromium or Brave) running hidden. It is shrunk to a small JPEG in `cache/thumbnails` and taken
+again when it is a day old; **New picture** (over the picture) takes one now. Without such a
+browser, or before the web server first runs, the picture is the active theme's own
+`screenshot.png`. The Sites list shows the same picture for every site.
+
+### The database server
+
+MySQL and MariaDB keep their databases apart and use the same port, so only one of them runs at a
+time. A site whose database is in MariaDB shows "Error establishing a database connection" while
+MySQL runs. Stackyard looks in both servers' data folders to see which one has the site's database
+(named by `DB_NAME` in `wp-config.php`, or picked in the site's Settings), and when that server is
+not running it says so on top of the tab and in the Sites list, with **Start MariaDB** (or **Stop
+MySQL and start MariaDB** when the other one has the port). Tick **Start MariaDB whenever the web
+server starts** to have it started with the web server from then on; a server whose port another
+one already uses is left alone then, so nothing running is ever stopped behind your back.
 
 ## Plugins and themes
 
-Every plugin and theme with its version, whether it is on, and whether an update is available.
-Switch them on or off, update one or **Update all**, delete those that are off, or install one from
-wordpress.org by its slug (the last part of its wordpress.org address, e.g. `query-monitor`).
+Plugins are listed as wp-admin's Plugins screen lists them: active ones marked on the left, with
+**Activate**, **Deactivate** and **Delete** (for inactive ones), a note with **Update now** when a
+new version is out, filters for All, Active, Inactive and Update available, and a search box.
+Themes show as cards with each theme's own picture; the active one has **Customize**, the others
+**Activate** and **Delete**. **Install** adds one from wordpress.org by its slug (the last part of
+its wordpress.org address, e.g. `query-monitor`); **Install and activate** activates it too.
+
+The lists are kept while the app runs, so going back to a tab shows them at once and reads them
+again quietly. The first time a list is opened, Stackyard also asks wordpress.org for updates,
+which takes a few seconds; after that the updates shown are the ones WordPress itself last found,
+and **Check for updates** asks again. WP-CLI is downloaded only once, the first time any of this is
+used.
 
 WP-CLI loads WordPress without the other plugins for these jobs, so a broken plugin can't stop
-you from switching it off. Switching a plugin on or off loads them all, as wp-admin does, so its
-own setup runs.
+you from deactivating it. Activating or deactivating a plugin loads them all, as wp-admin does, so
+its own setup runs.
 
 ## Users
 

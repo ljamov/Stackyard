@@ -266,6 +266,11 @@ pub struct Overview {
     pub environment: Option<String>,
     /// Whether WP-CLI is downloaded yet.
     pub wp_cli: bool,
+    /// The theme in use (its folder), when the database could be read.
+    pub theme: Option<String>,
+    /// Whether that theme is a block theme, edited in the site editor
+    /// rather than the Customizer.
+    pub block_theme: bool,
     pub warnings: Vec<String>,
 }
 
@@ -303,6 +308,11 @@ pub fn overview(home: &Path, wp: &WpSite) -> Overview {
                 .into(),
         );
     }
+    let theme = wp
+        .option(home, "stylesheet")
+        .ok()
+        .flatten()
+        .filter(|t| !t.is_empty());
     Overview {
         wordpress: wp.version(),
         php: wp.site.runtime.version().map(str::to_string),
@@ -314,6 +324,8 @@ pub fn overview(home: &Path, wp: &WpSite) -> Overview {
         multisite: wp.config.flag("MULTISITE"),
         environment: wp.config.get("WP_ENVIRONMENT_TYPE").map(str::to_string),
         wp_cli: cli::installed(home),
+        block_theme: theme.as_deref().is_some_and(|t| is_block_theme(wp, t)),
+        theme,
         warnings,
     }
 }
@@ -519,19 +531,69 @@ impl Kind {
     }
 }
 
-pub fn extensions(home: &Path, wp: &WpSite, kind: Kind) -> Result<Vec<Extension>> {
-    let mut list: Vec<Extension> = wp.wp_json(
-        home,
-        Load::Core,
-        &[
-            kind.word(),
-            "list",
-            "--format=json",
-            "--fields=name,title,status,version,update,update_version",
-        ],
-    )?;
+/// The site's plugins or themes. `check_updates` asks wordpress.org for
+/// new versions, which takes a few seconds; without it the updates shown
+/// are the ones WordPress itself last found (it checks twice a day).
+pub fn extensions(
+    home: &Path,
+    wp: &WpSite,
+    kind: Kind,
+    check_updates: bool,
+) -> Result<Vec<Extension>> {
+    let mut args = vec![
+        kind.word(),
+        "list",
+        "--format=json",
+        "--fields=name,title,status,version,update,update_version",
+    ];
+    if !check_updates {
+        args.push("--skip-update-check");
+    }
+    let mut list: Vec<Extension> = wp.wp_json(home, Load::Core, &args)?;
     list.sort_by_key(|e| e.title.to_lowercase());
     Ok(list)
+}
+
+/// A theme's own picture (`screenshot.png` and the like), which every
+/// theme on wordpress.org ships.
+pub fn theme_screenshot(wp: &WpSite, theme: &str) -> Option<PathBuf> {
+    if theme.is_empty() || theme.contains(['/', '\\']) || theme.starts_with('.') {
+        return None;
+    }
+    let dir = wp.wp_content().join("themes").join(theme);
+    ["png", "jpg", "jpeg", "webp"]
+        .iter()
+        .map(|ext| dir.join(format!("screenshot.{ext}")))
+        .find(|p| p.is_file())
+}
+
+/// A block theme has `templates/index.html` (WordPress's own test), in
+/// itself or in its parent.
+pub fn is_block_theme(wp: &WpSite, theme: &str) -> bool {
+    if theme.is_empty() || theme.contains(['/', '\\']) || theme.starts_with('.') {
+        return false;
+    }
+    let dir = wp.wp_content().join("themes").join(theme);
+    if dir.join("templates").join("index.html").is_file()
+        || dir.join("block-templates").join("index.html").is_file()
+    {
+        return true;
+    }
+    let style = std::fs::read_to_string(dir.join("style.css")).unwrap_or_default();
+    let head: String = style.chars().take(8192).collect();
+    header_field(&head, "Template")
+        .filter(|parent| parent != theme)
+        .is_some_and(|parent| {
+            let parent = wp.wp_content().join("themes").join(parent);
+            parent.join("templates").join("index.html").is_file()
+                || parent.join("block-templates").join("index.html").is_file()
+        })
+}
+
+/// The picture of the theme the site uses, read from the database.
+pub fn active_theme_screenshot(home: &Path, wp: &WpSite) -> Option<PathBuf> {
+    let theme = wp.option(home, "stylesheet").ok().flatten()?;
+    theme_screenshot(wp, &theme)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1071,10 +1133,10 @@ mod site_tests {
             "{disk:?}"
         );
 
-        let plugins = extensions(&home, &wp, Kind::Plugin).unwrap();
+        let plugins = extensions(&home, &wp, Kind::Plugin, true).unwrap();
         assert!(plugins.iter().any(|p| p.name == "hello"), "{plugins:?}");
         change_extension(&home, &wp, Kind::Plugin, "hello", ExtensionAction::Activate).unwrap();
-        let plugins = extensions(&home, &wp, Kind::Plugin).unwrap();
+        let plugins = extensions(&home, &wp, Kind::Plugin, true).unwrap();
         assert_eq!(
             plugins.iter().find(|p| p.name == "hello").unwrap().status,
             "active"
@@ -1087,7 +1149,7 @@ mod site_tests {
             ExtensionAction::Deactivate,
         )
         .unwrap();
-        let themes = extensions(&home, &wp, Kind::Theme).unwrap();
+        let themes = extensions(&home, &wp, Kind::Theme, true).unwrap();
         assert!(themes.iter().any(|t| t.status == "active"), "{themes:?}");
 
         let before = users(&home, &wp).unwrap();

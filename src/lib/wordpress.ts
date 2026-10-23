@@ -17,6 +17,10 @@ export type WpOverview = {
   multisite: boolean;
   environment: string | null;
   wp_cli: boolean;
+  /** The theme in use (its folder name), when the database could be read. */
+  theme: string | null;
+  /** Whether that theme is a block theme (edited in the site editor, not the Customizer). */
+  block_theme: boolean;
   warnings: string[];
 };
 
@@ -184,7 +188,10 @@ export interface WpApi {
   diskUse(domain: string): Promise<WpDiskUse>;
   coreUpdate(domain: string): Promise<WpCoreUpdate>;
   updateCore(domain: string): Promise<void>;
-  extensions(domain: string, kind: WpKind): Promise<WpExtension[]>;
+  /** `checkUpdates` asks wordpress.org for new versions (a few seconds); without it the list shows what WordPress last found. */
+  extensions(domain: string, kind: WpKind, checkUpdates: boolean): Promise<WpExtension[]>;
+  /** A theme's own picture as a data: URL. */
+  themeScreenshot(domain: string, theme: string): Promise<string | null>;
   changeExtension(domain: string, kind: WpKind, name: string, action: WpExtensionAction): Promise<WpExtension[]>;
   installExtension(domain: string, kind: WpKind, slug: string, activate: boolean): Promise<WpExtension[]>;
   users(domain: string): Promise<WpUser[]>;
@@ -250,7 +257,8 @@ const tauriWp: WpApi = {
   diskUse: (domain) => invoke("wp_disk_use", { domain }),
   coreUpdate: (domain) => invoke("wp_core_update", { domain }),
   updateCore: (domain) => invoke("wp_update_core", { domain }),
-  extensions: (domain, kind) => invoke("wp_extensions", { domain, kind }),
+  extensions: (domain, kind, checkUpdates) => invoke("wp_extensions", { domain, kind, checkUpdates }),
+  themeScreenshot: (domain, theme) => invoke("wp_theme_screenshot", { domain, theme }),
   changeExtension: (domain, kind, name, action) => invoke("wp_change_extension", { domain, kind, name, action }),
   installExtension: (domain, kind, slug, activate) => invoke("wp_install_extension", { domain, kind, slug, activate }),
   users: (domain) => invoke("wp_users", { domain }),
@@ -340,6 +348,8 @@ function mockWp(): WpApi {
     multisite: false,
     environment: "local",
     wp_cli: true,
+    theme: "storefront",
+    block_theme: false,
     warnings: debug.display ? ["Errors are shown on the pages (WP_DEBUG_DISPLAY). Fine locally; never on a live site."] : [],
   });
   const list = (kind: WpKind) => (kind === "plugin" ? plugins : themes);
@@ -348,7 +358,11 @@ function mockWp(): WpApi {
     diskUse: async () => ({ total: 1.9e9, uploads: 1.6e9, plugins: 1.8e8, themes: 2.1e7, database: 4.2e7 }),
     coreUpdate: async () => ({ current: "6.8.3", available: null }),
     updateCore: async () => wait(),
-    extensions: async (_d, kind) => list(kind).map((e) => ({ ...e })),
+    extensions: async (_d, kind, checkUpdates) => {
+      if (checkUpdates) await wait(900);
+      return list(kind).map((e) => ({ ...e }));
+    },
+    themeScreenshot: async (_d, theme) => (theme === "storefront" ? `${import.meta.env.BASE_URL}preview/site.jpg` : null),
     changeExtension: async (_d, kind, name, action) => {
       await wait();
       const all = list(kind);
