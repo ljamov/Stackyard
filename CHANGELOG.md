@@ -4,6 +4,28 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **A new WordPress view**, laid out like Local and WordPress Studio: a picture of the site's home
+  page with **Open site** and **WP Admin** on top, tabs underlined instead of boxed, site details
+  next to Customize shortcuts into wp-admin (Site editor and Styles for block themes, Customizer,
+  Menus and Widgets for classic ones, Pages, Posts, Media, Settings).
+- **Plugins and themes as in wp-admin**: **Activate** and **Deactivate** instead of switching on
+  and off, active plugins marked, All / Active / Inactive / Update available filters and a search
+  box, themes as picture cards, and **Install and activate**.
+- **Plugins and Themes open at once**: the lists are kept while the app runs and the slow update
+  check with wordpress.org runs once per list (and on **Check for updates**), instead of every time
+  the tab opened. The "the first time, WP-CLI is downloaded" message only shows when it really is
+  the first time.
+- **Pictures of sites** in the Sites list and the WordPress view: a screenshot of the home page
+  taken with the Edge, Chrome, Chromium or Brave already on the computer, or the theme's own
+  picture without one.
+- **The database server a site needs**: Stackyard finds which of MySQL and MariaDB holds a site's
+  database. When that server is not running, the Sites list and the WordPress view say so, with
+  **Start MariaDB** (or **Stop MySQL and start MariaDB**), and a site can have its database server
+  start whenever the web server starts.
+- The Manage button shows for WordPress sites when only the WordPress tools are switched on.
+
 ## 0.8.0
 
 - A **WordPress** tab in the tools of every WordPress site (Sites › Manage): an overview with disk

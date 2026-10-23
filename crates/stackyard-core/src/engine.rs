@@ -13,6 +13,8 @@ use crate::platform::Platform;
 use crate::scheduler::Scheduler;
 use crate::services::ServiceManager;
 use crate::settings::Settings;
+use crate::sitedb;
+use crate::sites::Site;
 use crate::supervisor::{ProcessState, Supervisor};
 use crate::system::Resolver;
 use crate::{Error, Result};
@@ -75,7 +77,9 @@ impl Engine {
             });
         }
         if def.id == "caddy" {
-            return self.manager.start_web(&self.supervisor);
+            self.manager.start_web(&self.supervisor)?;
+            self.start_site_databases();
+            return Ok(());
         }
         // Its own port would look taken and move it.
         if self.is_running(def.id) {
@@ -99,6 +103,64 @@ impl Engine {
             crate::phpmyadmin::use_database(self.manager.home(), port);
         }
         Ok(())
+    }
+
+    /// Starts the server that holds a site's database, stopping the other
+    /// of MySQL and MariaDB first when that one has the port.
+    pub fn start_site_database(&self, site: &Site) -> Result<()> {
+        let running = |id: &str| self.is_running(id);
+        let status = sitedb::status(self.manager.home(), site, &running).ok_or_else(|| {
+            Error::Database(format!(
+                "{} names no database Stackyard can find",
+                site.domain()
+            ))
+        })?;
+        let service = status.service.ok_or_else(|| {
+            Error::Database(format!(
+                "no installed database server has the database {} yet; install MySQL or MariaDB on the Services screen",
+                status.database
+            ))
+        })?;
+        if let Some(other) = &status.blocked_by_id {
+            self.stop(other)?;
+        }
+        self.start(&service)
+    }
+
+    /// After the web server starts: the database servers of the sites set
+    /// to start theirs with it. One whose port another server has is left
+    /// alone, so a running database is never stopped behind the user's back.
+    fn start_site_databases(&self) {
+        let Ok(settings) = Settings::load_from(&self.manager.home().join("settings.toml")) else {
+            return;
+        };
+        if settings.start_databases.is_empty() {
+            return;
+        }
+        let Ok(sites) = self.manager.user_sites() else {
+            return;
+        };
+        for served in sites {
+            if !settings.start_databases.contains(&served.domain()) {
+                continue;
+            }
+            let running = |id: &str| self.is_running(id);
+            let Some(status) = sitedb::status(self.manager.home(), &served.site, &running) else {
+                continue;
+            };
+            match (&status.service, &status.blocked_by) {
+                (Some(service), None) if !status.running && status.installed => {
+                    if let Err(e) = self.start(service) {
+                        eprintln!("{}: {e}", served.domain());
+                    }
+                }
+                (Some(_), Some(other)) if !status.running => eprintln!(
+                    "{}: its database server can't start while {other} runs",
+                    served.domain()
+                ),
+                _ => {}
+            }
+        }
     }
 
     pub fn stop(&self, id: &str) -> Result<()> {
