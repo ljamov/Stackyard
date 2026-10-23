@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.12.0
 
 - **Site pictures that show something.** A site's picture on Sites is now the site's home page, or,
   until there is one, its logo: the framework's (WordPress, Laravel, Astro…) or else the runtime's
