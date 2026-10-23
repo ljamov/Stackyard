@@ -407,6 +407,33 @@ jobs:
             stackyard db | grep -q "blog"
             echo "== the WordPress tab's tools on it, with WooCommerce"
             STACKYARD_TEST_WP="$made/blog" cargo test -p stackyard-core -- --ignored wordpress_tools_on_a_real_site
+            echo "== clone it back from a stand-in live server: SSH, FTP and the site over HTTP"
+            sudo apt-get install -y --no-install-recommends openssh-server vsftpd >/dev/null
+            sudo useradd -m -s /bin/bash live
+            echo 'live:Live-pass-1' | sudo chpasswd
+            sudo cp -a "$made/blog" /home/live/public_html
+            sudo rm -f /home/live/public_html/wp-content/mu-plugins/stackyard.php
+            sudo chown -R live:live /home/live
+            bin=$(ls -d "$STACKYARD_HOME"/services/mariadb/*/bin | head -n 1)
+            dbport=$(cut -d, -f1 "$STACKYARD_HOME/config/mariadb/ports" 2>/dev/null || echo 3306)
+            sql() { "$bin/mariadb" -h 127.0.0.1 -P "$dbport" -u root "$@"; }
+            sql -e "CREATE DATABASE live_blog; CREATE USER 'liveuser'@'%' IDENTIFIED BY 'Live-pass-1'; GRANT ALL ON live_blog.* TO 'liveuser'@'%';"
+            "$bin/mariadb-dump" -h 127.0.0.1 -P "$dbport" -u root blog | sql live_blog
+            sql live_blog -e "UPDATE wp_options SET option_value = 'http://127.0.0.1:8099' WHERE option_name IN ('home', 'siteurl')"
+            sudo sed -i -e "s/'DB_NAME', 'blog'/'DB_NAME', 'live_blog'/" -e "s/'DB_USER', 'root'/'DB_USER', 'liveuser'/" \
+              -e "s/'DB_PASSWORD', ''/'DB_PASSWORD', 'Live-pass-1'/" /home/live/public_html/wp-config.php
+            # sshd and vsftpd only read config files owned by root.
+            printf 'Port 2222\nListenAddress 127.0.0.1\nPasswordAuthentication yes\nKbdInteractiveAuthentication no\nUsePAM yes\nSubsystem sftp internal-sftp\nPidFile /tmp/sshd-live.pid\n' | sudo tee /etc/ssh/sshd-live.conf >/dev/null
+            sudo mkdir -p /run/sshd && sudo ssh-keygen -A >/dev/null && sudo /usr/sbin/sshd -f /etc/ssh/sshd-live.conf
+            printf 'listen=YES\nlisten_address=127.0.0.1\nlisten_port=2121\nanonymous_enable=NO\nlocal_enable=YES\nwrite_enable=YES\npasv_min_port=40000\npasv_max_port=40100\nseccomp_sandbox=NO\nbackground=YES\npam_service_name=vsftpd\n' | sudo tee /etc/vsftpd-live.conf >/dev/null
+            sudo /usr/sbin/vsftpd /etc/vsftpd-live.conf
+            sudo -u live bash -c 'cd /home/live/public_html && nohup php -S 127.0.0.1:8099 >/tmp/live-php.log 2>&1 &'
+            for _ in $(seq 20); do curl -fs -o /dev/null http://127.0.0.1:8099/ && break; sleep 1; done
+            (cd /home/live && sudo zip -qr "$RUNNER_TEMP/live-files.zip" public_html -x 'public_html/wp-content/uploads/*')
+            "$bin/mariadb-dump" -h 127.0.0.1 -P "$dbport" -u root live_blog | gzip > "$RUNNER_TEMP/live_blog.sql.gz"
+            STACKYARD_TEST_LIVE="sftp|127.0.0.1|2222|live|Live-pass-1|http://127.0.0.1:8099|2121" \
+              STACKYARD_TEST_BACKUP="$RUNNER_TEMP/live-files.zip|$RUNNER_TEMP/live_blog.sql.gz" \
+              cargo test -p stackyard-core -- --ignored clone_from_a_live_server
             stackyard stop
           fi
       - name: Python and Go sites, with the servers Stackyard runs

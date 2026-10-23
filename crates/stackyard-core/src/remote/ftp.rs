@@ -480,12 +480,24 @@ impl Remote for Ftp {
 
     fn download(&mut self, remote: &str, local: &Path, on_bytes: OnBytes) -> Result<()> {
         let modified = self.modified(remote);
+        let size = match self.control.send(&format!("SIZE {remote}")) {
+            Ok((213, text)) => text.trim().parse().ok(),
+            _ => None,
+        };
         let part = partial_name(local);
-        let mut file = std::fs::File::create(&part).map_err(io_error(&part))?;
+        let (mut file, mut done) = super::open_partial(&part, size, modified)?;
+        if done > 0 && !matches!(self.control.send(&format!("REST {done}")), Ok((350, _))) {
+            (file, done) = super::open_partial(&part, None, None)?;
+        }
         let command = format!("RETR {remote}");
-        let mut stream = self.data(&command)?;
+        let mut stream = match self.data(&command) {
+            Ok(stream) => stream,
+            Err(e) => {
+                super::keep_partial(file, &part, modified);
+                return Err(e);
+            }
+        };
         let mut buf = vec![0u8; CHUNK];
-        let mut done = 0u64;
         let copied = loop {
             match stream.read(&mut buf) {
                 Ok(0) => break Ok(()),
@@ -507,8 +519,7 @@ impl Remote for Ftp {
         stream.finish();
         let finished = self.done(&command);
         if let Err(e) = copied.and(finished) {
-            drop(file);
-            let _ = std::fs::remove_file(&part);
+            super::keep_partial(file, &part, modified);
             return Err(e);
         }
         if let Some(at) = modified {
@@ -851,11 +862,16 @@ mod tests {
             say("257 \"/home/sam\" is the current directory");
             for (command, body) in [
                 ("MLSD /home/sam", "type=dir;modify=20240131120000; www\r\ntype=file;size=5;modify=20240131120000; a.txt\r\n"),
-                ("RETR /home/sam/a.txt", "hello"),
+                ("RETR /home/sam/a.txt", "llo"),
             ] {
                 if command.starts_with("RETR") {
                     expect_line(input, "MDTM /home/sam/a.txt");
                     say("213 20240131120000");
+                    expect_line(input, "SIZE /home/sam/a.txt");
+                    say("213 5");
+                    // The first two bytes came in an earlier, broken-off try.
+                    expect_line(input, "REST 2");
+                    say("350 restarting at 2");
                 }
                 expect_line(input, "EPSV");
                 say(&format!("229 Entering Extended Passive Mode (|||{data_port}|)"));
@@ -888,6 +904,11 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert!(entries[0].dir);
         let target = crate::testutil::tempdir().join("a.txt");
+        let part = super::super::partial_name(&target);
+        std::fs::write(&part, "he").unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(&part).unwrap();
+        super::super::set_mtime(&file, parse_time("20240131120000").unwrap());
+        drop(file);
         let mut seen = 0;
         ftp.download("/home/sam/a.txt", &target, &mut |n| {
             seen = n;

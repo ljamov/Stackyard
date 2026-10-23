@@ -13,6 +13,13 @@ Update button, and the app shows its own version's section after it updates.
   upkeep, and WooCommerce tools (scheduled actions, payment methods in test mode, test orders and
   customers) for stores with and without High-Performance Order Storage. WP-CLI is downloaded the
   first time it is needed. A module you can switch off. See [docs/wordpress.md](docs/wordpress.md).
+- **Clone from a live server** (Sites): copy a live WordPress or WooCommerce site to this computer
+  over SSH, SFTP or FTP, or from a hosting panel backup (cPanel, Plesk, DirectAdmin) or a zip and
+  `.sql` file. The database password is read from the live `wp-config.php`; every live address is
+  changed to the local one; mail goes to Mailpit, search engines are kept away, scheduled tasks
+  can't call outside services and payment methods go into test mode. Media can be downloaded or
+  left on the live site and loaded when a page needs it. Large sites can be stopped and continued,
+  and a broken-off download continues where it stopped (in the Servers tab too).
 
 - Stackyard is now licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) instead of
   MIT. Earlier releases stay under MIT.

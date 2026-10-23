@@ -699,6 +699,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             let mut store = SiteStore::load()?;
             let site = store.remove(&name)?;
             store.save()?;
+            stackyard_core::wordpress::env::forget(&paths::home(), &site.domain());
             notify(Request::SitesChanged);
             println!("Removed {}", site.domain());
         }

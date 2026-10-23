@@ -23,6 +23,9 @@ use crate::{paths, Error, Result};
 
 pub use sync::{Action, Compare, Direction, Outcome, Plan, PlannedFile, Progress};
 
+/// Seconds a command on a server may go without printing anything.
+pub const EXEC_IDLE: u64 = 600;
+
 const FILE: &str = "remote.toml";
 const MAX_NAME: usize = 80;
 
@@ -218,6 +221,44 @@ impl RemoteStore {
     }
 }
 
+/// A connection that is not saved yet, e.g. one typed in to clone a site
+/// that does not exist yet. Its id starts with `draft-`; log in with
+/// [`Sessions::login`], and save it later with [`RemoteStore::add`].
+pub fn draft(input: ConnectionInput) -> Result<Connection> {
+    let input = ConnectionInput {
+        site: if input.site.trim().is_empty() {
+            "draft".into()
+        } else {
+            input.site
+        },
+        name: if input.name.trim().is_empty() {
+            "Live".into()
+        } else {
+            input.name
+        },
+        ..input
+    };
+    validate(format!("draft-{}", new_id()?), input, None)
+}
+
+/// What a saved connection was filled in with, to save a copy of it for
+/// another site; the password is read from the system's store.
+pub fn input_of(connection: &Connection) -> Result<ConnectionInput> {
+    Ok(ConnectionInput {
+        site: connection.site.clone(),
+        name: connection.name.clone(),
+        protocol: Some(connection.protocol),
+        host: connection.host.clone(),
+        port: Some(connection.port),
+        user: connection.user.clone(),
+        key_file: connection.key_file.clone(),
+        remote_dir: connection.remote_dir.clone(),
+        local_dir: connection.local_dir.clone(),
+        skip: Some(connection.skip.clone()),
+        password: secrets::get(&secret_account(&connection.id))?,
+    })
+}
+
 fn secret_account(id: &str) -> String {
     format!("remote-{id}")
 }
@@ -358,12 +399,35 @@ pub(crate) trait Remote: Send {
     fn remove_file(&mut self, path: &str) -> Result<()>;
     /// The folder the server starts in, which also checks the connection is alive.
     fn start_dir(&mut self) -> Result<String>;
+    /// Runs a command in the server's shell (SSH only), writing what it
+    /// prints to `out`. Returns its exit code and the end of its error output.
+    fn exec(&mut self, _command: &str, _out: &mut dyn std::io::Write) -> Result<Exit> {
+        Err(Error::Remote(
+            "this connection has no shell; only SFTP connections can run commands".into(),
+        ))
+    }
+}
+
+/// How a command run on a server ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Exit {
+    pub code: u32,
+    /// The last few kilobytes it wrote to its error output.
+    pub errors: String,
+}
+
+impl Exit {
+    pub fn ok(&self) -> bool {
+        self.code == 0
+    }
 }
 
 /// Logs in. For SFTP, the server key it presented is checked against the
 /// trusted one, and returned so a first connect can remember it.
-fn open(connection: &Connection) -> Result<(Box<dyn Remote>, Option<String>)> {
-    let secret = secrets::get(&secret_account(&connection.id))?;
+fn open(
+    connection: &Connection,
+    secret: Option<String>,
+) -> Result<(Box<dyn Remote>, Option<String>)> {
     match connection.protocol {
         Protocol::Sftp => {
             let (session, key) = sftp::Sftp::connect(connection, secret)?;
@@ -381,6 +445,8 @@ fn open(connection: &Connection) -> Result<(Box<dyn Remote>, Option<String>)> {
 #[derive(Default)]
 pub struct Sessions {
     open: Mutex<HashMap<String, Box<dyn Remote>>>,
+    /// Passwords of draft connections, which have none stored.
+    drafts: Mutex<HashMap<String, Option<String>>>,
 }
 
 impl Sessions {
@@ -395,8 +461,13 @@ impl Sessions {
         let mut session = match alive {
             Some(s) => s,
             None => {
-                let (session, key) = open(connection)?;
-                if connection.server_key.is_none() {
+                let draft = self.drafts.lock().unwrap().get(&connection.id).cloned();
+                let secret = match &draft {
+                    Some(secret) => secret.clone(),
+                    None => secrets::get(&secret_account(&connection.id))?,
+                };
+                let (session, key) = open(connection, secret)?;
+                if connection.server_key.is_none() && draft.is_none() {
                     if let Some(key) = key {
                         remember_key(&connection.id, key)?;
                     }
@@ -421,6 +492,94 @@ impl Sessions {
             // Logging out waits on the server; never hold up the caller.
             std::thread::spawn(move || drop(session));
         }
+    }
+
+    /// Logs in with a draft connection and its password, which is kept
+    /// in memory for later steps. Returns the server key (SFTP) to trust:
+    /// set it on the draft before saving it.
+    pub fn login(&self, connection: &Connection, secret: Option<String>) -> Result<Option<String>> {
+        self.close(&connection.id);
+        let (session, key) = open(connection, secret.clone())?;
+        self.drafts
+            .lock()
+            .unwrap()
+            .insert(connection.id.clone(), secret);
+        self.open
+            .lock()
+            .unwrap()
+            .insert(connection.id.clone(), session);
+        Ok(key)
+    }
+
+    /// Saves a copy of a connection (a draft, or one saved for another
+    /// site) as `name` for `site`, with its password and trusted server key.
+    pub fn save_copy(&self, connection: &Connection, site: &str, name: &str) -> Result<Connection> {
+        let draft = self.drafts.lock().unwrap().get(&connection.id).cloned();
+        let mut input = input_of(connection)?;
+        if let Some(secret) = draft {
+            input.password = secret;
+        }
+        input.site = site.to_string();
+        input.name = name.to_string();
+        let mut store = RemoteStore::load()?;
+        let saved = store.add(input)?;
+        store.set_server_key(&saved.id, connection.server_key.clone())?;
+        store.save()?;
+        Ok(Connection {
+            server_key: connection.server_key.clone(),
+            ..saved
+        })
+    }
+
+    /// Forgets a draft connection's password and logs it out.
+    pub fn forget(&self, id: &str) {
+        self.drafts.lock().unwrap().remove(id);
+        self.close(id);
+    }
+
+    /// Runs a command in the server's shell (SSH connections only).
+    pub fn exec(
+        &self,
+        connection: &Connection,
+        command: &str,
+        out: &mut dyn std::io::Write,
+    ) -> Result<Exit> {
+        self.with(connection, |r| r.exec(command, out))
+    }
+
+    /// The folder the connection starts in: its own folder when set, else
+    /// the server's start folder.
+    pub fn root(&self, connection: &Connection) -> Result<String> {
+        self.with(connection, |r| remote_root(connection, r))
+    }
+
+    /// A server folder's contents; an absolute path.
+    pub fn list(&self, connection: &Connection, dir: &str) -> Result<Vec<Entry>> {
+        self.with(connection, |r| r.list(dir))
+    }
+
+    /// Downloads one file (absolute server path), continuing a broken-off
+    /// earlier try of the same file.
+    pub fn download(
+        &self,
+        connection: &Connection,
+        remote: &str,
+        local: &Path,
+        on_bytes: OnBytes,
+    ) -> Result<()> {
+        if let Some(parent) = local.parent() {
+            std::fs::create_dir_all(parent).map_err(io_error(parent))?;
+        }
+        self.with(connection, |r| r.download(remote, local, on_bytes))
+    }
+
+    /// Uploads one file to an absolute server path.
+    pub fn upload(&self, connection: &Connection, local: &Path, remote: &str) -> Result<()> {
+        self.with(connection, |r| r.upload(local, remote, &mut |_| true))
+    }
+
+    pub fn remove_file(&self, connection: &Connection, remote: &str) -> Result<()> {
+        self.with(connection, |r| r.remove_file(remote))
     }
 
     /// Logs in and reports where the server starts, to check the settings work.
@@ -558,6 +717,41 @@ pub(crate) fn partial_name(local: &Path) -> PathBuf {
     let mut name = local.as_os_str().to_owned();
     name.push(".part");
     PathBuf::from(name)
+}
+
+/// Opens the partial file of a download. A partial file left by a
+/// download that broke off is continued when it was stamped with the same
+/// modification time as the server's file and is shorter than it; returns
+/// the file and how many bytes it already has. Otherwise starts afresh.
+pub(crate) fn open_partial(
+    part: &Path,
+    size: Option<u64>,
+    modified: Option<i64>,
+) -> Result<(std::fs::File, u64)> {
+    if let (Some(size), Some(modified), Ok(meta)) = (size, modified, std::fs::metadata(part)) {
+        let have = meta.len();
+        if have > 0 && have < size && mtime_of(&meta) == Some(modified) {
+            let file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(part)
+                .map_err(io_error(part))?;
+            return Ok((file, have));
+        }
+    }
+    let file = std::fs::File::create(part).map_err(io_error(part))?;
+    Ok((file, 0))
+}
+
+/// Keeps what a broken-off download got, stamped with the server file's
+/// time so the next try can continue it; without that time it is removed.
+pub(crate) fn keep_partial(file: std::fs::File, part: &Path, modified: Option<i64>) {
+    match modified {
+        Some(at) => set_mtime(&file, at),
+        None => {
+            drop(file);
+            let _ = std::fs::remove_file(part);
+        }
+    }
 }
 
 pub(crate) fn io_error(path: &Path) -> impl FnOnce(std::io::Error) -> Error + '_ {

@@ -1703,6 +1703,7 @@ fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
     let removed = store.remove(&name).map_err(err)?;
     store.save().map_err(err)?;
     remote::site_removed(&removed.domain());
+    stackyard_core::wordpress::env::forget(&paths::home(), &removed.domain());
     let _ = stackyard_core::share::stop(app.state::<Arc<Engine>>().supervisor(), &removed);
     sites_changed(&app);
     site_views()
@@ -1739,6 +1740,27 @@ fn unpark_folder(app: AppHandle, path: String) -> CmdResult<Vec<String>> {
 /// After sites or domain endings change: answer the new endings, and
 /// restart a running web server so it serves the new list. Runs in the
 /// background so the interface stays responsive.
+/// Starts MySQL or MariaDB unless one is running, for work that needs a database.
+pub(crate) fn ensure_database(engine: &Engine) -> CmdResult<()> {
+    let running = |id: &str| matches!(engine.state(id), ProcessState::Running { .. });
+    if running("mysql") || running("mariadb") {
+        return Ok(());
+    }
+    let id = ["mysql", "mariadb"]
+        .into_iter()
+        .find(|id| engine.manager().get(id).is_some())
+        .ok_or("this needs MySQL or MariaDB; install one under Services first")?;
+    engine.start(id).map_err(err)
+}
+
+/// Starts the web server unless it is running.
+pub(crate) fn ensure_web(engine: &Engine) -> CmdResult<()> {
+    if matches!(engine.state("caddy"), ProcessState::Running { .. }) {
+        return Ok(());
+    }
+    engine.start("caddy").map_err(err)
+}
+
 pub(crate) fn sites_changed(app: &AppHandle) {
     let engine = app.state::<Arc<Engine>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -1923,6 +1945,7 @@ pub fn run() {
         .manage(remote::RemoteState::default())
         .manage(ai::AiInstalls::default())
         .manage(console::Consoles::default())
+        .manage(wordpress::CloneState::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1965,6 +1988,12 @@ pub fn run() {
             wordpress::wp_woo_run_actions,
             wordpress::wp_woo_test_mode,
             wordpress::wp_woo_create,
+            wordpress::wp_saved_connections,
+            wordpress::wp_clone_inspect,
+            wordpress::wp_clone,
+            wordpress::wp_clone_stop,
+            wordpress::wp_clone_unfinished,
+            wordpress::wp_environment,
             sitetools::site_settings,
             sitetools::save_site_settings,
             sitetools::site_backups,

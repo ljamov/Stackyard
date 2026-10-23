@@ -2,6 +2,7 @@
 // with an in-memory stand-in for the browser preview (see api.ts).
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export type WpDebug = { debug: boolean; log: boolean; display: boolean; scripts: boolean; queries: boolean };
 
@@ -53,6 +54,55 @@ export type WooStatus = {
 export type WooGateway = { id: string; title: string; enabled: boolean; test_mode: boolean | null };
 export type WooView = { status: WooStatus; gateways: WooGateway[] };
 
+export type WpProtocol = "sftp" | "ftps" | "ftp";
+export type WpRoute = "ssh" | "helper" | "files";
+export type WpMedia = "download" | "from-live";
+export type WpSavedConnection = { id: string; name: string; site: string; host: string; user: string; protocol: WpProtocol };
+export type WpConnectionInput = {
+  site: string;
+  name: string;
+  protocol: WpProtocol;
+  host: string;
+  port: number | null;
+  user: string;
+  password: string | null;
+  key_file: string | null;
+  remote_dir: string;
+};
+export type WpCloneSource =
+  | { kind: "saved"; id: string }
+  | { kind: "new"; connection: WpConnectionInput }
+  | { kind: "files"; files: string[] };
+export type WpFound = {
+  route: WpRoute | null;
+  roots: string[];
+  root: string;
+  url: string;
+  wordpress: string;
+  php: string;
+  mysql: string;
+  prefix: string;
+  tables: number;
+  database_bytes: number;
+  notes: string[];
+};
+export type WpCloneOptions = {
+  name: string;
+  folder: string | null;
+  root: string | null;
+  url: string | null;
+  media: WpMedia;
+  https: boolean;
+};
+export type WpCloneStage = "connecting" | "files" | "database" | "loading" | "finishing";
+export type WpCloneProgress = { name: string; stage: WpCloneStage; message: string; done: number; total: number };
+export type WpCloned = { url: string; live: string; replaced: number; notes: string[]; site: { name: string; tld: string } };
+export type WpEnvironment = {
+  kind: "local" | "staging";
+  safe: boolean;
+  live: { url: string; connection: string | null; path: string; route: WpRoute; media: WpMedia; synced_at: number } | null;
+};
+
 export interface WpApi {
   overview(domain: string): Promise<WpOverview>;
   diskUse(domain: string): Promise<WpDiskUse>;
@@ -80,6 +130,13 @@ export interface WpApi {
   wooRunActions(domain: string): Promise<string>;
   wooTestMode(domain: string, gateway: string, on: boolean): Promise<WooView>;
   wooCreate(domain: string, kind: "customers" | "orders", count: number): Promise<string[]>;
+  savedConnections(): Promise<WpSavedConnection[]>;
+  cloneInspect(source: WpCloneSource, root: string | null, url: string | null): Promise<WpFound>;
+  clone(source: WpCloneSource, options: WpCloneOptions): Promise<WpCloned>;
+  cloneStop(): Promise<void>;
+  cloneUnfinished(name: string): Promise<boolean>;
+  onCloneProgress(handler: (p: WpCloneProgress) => void): Promise<() => void>;
+  environment(domain: string): Promise<WpEnvironment | null>;
 }
 
 const tauriWp: WpApi = {
@@ -108,6 +165,13 @@ const tauriWp: WpApi = {
   wooRunActions: (domain) => invoke("wp_woo_run_actions", { domain }),
   wooTestMode: (domain, gateway, on) => invoke("wp_woo_test_mode", { domain, gateway, on }),
   wooCreate: (domain, kind, count) => invoke("wp_woo_create", { domain, kind, count }),
+  savedConnections: () => invoke("wp_saved_connections"),
+  cloneInspect: (source, root, url) => invoke("wp_clone_inspect", { source, root, url }),
+  clone: (source, options) => invoke("wp_clone", { source, options }),
+  cloneStop: () => invoke("wp_clone_stop"),
+  cloneUnfinished: (name) => invoke("wp_clone_unfinished", { name }),
+  onCloneProgress: (handler) => listen<WpCloneProgress>("wp-clone-progress", (e) => handler(e.payload)),
+  environment: (domain) => invoke("wp_environment", { domain }),
 };
 
 function mockWp(): WpApi {
@@ -216,8 +280,82 @@ function mockWp(): WpApi {
     },
     wooCreate: async (_d, kind, count) =>
       Array.from({ length: count }, (_, i) => (kind === "customers" ? `test-${i}@example.test` : String(1205 + i))),
+    savedConnections: async () => [
+      { id: "k3j9x2ab", name: "Production", site: "legacy.stack", host: "203.0.113.10", user: "master", protocol: "sftp" },
+    ],
+    cloneInspect: async (source) => {
+      await wait(900);
+      const files = source.kind === "files";
+      return {
+        route: files ? "files" : source.kind === "new" && source.connection.protocol !== "sftp" ? "helper" : "ssh",
+        roots: files ? ["backup/public_html"] : ["/home/master/applications/shop/public_html"],
+        root: files ? "backup/public_html" : "/home/master/applications/shop/public_html",
+        url: files ? "" : "https://shop.example",
+        wordpress: "6.8.3",
+        php: files ? "" : "8.2.29",
+        mysql: files ? "" : "10.6.22-MariaDB",
+        prefix: "wp_",
+        tables: files ? 0 : 58,
+        database_bytes: 3.1e8,
+        notes: [
+          files
+            ? "The database comes from shop.sql.gz."
+            : "Files come over SFTP and the database is exported on the server with mysqldump.",
+        ],
+      };
+    },
+    clone: async (_source, options) => {
+      const steps: [WpCloneStage, string][] = [
+        ["connecting", "Finding WordPress on the server…"],
+        ["files", "Downloading wp-content/uploads/2025/06/hero.jpg (812 of 9,410)"],
+        ["database", "Copying the table wp_postmeta (12 of 58)"],
+        ["loading", "Changing addresses and loading the database…"],
+        ["finishing", "Switching payments to test mode…"],
+      ];
+      for (const [i, [stage, message]] of steps.entries()) {
+        if (cloneStopped) {
+          cloneStopped = false;
+          throw "stopped; clone again with the same name to continue where it stopped";
+        }
+        for (const h of cloneHandlers) h({ name: options.name, stage, message, done: i + 1, total: steps.length });
+        await wait(700);
+      }
+      return {
+        url: `https://${options.name}.stack`,
+        live: "https://shop.example",
+        replaced: 1834,
+        notes: ["Switched to test mode: Credit card (Stripe)."],
+        site: { name: options.name, tld: ".stack" },
+      };
+    },
+    cloneStop: async () => {
+      cloneStopped = true;
+    },
+    cloneUnfinished: async () => false,
+    onCloneProgress: async (handler) => {
+      cloneHandlers.push(handler);
+      return () => cloneHandlers.splice(cloneHandlers.indexOf(handler), 1);
+    },
+    environment: async (domain) =>
+      domain.startsWith("legacy")
+        ? {
+            kind: "local",
+            safe: true,
+            live: {
+              url: "https://shop.example",
+              connection: "k3j9x2ab",
+              path: "/home/master/applications/shop/public_html",
+              route: "ssh",
+              media: "from-live",
+              synced_at: Date.now() / 1000 - 86400,
+            },
+          }
+        : null,
   };
 }
+
+let cloneStopped = false;
+const cloneHandlers: ((p: WpCloneProgress) => void)[] = [];
 
 const mock = mockWp();
 

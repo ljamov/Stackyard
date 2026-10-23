@@ -7,7 +7,11 @@
 //!
 //! - one-time login links made by the WordPress tab;
 //! - the copy's name in the admin bar, so a staging is never taken for
-//!   the live site.
+//!   the live site;
+//! - on copies of a live site ([`Safety`]): mail goes to Mailpit (or
+//!   nowhere), search engines are told to stay away, scheduled tasks can't
+//!   call outside services, WooCommerce webhooks are held back, and media
+//!   that was left on the live site is fetched from it when a page asks.
 
 use std::path::{Path, PathBuf};
 
@@ -24,11 +28,32 @@ pub struct Options {
     pub label: String,
     /// A staging copy: the label is shown in a warning color.
     pub staging: bool,
+    pub safety: Option<Safety>,
+}
+
+/// What keeps a copy of a live site from acting as the live site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Safety {
+    /// Mailpit's SMTP port; `None` when Mailpit is off, and mail is dropped.
+    pub mailpit: Option<u16>,
+    /// The live site's address, when media was left there.
+    pub media_from: Option<String>,
 }
 
 impl Options {
-    pub fn for_site(_home: &Path, wp: &WpSite) -> Self {
-        let staging = wp.config.get("WP_ENVIRONMENT_TYPE") == Some("staging");
+    pub fn for_site(home: &Path, wp: &WpSite) -> Self {
+        let env = super::env::load(home, &wp.site.domain()).ok().flatten();
+        let staging = match &env {
+            Some(env) => env.kind == super::env::Kind::Staging,
+            None => wp.config.get("WP_ENVIRONMENT_TYPE") == Some("staging"),
+        };
+        let safety = env.filter(|e| e.safe).map(|env| Safety {
+            mailpit: mailpit_port(home),
+            media_from: env
+                .live
+                .filter(|l| l.media == super::env::Media::FromLive)
+                .map(|l| l.url),
+        });
         Options {
             label: if staging {
                 "Staging".into()
@@ -36,8 +61,17 @@ impl Options {
                 "Local".into()
             },
             staging,
+            safety,
         }
     }
+}
+
+/// Mailpit's SMTP port, when its module is on.
+fn mailpit_port(home: &Path) -> Option<u16> {
+    let settings = crate::settings::Settings::load_from(&home.join("settings.toml")).ok()?;
+    settings.require_module("mailpit").ok()?;
+    let def = crate::catalog::service("mailpit")?;
+    Some(crate::services::port(home, def))
 }
 
 pub fn path(wp: &WpSite) -> PathBuf {
@@ -77,6 +111,20 @@ pub fn source(options: &Options) -> String {
         "define( 'STACKYARD_COPY', {} );\n\n",
         php_string(&options.label)
     ));
+    if let Some(safety) = &options.safety {
+        out.push_str(&match safety.mailpit {
+            Some(port) => MAIL_TO_MAILPIT.replace("{port}", &port.to_string()),
+            None => MAIL_DROPPED.to_string(),
+        });
+        out.push_str(SAFETY);
+        if let Some(live) = &safety.media_from {
+            out.push_str(&format!(
+                "define( 'STACKYARD_MEDIA_FROM', {} );\n",
+                php_string(live.trim_end_matches('/'))
+            ));
+            out.push_str(MEDIA_FROM_LIVE);
+        }
+    }
     out.push_str(LOGIN);
     out.push_str(&ADMIN_BAR.replace(
         "{color}",
@@ -88,6 +136,100 @@ pub fn source(options: &Options) -> String {
     ));
     out
 }
+
+const MAIL_TO_MAILPIT: &str = r#"// Mail goes to Mailpit, never to real people.
+add_action( 'phpmailer_init', function ( $mailer ) {
+	$mailer->isSMTP();
+	$mailer->Host        = '127.0.0.1';
+	$mailer->Port        = {port};
+	$mailer->SMTPAuth    = false;
+	$mailer->SMTPSecure  = '';
+	$mailer->SMTPAutoTLS = false;
+}, PHP_INT_MAX );
+
+"#;
+
+const MAIL_DROPPED: &str = r#"// Mailpit is off, so mail is dropped rather than sent to real people.
+add_filter( 'pre_wp_mail', function () {
+	return true;
+}, PHP_INT_MAX );
+
+"#;
+
+const SAFETY: &str = r#"// Search engines stay away from this copy.
+add_filter( 'pre_option_blog_public', function () {
+	return '0';
+} );
+
+// Scheduled tasks can't call outside services (payment, CRM, mail lists);
+// the copy itself and this computer stay reachable.
+add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
+	if ( false !== $pre || ! wp_doing_cron() ) {
+		return $pre;
+	}
+	$host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+	$own  = strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
+	if ( in_array( $host, array( $own, 'localhost', '127.0.0.1', '::1', '[::1]' ), true ) ) {
+		return $pre;
+	}
+	return new WP_Error( 'stackyard_blocked', 'Stackyard keeps scheduled tasks on this copy from calling ' . $host . '.' );
+}, 1, 3 );
+
+// WooCommerce webhooks would tell outside services about test orders.
+add_filter( 'woocommerce_webhook_should_deliver', '__return_false', PHP_INT_MAX );
+
+"#;
+
+/// Media left on the live site: a missing file under the uploads folder
+/// reaches WordPress (the web server sends missing files to index.php), so
+/// it is fetched from the live site once, kept, and sent.
+const MEDIA_FROM_LIVE: &str = r#"( function () {
+	$path = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '';
+	if ( '' === $path || false === strpos( $path, '/' ) ) {
+		return;
+	}
+	$uploads = wp_upload_dir( null, false );
+	$base    = rtrim( (string) wp_parse_url( $uploads['baseurl'], PHP_URL_PATH ), '/' );
+	if ( '' === $base || 0 !== strpos( $path, $base . '/' ) ) {
+		return;
+	}
+	$relative = rawurldecode( substr( $path, strlen( $base ) + 1 ) );
+	if ( '' === $relative || false !== strpos( $relative, '..' ) || false !== strpos( $relative, "\0" ) ) {
+		return;
+	}
+	$file = $uploads['basedir'] . '/' . $relative;
+	if ( is_file( $file ) ) {
+		return;
+	}
+	$home = rtrim( (string) wp_parse_url( home_url(), PHP_URL_PATH ), '/' );
+	$url  = STACKYARD_MEDIA_FROM . ( '' !== $home && 0 === strpos( $path, $home . '/' ) ? substr( $path, strlen( $home ) ) : $path );
+	wp_mkdir_p( dirname( $file ) );
+	$part     = $file . '.stackyard-part';
+	$response = wp_remote_get( $url, array( 'timeout' => 60, 'stream' => true, 'filename' => $part ) );
+	if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+		@unlink( $part );
+		status_header( 404 );
+		nocache_headers();
+		exit;
+	}
+	rename( $part, $file );
+	// wp_check_filetype() needs the user functions, which are not loaded yet.
+	$type = 'application/octet-stream';
+	$ext  = strtolower( pathinfo( $file, PATHINFO_EXTENSION ) );
+	foreach ( wp_get_mime_types() as $exts => $mime ) {
+		if ( in_array( $ext, explode( '|', $exts ), true ) ) {
+			$type = $mime;
+			break;
+		}
+	}
+	header( 'Content-Type: ' . $type );
+	header( 'Content-Length: ' . filesize( $file ) );
+	status_header( 200 );
+	readfile( $file );
+	exit;
+} )();
+
+"#;
 
 /// A login link: `?stackyard-login=<token>` logs in as the user Stackyard
 /// stored with the token's hash, once, within its time.
@@ -138,6 +280,7 @@ mod tests {
         let php = source(&Options {
             label: "Staging: it's new".into(),
             staging: true,
+            safety: None,
         });
         assert!(php.starts_with("<?php\n"));
         assert!(php.contains("define( 'STACKYARD_COPY', 'Staging: it\\'s new' );"));
@@ -145,5 +288,47 @@ mod tests {
         assert!(php.contains("hash_equals"));
         // Balanced braces, as a quick check the PHP holds together.
         assert_eq!(php.matches('{').count(), php.matches('}').count());
+        assert!(!php.contains("phpmailer_init"));
+    }
+
+    #[test]
+    fn makes_copies_of_live_sites_safe() {
+        let options = Options {
+            label: "Local".into(),
+            staging: false,
+            safety: Some(Safety {
+                mailpit: Some(1026),
+                media_from: Some("https://shop.example/".into()),
+            }),
+        };
+        let php = source(&options);
+        assert!(php.contains("$mailer->Port        = 1026;"));
+        assert!(php.contains("pre_option_blog_public"));
+        assert!(php.contains("define( 'STACKYARD_MEDIA_FROM', 'https://shop.example' );"));
+        assert_eq!(php.matches('{').count(), php.matches('}').count());
+        let dropped = source(&Options {
+            safety: Some(Safety {
+                mailpit: None,
+                media_from: None,
+            }),
+            ..options
+        });
+        assert!(dropped.contains("pre_wp_mail"));
+        assert!(!dropped.contains("STACKYARD_MEDIA_FROM"));
+
+        let dir = crate::testutil::tempdir();
+        let file = dir.join("stackyard.php");
+        std::fs::write(&file, php).unwrap();
+        if let Ok(out) = std::process::Command::new("php")
+            .arg("-l")
+            .arg(&file)
+            .output()
+        {
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stdout)
+            );
+        }
     }
 }
