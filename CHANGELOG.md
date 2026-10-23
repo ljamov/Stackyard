@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.10.0
 
 - The **Problems, Logs and Terminal** panel now sits under the open screen only, so the side bar
   runs the whole height of the window. The new button beside the panel's ✕ stretches it across
