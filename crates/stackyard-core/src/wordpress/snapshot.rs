@@ -53,6 +53,92 @@ pub struct Snapshot {
     pub bytes: u64,
 }
 
+/// What a merge needs to know about the database in a base snapshot,
+/// read when it is taken so merges don't have to load the whole dump.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Facts {
+    pub prefix: String,
+    pub max_post_id: u64,
+    pub max_comment_id: u64,
+    pub max_user_id: u64,
+    /// Every option's SHA-256, by name.
+    pub options: BTreeMap<String, String>,
+    /// `active_plugins`: plugin files such as `woocommerce/woocommerce.php`.
+    pub active_plugins: Vec<String>,
+    pub stylesheet: String,
+    pub template: String,
+}
+
+/// Reads [`Facts`] from a copy's database.
+pub fn read_facts(client: &Client, database: &str, prefix: &str) -> Result<Facts> {
+    let t = |name: &str| crate::databases::ident(&format!("{prefix}{name}"));
+    let max = |table: &str, column: &str| -> Result<u64> {
+        let set = client.rows(
+            database,
+            &format!("SELECT COALESCE(MAX({column}), 0) FROM {}", t(table)),
+        )?;
+        Ok(set
+            .rows
+            .first()
+            .and_then(|r| r.first().cloned().flatten())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0))
+    };
+    let options: BTreeMap<String, String> = client
+        .rows(
+            database,
+            &format!(
+                "SELECT option_name, SHA2(option_value, 256) FROM {}",
+                t("options")
+            ),
+        )?
+        .rows
+        .into_iter()
+        .filter_map(|r| {
+            Some((
+                r.first()?.clone()?,
+                r.get(1).cloned().flatten().unwrap_or_default(),
+            ))
+        })
+        .collect();
+    let value = |name: &str| -> Result<String> {
+        let set = client.rows(
+            database,
+            &format!(
+                "SELECT option_value FROM {} WHERE option_name = {}",
+                t("options"),
+                crate::databases::literal(name)
+            ),
+        )?;
+        Ok(set
+            .rows
+            .first()
+            .and_then(|r| r.first().cloned().flatten())
+            .unwrap_or_default())
+    };
+    Ok(Facts {
+        prefix: prefix.to_string(),
+        max_post_id: max("posts", "ID")?,
+        max_comment_id: max("comments", "comment_ID")?,
+        max_user_id: max("users", "ID")?,
+        options,
+        active_plugins: plugin_list(&value("active_plugins")?),
+        stylesheet: value("stylesheet")?,
+        template: value("template")?,
+    })
+}
+
+/// The plugin files in a serialized `active_plugins` value.
+pub fn plugin_list(serialized: &str) -> Vec<String> {
+    match super::php::unserialize(serialized.as_bytes()) {
+        Some(super::php::Value::Array(items)) => items
+            .iter()
+            .filter_map(|(_, v)| v.as_str().map(str::to_string))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// One file in a base snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileEntry {
@@ -93,6 +179,12 @@ pub fn is_media(rel: &str) -> bool {
 /// Lists every file under `root` with its size, date and (outside the
 /// media folder) checksum.
 pub fn manifest(root: &Path) -> Result<Manifest> {
+    manifest_with(root, &Manifest::new())
+}
+
+/// Like [`manifest`], reusing the checksum from `known` for files whose
+/// size and date have not changed, so listing a big site again is quick.
+pub fn manifest_with(root: &Path, known: &Manifest) -> Result<Manifest> {
     let mut out = Manifest::new();
     let mut folders = vec![String::new()];
     while let Some(rel) = folders.pop() {
@@ -114,7 +206,12 @@ pub fn manifest(root: &Path) -> Result<Manifest> {
                     folders.push(path);
                 }
             } else if meta.is_file() {
-                out.insert(path.clone(), entry_of(&entry.path(), &path, &meta)?);
+                let modified = crate::remote::mtime_of(&meta).unwrap_or(0);
+                let entry = match known.get(&path) {
+                    Some(k) if k.size == meta.len() && k.modified == modified => k.clone(),
+                    _ => entry_of(&entry.path(), &path, &meta)?,
+                };
+                out.insert(path, entry);
             }
         }
     }
@@ -191,6 +288,14 @@ impl Snapshot {
         Ok(())
     }
 
+    /// A base snapshot's database facts.
+    pub fn facts(&self, home: &Path) -> Result<Facts> {
+        let file = self.folder(home).join("facts.json");
+        let bytes = std::fs::read(&file).map_err(io(&file))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|e| Error::WordPress(format!("{} is damaged: {e}", file.display())))
+    }
+
     pub fn manifest(&self, home: &Path) -> Result<Manifest> {
         let file = self.folder(home).join("files.json");
         let bytes = std::fs::read(&file).map_err(io(&file))?;
@@ -234,6 +339,11 @@ fn take_as(home: &Path, wp: &WpSite, reason: &str, id: &str, list: bool) -> Resu
         let mut snapshot = snapshot.clone();
         snapshot.bytes = std::fs::metadata(&database).map(|m| m.len()).unwrap_or(0);
         if list {
+            let facts = read_facts(&Client::open(home)?, &wp.database()?, wp.prefix())?;
+            let path = folder.join("facts.json");
+            let text = serde_json::to_vec(&facts)
+                .map_err(|e| Error::WordPress(format!("could not save the facts: {e}")))?;
+            std::fs::write(&path, text).map_err(io(&path))?;
             let files = manifest(&wp.site.path)?;
             let path = folder.join("files.json");
             let text = serde_json::to_vec(&files)
@@ -408,5 +518,15 @@ mod tests {
     fn writes_dates() {
         assert_eq!(time_text(0), "1970-01-01 00:00 UTC");
         assert_eq!(time_text(1_792_704_017), "2026-10-22 21:20 UTC");
+    }
+
+    #[test]
+    fn reads_active_plugins() {
+        let value = r#"a:2:{i:0;s:27:"woocommerce/woocommerce.php";i:1;s:9:"hello.php";}"#;
+        assert_eq!(
+            plugin_list(value),
+            vec!["woocommerce/woocommerce.php", "hello.php"]
+        );
+        assert!(plugin_list("").is_empty());
     }
 }

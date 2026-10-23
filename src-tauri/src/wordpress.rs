@@ -12,8 +12,8 @@ use stackyard_core::remote::{self, Connection, ConnectionInput, RemoteStore, Ses
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::Site;
 use stackyard_core::wordpress::{
-    self, env, live, snapshot, staging, woo, CoreUpdate, DebugSettings, DiskUse, Extension,
-    ExtensionAction, Kind, LogTail, Overview, Replaced, User, WpSite,
+    self, env, live, merge, posts, snapshot, staging, woo, CoreUpdate, DebugSettings, DiskUse,
+    Extension, ExtensionAction, Kind, LogTail, Overview, Replaced, User, WpSite,
 };
 
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -590,4 +590,88 @@ pub async fn wp_snapshot_restore(app: AppHandle, domain: String, id: String) -> 
 #[tauri::command]
 pub fn wp_snapshot_remove(domain: String, id: String) -> CmdResult<()> {
     snapshot::remove(&paths::home(), &domain, &id).map_err(err)
+}
+
+// ---------------------------------------------------------------------------
+// Merge
+
+/// What changed on a staging since it was made, against `target`.
+#[tauri::command]
+pub async fn wp_merge_changes(
+    app: AppHandle,
+    source: String,
+    target: String,
+) -> CmdResult<merge::ChangeList> {
+    let worker = app.clone();
+    blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        merge::changes(&paths::home(), &source, &target).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn wp_merge(
+    app: AppHandle,
+    source: String,
+    target: String,
+    choice: merge::Choice,
+) -> CmdResult<merge::Merged> {
+    let worker = app.clone();
+    blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        merge::merge(&paths::home(), &source, &target, &choice).map_err(err)
+    })
+    .await
+}
+
+/// Posts and pages of a copy, for picking which to move.
+#[tauri::command]
+pub async fn wp_posts_list(
+    app: AppHandle,
+    domain: String,
+    search: String,
+) -> CmdResult<Vec<posts::PostSummary>> {
+    let worker = app.clone();
+    blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        posts::list(&paths::home(), &domain, &search).map_err(err)
+    })
+    .await
+}
+
+/// What moving the picked posts would do, without doing it.
+#[tauri::command]
+pub async fn wp_posts_plan(
+    app: AppHandle,
+    source: String,
+    target: String,
+    choice: posts::MoveChoice,
+) -> CmdResult<posts::MovePlan> {
+    let worker = app.clone();
+    blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        posts::plan(&paths::home(), &source, &target, &choice).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn wp_posts_move(
+    app: AppHandle,
+    source: String,
+    target: String,
+    choice: posts::MoveChoice,
+) -> CmdResult<posts::Moved> {
+    let worker = app.clone();
+    blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        posts::move_posts(&paths::home(), &source, &target, &choice).map_err(err)
+    })
+    .await
 }

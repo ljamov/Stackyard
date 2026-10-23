@@ -10,6 +10,7 @@ import {
   type WpTrashed,
 } from "../../lib/wordpress";
 import { stageText } from "./CloneSite";
+import { MergePanel } from "./Merge";
 import { size } from "./WordPressTools";
 
 type T = ReturnType<typeof useT>;
@@ -135,6 +136,8 @@ export function EnvironmentsTab({ site }: { site: Site }) {
         setNotice(t("{site} is ready.", { site: domain }));
         reload();
       }} />
+
+      {isStaging && <MergePanel source={site.domain} targets={[envs.main, ...envs.stagings.map((s) => s.domain)].filter((d) => d !== site.domain)} />}
 
       {mine.length > 0 && (
         <section className="stack" aria-label={t("Trash")}>
