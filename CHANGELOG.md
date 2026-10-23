@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.8.0
 
 - A **WordPress** tab in the tools of every WordPress site (Sites › Manage): an overview with disk
   use, plugins and themes (switch on and off, update, install from wordpress.org), users (log in as
@@ -62,6 +62,8 @@ Update button, and the app shows its own version's section after it updates.
 - New app icon: the Stackyard bricks stepping down like an S.
 - A **Terminal** tab in the panel (**Ctrl+`**). Open it from a site's row on the Sites screen and it
   starts in that site's folder with its PHP and Node.js versions. A module you can switch off.
+- Installing SeaweedFS works again when its newest release doesn't have a file for your computer yet:
+  Stackyard takes the newest release that does.
 
 ## 0.7.0
 
