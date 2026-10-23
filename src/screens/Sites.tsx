@@ -11,6 +11,7 @@ import { SiteDatabaseLine } from "../components/SiteDatabase";
 import { CloneSite } from "../components/wordpress/CloneSite";
 import { useT } from "../lib/i18n";
 import { Progress, packState } from "../components/Progress";
+import { editorName, useCodeEditors } from "../lib/editors";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
 
@@ -265,7 +266,7 @@ export function Sites() {
         </p>
       )}
       {error && (
-        <p className="error small" role="alert">
+        <p className="error small" role="alert" ref={(el) => el?.scrollIntoView({ block: "nearest", behavior: "smooth" })}>
           {error}
         </p>
       )}
@@ -447,7 +448,7 @@ export function Sites() {
       )}
 
       <section aria-label={t("Site list")} className="card table-wrap">
-        <table>
+        <table className="sites-table">
           <thead>
             <tr>
               <th>Site</th>
@@ -477,6 +478,7 @@ export function Sites() {
                     runtimes.reload();
                   }}
                   onRemove={remove}
+                  onOpen={(open) => void attempt(open)}
                 />
               </Fragment>
             ))}
@@ -492,15 +494,20 @@ function SiteRow({
   families,
   onVersionChanged,
   onRemove,
+  onOpen,
   domainsReady,
 }: {
   site: Site;
   families: RuntimeFamily[];
   onVersionChanged: () => void;
   onRemove: (domain: string) => void;
+  /** Runs an open action, showing what went wrong if it fails. */
+  onOpen: (open: () => Promise<unknown>) => void;
   domainsReady: boolean;
 }) {
+  const t = useT();
   const { isOn } = useModules();
+  const editor = editorName(useCodeEditors());
   const address = siteAddress(site, domainsReady);
   return (
     <tr>
@@ -542,22 +549,39 @@ function SiteRow({
         <button
           type="button"
           className="btn ghost small"
+          aria-label={t("Open the folder of {site}", { site: site.domain })}
+          title={site.path}
+          onClick={() => onOpen(() => api.openSiteFolder(site.domain))}
+        >
+          {t("Open folder")}
+        </button>
+        <button
+          type="button"
+          className="btn ghost small"
+          aria-label={t("Open {site} in {editor}", { site: site.domain, editor })}
+          title={t("Open the folder in {editor}; pick another editor in Settings", { editor })}
+          onClick={() => onOpen(() => api.openSiteInEditor(site.domain))}
+        >
+          {t("Open in {editor}", { editor })}
+        </button>
+        <button
+          type="button"
+          className="btn ghost small"
           aria-label={`Manage ${site.domain}`}
           title={`Open ${site.domain} in a tab, with its settings, backups and tools`}
           onClick={() => openTab(siteTab(site.domain))}
         >
           Manage
         </button>
-        {!site.parked && (
-          <button
-            type="button"
-            className="btn ghost small"
-            aria-label={`Remove ${site.domain}`}
-            onClick={() => onRemove(site.domain)}
-          >
-            Remove
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn ghost small"
+          aria-label={`Remove ${site.domain}`}
+          title={t("Take {site} off the list; its folder and files stay", { site: site.domain })}
+          onClick={() => onRemove(site.domain)}
+        >
+          Remove
+        </button>
         </div>
       </td>
     </tr>

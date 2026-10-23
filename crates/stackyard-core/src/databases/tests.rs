@@ -37,6 +37,16 @@ fn explains_client_errors() {
         e("mysqldump: Got error: 1044: Access denied"),
         "mysqldump: Got error: 1044: Access denied"
     );
+    // A warning printed first is not the reason it failed.
+    assert_eq!(
+        e("Warning: Could not set terminology mode for outputting events.\n\
+           mysqldump: Couldn't execute 'SELECT 1': Unknown table 'column_statistics' in information_schema (1109)\n"),
+        "mysqldump: Couldn't execute 'SELECT 1': Unknown table 'column_statistics' in information_schema (1109)"
+    );
+    assert_eq!(
+        e("mysqldump: [Warning] Using a password on the command line\nmysqldump: unknown option '--x'\n"),
+        "mysqldump: unknown option '--x'"
+    );
 }
 
 #[test]

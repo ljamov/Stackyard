@@ -684,6 +684,11 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
             let mut store = SiteStore::load()?;
             let site = store.remove(&name)?;
             store.save()?;
+            // Otherwise a site in a parked folder comes back as a parked one.
+            let mut settings = Settings::load()?;
+            if settings.hide_parked(&site.path) {
+                settings.save()?;
+            }
             stackyard_core::wordpress::env::forget(&paths::home(), &site.domain());
             notify(Request::SitesChanged);
             println!("Removed {}", site.domain());

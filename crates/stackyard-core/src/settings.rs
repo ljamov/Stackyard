@@ -20,6 +20,10 @@ pub struct Settings {
     pub runtimes: BTreeMap<String, String>,
     /// Parked folders: every project folder inside one becomes a site.
     pub parked: Vec<PathBuf>,
+    /// Project folders inside a parked folder that were removed from the
+    /// Sites list; they are not served or listed until added again.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub hidden: BTreeSet<PathBuf>,
     /// Where new sites get their folder; see [`Settings::sites_folder`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sites_folder: Option<PathBuf>,
@@ -28,6 +32,10 @@ pub struct Settings {
     /// server starts (see [`crate::sitedb`]).
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub start_databases: BTreeSet<String>,
+    /// The code editor Open in editor uses (see [`crate::editors`]); VS
+    /// Code when none is picked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor: Option<String>,
     /// The window's own settings (theme, accent color, language), kept as
     /// written; see [`crate::interface`].
     #[serde(skip_serializing_if = "toml::Table::is_empty")]
@@ -50,9 +58,11 @@ impl Default for Settings {
             modules: BTreeMap::new(),
             runtimes: BTreeMap::new(),
             parked: Vec::new(),
+            hidden: BTreeSet::new(),
             sites_folder: None,
             mcp: McpSettings::default(),
             start_databases: BTreeSet::new(),
+            editor: None,
             interface: toml::Table::new(),
         }
     }
@@ -162,6 +172,26 @@ impl Settings {
             self.parked.push(folder.clone());
         }
         Ok(folder)
+    }
+
+    /// Keeps a project folder inside a parked folder off the Sites list,
+    /// so removing it doesn't bring it straight back as a parked site.
+    /// Returns whether it needed hiding.
+    pub fn hide_parked(&mut self, project: &Path) -> bool {
+        let (Some(parent), Some(name)) = (project.parent(), project.file_name()) else {
+            return false;
+        };
+        let parent = full_path(parent);
+        // Kept as the parked folder spells it, which is how it is listed.
+        match self.parked.iter().find(|p| full_path(p) == parent) {
+            Some(parked) => self.hidden.insert(parked.join(name)),
+            None => false,
+        }
+    }
+
+    /// Shows a hidden project folder again, e.g. when it is added as a site.
+    pub fn unhide(&mut self, project: &Path) -> bool {
+        self.hidden.remove(project)
     }
 
     pub fn unpark(&mut self, folder: &Path) -> Result<()> {

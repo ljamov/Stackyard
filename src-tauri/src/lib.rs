@@ -1718,9 +1718,26 @@ fn set_site_version(
 
 #[tauri::command]
 fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
-    let mut store = SiteStore::load().map_err(err)?;
-    let removed = store.remove(&name).map_err(err)?;
-    store.save().map_err(err)?;
+    let listed = ServiceManager::open()
+        .user_sites()
+        .map_err(err)?
+        .into_iter()
+        .find(|s| s.domain() == name || s.site.name == name)
+        .ok_or_else(|| format!("no site named {name}"))?;
+    let removed = if listed.parked {
+        listed.site
+    } else {
+        let mut store = SiteStore::load().map_err(err)?;
+        let removed = store.remove(&name).map_err(err)?;
+        store.save().map_err(err)?;
+        removed
+    };
+    // A project in a parked folder (new sites go in one) would come straight
+    // back as a parked site, so it is hidden from the list; its files stay.
+    let mut settings = Settings::load().map_err(err)?;
+    if settings.hide_parked(&removed.path) {
+        settings.save().map_err(err)?;
+    }
     remote::site_removed(&removed.domain());
     stackyard_core::wordpress::env::forget(&paths::home(), &removed.domain());
     stackyard_core::thumbnails::forget(&paths::home(), &removed.domain());
@@ -2054,6 +2071,10 @@ pub fn run() {
             sitetools::restore_site,
             sitetools::remove_site_backup,
             sitetools::open_site_backups,
+            sitetools::open_site_folder,
+            sitetools::code_editors,
+            sitetools::set_code_editor,
+            sitetools::open_site_in_editor,
             sitetools::export_site,
             sitetools::inspect_site_file,
             sitetools::import_site,

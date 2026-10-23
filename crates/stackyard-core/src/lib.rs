@@ -12,6 +12,7 @@ pub mod detect;
 pub mod dns;
 pub mod domain;
 pub mod download;
+pub mod editors;
 pub mod engine;
 pub mod error;
 pub mod git;

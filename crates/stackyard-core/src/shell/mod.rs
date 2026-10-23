@@ -495,12 +495,26 @@ impl Context {
         let services = ServiceManager::new(&self.home);
         let usable = |id: &&str| self.settings.module_enabled(id) && services.get(id).is_some();
         let candidates: Vec<&str> = ["mysql", "mariadb"].into_iter().filter(usable).collect();
-        // Prefer the one that is running: only it has a socket file.
+        // Prefer the one that is running: only it has a socket file. On
+        // Windows there are no sockets, and both may keep port 3306 in
+        // their settings, so ask whichever server answers on a port which
+        // kind it is: MySQL's mysqldump fails on a MariaDB server.
         let socket = |id: &str| services.data_dir(id).join("mysql.sock");
+        let port_of =
+            |id: &str| catalog::service(id).map_or(0, |def| crate::services::port(&self.home, def));
         let id = candidates
             .iter()
             .copied()
             .find(|id| socket(id).exists())
+            .or_else(|| {
+                if candidates.len() < 2 {
+                    return None;
+                }
+                candidates
+                    .iter()
+                    .copied()
+                    .find(|id| mysql_flavor(port_of(id)) == Some(*id))
+            })
             .or(candidates.first().copied())
             .ok_or_else(|| {
                 Error::Shell(format!(
@@ -537,6 +551,47 @@ impl Context {
             summary: format!("{} {}", def.name, def.version),
         })
     }
+}
+
+/// Which kind of server answers on `port`, from the greeting a MySQL or
+/// MariaDB server sends as soon as a client connects: `mariadb` when its
+/// version says MariaDB, else `mysql`. `None` when nothing answers.
+pub fn mysql_flavor(port: u16) -> Option<&'static str> {
+    use std::io::Read;
+    use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+    use std::time::Duration;
+    if port == 0 {
+        return None;
+    }
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(300)).ok()?;
+    stream
+        .set_read_timeout(Some(Duration::from_millis(800)))
+        .ok()?;
+    let mut greeting = [0u8; 160];
+    let read = stream.read(&mut greeting).ok()?;
+    flavor_of_greeting(&greeting[..read])
+}
+
+/// The kind of server from its first packet: 4 header bytes, protocol
+/// version 10, then the version text, e.g. `5.5.5-10.11.8-MariaDB` or
+/// `8.4.3`.
+fn flavor_of_greeting(packet: &[u8]) -> Option<&'static str> {
+    let body = packet.get(4..)?;
+    if body.first() != Some(&10) {
+        return None;
+    }
+    let version = &body[1..];
+    let end = version
+        .iter()
+        .position(|b| *b == 0)
+        .unwrap_or(version.len());
+    let version = String::from_utf8_lossy(&version[..end]);
+    Some(if version.contains("MariaDB") {
+        "mariadb"
+    } else {
+        "mysql"
+    })
 }
 
 impl Context {
@@ -612,6 +667,42 @@ pub fn install_composer(home: &Path, progress: &mut dyn FnMut(Step)) -> Result<P
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tells_mysql_from_mariadb_by_greeting() {
+        let packet = |version: &str| {
+            let mut p = vec![0, 0, 0, 0, 10];
+            p.extend_from_slice(version.as_bytes());
+            p.push(0);
+            p.extend_from_slice(&[1, 2, 3]);
+            p
+        };
+        assert_eq!(
+            flavor_of_greeting(&packet("5.5.5-10.11.8-MariaDB")),
+            Some("mariadb")
+        );
+        assert_eq!(
+            flavor_of_greeting(&packet("11.8.3-MariaDB-log")),
+            Some("mariadb")
+        );
+        assert_eq!(flavor_of_greeting(&packet("8.4.3")), Some("mysql"));
+        assert_eq!(flavor_of_greeting(&[0, 0, 0, 0, 0xff, 1]), None);
+        assert_eq!(flavor_of_greeting(&[1, 2]), None);
+    }
+
+    #[test]
+    fn asks_a_listening_server_its_kind() {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            s.write_all(b"\x2a\0\0\0\x0a5.5.5-10.11.8-MariaDB\0")
+                .unwrap();
+        });
+        assert_eq!(mysql_flavor(port), Some("mariadb"));
+        server.join().unwrap();
+    }
     use crate::sites::SiteRuntime;
 
     fn site(name: &str, path: &Path, version: &str) -> Site {

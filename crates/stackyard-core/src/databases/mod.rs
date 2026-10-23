@@ -341,7 +341,7 @@ impl Client {
         check_user_database(database)?;
         let context = Context::load(&self.home)?;
         let dump = context.launch(Tool::Mysqldump, &self.home, Vec::new())?;
-        let mut command = client_command(&dump);
+        let mut command = dump_command(&dump);
         command
             .args([
                 "--single-transaction",
@@ -431,7 +431,7 @@ impl Client {
         check_user_database(database)?;
         let context = Context::load(&self.home)?;
         let dump = context.launch(Tool::Mysqldump, &self.home, Vec::new())?;
-        let mut command = client_command(&dump);
+        let mut command = dump_command(&dump);
         command.args(options).arg(database).args(tables);
         let io = |path: &Path| {
             let path = path.to_owned();
@@ -690,17 +690,46 @@ fn client_command(launch: &Launch) -> Command {
     command
 }
 
+/// `mysqldump` with the options every dump needs. MySQL's own asks the
+/// server for column statistics, a table MariaDB and older servers don't
+/// have; the dump never needs them.
+fn dump_command(dump: &Launch) -> Command {
+    let mut command = client_command(dump);
+    if dump.summary.starts_with("MySQL") {
+        command.arg("--column-statistics=0");
+    }
+    command
+}
+
 /// What the client said went wrong, in plain words where we know them.
+/// Warnings it printed on the way are skipped.
 fn client_error(stderr: &str, server: &str) -> Error {
     let name = if server == "mariadb" {
         "MariaDB"
     } else {
         "MySQL"
     };
+    let warning = |l: &str| {
+        let l = l
+            .trim_start_matches("mysqldump: ")
+            .trim_start_matches("mariadb-dump: ");
+        l.starts_with("Warning") || l.starts_with("[Warning]")
+    };
     let line = stderr
         .lines()
         .map(str::trim)
-        .find(|l| l.starts_with("ERROR") || l.contains("error:") || l.contains("Got error"))
+        .find(|l| {
+            l.starts_with("ERROR")
+                || l.contains("error:")
+                || l.contains("Got error")
+                || l.contains("Couldn't execute")
+        })
+        .or_else(|| {
+            stderr
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty() && !warning(l))
+        })
         .or_else(|| stderr.lines().map(str::trim).find(|l| !l.is_empty()))
         .unwrap_or("the database client failed");
     // ERROR 2002 / 2003: nothing listening.

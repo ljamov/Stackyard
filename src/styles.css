@@ -138,6 +138,8 @@ td { padding: 8px 14px; border-top: 1px solid var(--border); }
 .tab[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); font-weight: 500; }
 /* Buttons in a table row or a card's corner: side by side with room between them. */
 .row-actions { display: inline-flex; justify-content: flex-end; align-items: center; gap: 8px; }
+/* Sites rows have five buttons: they wrap onto a second line rather than push the table wider. */
+.sites-table .row-actions { flex-wrap: wrap; max-width: 320px; }
 
 /* Form controls. Every text box, list, check box, radio button and slider in the
    app gets the same look here, wherever it sits; the rules further down only
