@@ -73,6 +73,18 @@ export type SiteFile = {
 };
 
 export type ShareLink = { site: string; url: string | null };
+/** What a site backup, export, restore or import is doing. `site` is the domain, or the file being imported. */
+export type PackProgress = { site: string } & (
+  | { stage: "database" | "loading" }
+  | { stage: "files" | "unpacking"; done: number; total: number }
+);
+/** cloudflared being downloaded, then Cloudflare being asked for an address. `site` is empty for a plain download. */
+export type ShareProgress = {
+  site: string;
+  step: "resolving" | "downloading" | "unpacking" | "connecting";
+  done?: number;
+  total?: number | null;
+};
 export type ShareStatus = { cloudflared: string | null; links: ShareLink[]; web_running: boolean };
 
 export type PhpMyAdminStatus = {
@@ -652,6 +664,8 @@ export interface Api {
   dbBackups(): Promise<DbBackup[]>;
   dbRestore(database: string, file: string, into: string | null, server?: DbKind): Promise<Database[]>;
   dbRemoveBackup(database: string, file: string): Promise<DbBackup[]>;
+  /** Opens the folder a database's backups are in. */
+  openDbBackups(database: string): Promise<void>;
   mcpStatus(): Promise<McpStatus>;
   setMcpTool(name: string, allowed: boolean): Promise<McpStatus>;
   listTasks(): Promise<Task[]>;
@@ -699,6 +713,7 @@ export interface Api {
   saveSiteSettings(domain: string, tld: string, https: boolean, settings: SiteSettings): Promise<{ sites: Site[]; domain: string }>;
   siteBackups(domain: string): Promise<SiteBackup[]>;
   backupSite(domain: string): Promise<Packed>;
+  onSitePackProgress(handler: (p: PackProgress) => void): Promise<() => void>;
   /** Puts a backup back; the site as it is now is backed up first. */
   restoreSite(domain: string, file: string): Promise<Packed>;
   removeSiteBackup(domain: string, file: string): Promise<SiteBackup[]>;
@@ -711,6 +726,7 @@ export interface Api {
   shareUninstall(): Promise<ShareStatus>;
   /** Makes a public link (downloading cloudflared first if needed) and waits for its address. */
   shareStart(domain: string): Promise<ShareLink>;
+  onShareProgress(handler: (p: ShareProgress) => void): Promise<() => void>;
   shareStop(domain: string): Promise<ShareStatus>;
   openShareLink(domain: string): Promise<void>;
   gitStatus(site: string): Promise<GitStatus>;
@@ -855,6 +871,7 @@ const tauriApi: Api = {
   dbBackups: () => invoke("db_backups"),
   dbRestore: (database, file, into, server) => invoke("db_restore", { database, file, into, server }),
   dbRemoveBackup: (database, file) => invoke("db_remove_backup", { database, file }),
+  openDbBackups: (database) => invoke("open_db_backups", { database }),
   cleanupScan: () => invoke("cleanup_scan"),
   cleanupRun: (ids) => invoke("cleanup_run", { ids }),
   mcpStatus: () => invoke("mcp_status"),
@@ -895,6 +912,7 @@ const tauriApi: Api = {
   saveSiteSettings: (domain, tld, https, settings) => invoke("save_site_settings", { domain, tld, https, settings }),
   siteBackups: (domain) => invoke("site_backups", { domain }),
   backupSite: (domain) => invoke("backup_site", { domain }),
+  onSitePackProgress: (handler) => listen<PackProgress>("site-pack-progress", (e) => handler(e.payload)),
   restoreSite: (domain, file) => invoke("restore_site", { domain, file }),
   removeSiteBackup: (domain, file) => invoke("remove_site_backup", { domain, file }),
   openSiteBackups: (domain) => invoke("open_site_backups", { domain }),
@@ -905,6 +923,7 @@ const tauriApi: Api = {
   shareInstall: () => invoke("share_install"),
   shareUninstall: () => invoke("share_uninstall"),
   shareStart: (domain) => invoke("share_start", { domain }),
+  onShareProgress: (handler) => listen<ShareProgress>("share-progress", (e) => handler(e.payload)),
   shareStop: (domain) => invoke("share_stop", { domain }),
   openShareLink: (domain) => invoke("open_share_link", { domain }),
   gitStatus: (site) => invoke("git_status", { site }),
@@ -983,6 +1002,27 @@ function browserApi(): Api {
     service("nats", "NATS", "2", [4222, 8222], "Message queue", "http://127.0.0.1:8222", null, "nats://127.0.0.1:4222"),
   ];
   const serviceHandlers = new Set<(p: ServiceProgress) => void>();
+  const packHandlers = new Set<(p: PackProgress) => void>();
+  const shareHandlers = new Set<(p: ShareProgress) => void>();
+  /** Plays a backup, export or restore's steps, as the app sends them. */
+  async function packSteps(site: string, kind: "pack" | "restore" | "import" = "pack") {
+    const send = (p: PackProgress) => packHandlers.forEach((h) => h(p));
+    if (kind !== "import") {
+      send({ site, stage: "database" });
+      await new Promise((r) => setTimeout(r, 400));
+      for (let done = 0; done <= 1840; done += 230) {
+        send({ site, stage: "files", done, total: 1840 });
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+    if (kind === "pack") return;
+    for (let done = 0; done <= 1840; done += 460) {
+      send({ site, stage: "unpacking", done, total: 1840 });
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    send({ site, stage: "loading" });
+    await new Promise((r) => setTimeout(r, 300));
+  }
   const starterHandlers = new Set<(p: StarterProgress) => void>();
   const imageHandlers = new Set<(p: ImagesProgress) => void>();
   const videoHandlers = new Set<(p: VideosProgress) => void>();
@@ -1735,6 +1775,7 @@ function browserApi(): Api {
       backups = backups.filter((b) => !(b.database === database && b.file === file));
       return backups;
     },
+    openDbBackups: async () => {},
     cleanupScan: async () => {
       await new Promise((r) => setTimeout(r, 400));
       const items = cleanup;
@@ -1958,8 +1999,12 @@ function browserApi(): Api {
       return { sites, domain: next };
     },
     siteBackups: async (domain) => siteBackups.filter((b) => b.site === domain),
+    onSitePackProgress: async (handler) => {
+      packHandlers.add(handler);
+      return () => packHandlers.delete(handler);
+    },
     backupSite: async (domain) => {
-      await new Promise((r) => setTimeout(r, 700));
+      await packSteps(domain);
       const backup: SiteBackup = {
         site: domain,
         file: `${domain}-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}.zip`,
@@ -1971,7 +2016,7 @@ function browserApi(): Api {
       return { path: `~/stackyard/backups/sites/${domain}/${backup.file}`, size: backup.size, files: 1840, database: backup.database, warning: null };
     },
     restoreSite: async (domain) => {
-      await new Promise((r) => setTimeout(r, 900));
+      await packSteps(domain, "restore");
       const backup: SiteBackup = { site: domain, file: `${domain}-before-restore.zip`, size: 18_000_000, created: Date.now(), database: null };
       siteBackups = [backup, ...siteBackups];
       return { path: backup.file, size: backup.size, files: 1840, database: null, warning: null };
@@ -1982,7 +2027,7 @@ function browserApi(): Api {
     },
     openSiteBackups: async () => {},
     exportSite: async (domain, dest) => {
-      await new Promise((r) => setTimeout(r, 700));
+      await packSteps(domain);
       return { path: dest, size: 18_400_000, files: 1840, database: domain.startsWith("blog") ? "blog" : null, warning: null };
     },
     inspectSiteFile: async () => ({
@@ -1994,7 +2039,8 @@ function browserApi(): Api {
       made_by: "0.5.0",
       folder: "/home/you/stackyard/www/shop",
     }),
-    importSite: async (_path, name) => {
+    importSite: async (path, name) => {
+      await packSteps(path, "import");
       const site = sample(name || "shop-copy", "PHP 8.4", "Laravel", false);
       if (sites.some((s) => s.domain === site.domain)) throw `a site named "${site.domain}" already exists`;
       sites = [...sites, site];
@@ -2010,7 +2056,19 @@ function browserApi(): Api {
       share = { ...share, cloudflared: null, links: [] };
       return share;
     },
+    onShareProgress: async (handler) => {
+      shareHandlers.add(handler);
+      return () => shareHandlers.delete(handler);
+    },
     shareStart: async (domain) => {
+      const send = (p: ShareProgress) => shareHandlers.forEach((h) => h(p));
+      if (!share.cloudflared) {
+        for (let done = 0; done <= 38_000_000; done += 4_000_000) {
+          send({ site: domain, step: "downloading", done, total: 38_000_000 });
+          await new Promise((r) => setTimeout(r, 120));
+        }
+      }
+      send({ site: domain, step: "connecting" });
       await new Promise((r) => setTimeout(r, 1500));
       const link = { site: domain, url: "https://seasonal-tiger-hold-example.trycloudflare.com" };
       share = { ...share, cloudflared: share.cloudflared ?? "2026.10.1", links: [...share.links.filter((l) => l.site !== domain), link] };

@@ -1,7 +1,8 @@
-import { api, type Service, type ServiceProgress } from "../lib/api";
+import { api, type Service } from "../lib/api";
 import type { ServicesHook } from "../lib/useServices";
 import { useT } from "../lib/i18n";
 import { BrandIcon } from "./BrandIcon";
+import { Progress, downloadState } from "./Progress";
 import { openTab, serviceTab } from "../lib/layout";
 
 /** What each service state is called; translate with t(). */
@@ -89,7 +90,7 @@ export function ServiceCard({
           {s.connect}
         </div>
       )}
-      {s.installing && <InstallProgressBar name={s.name} progress={hook.progress[s.id]} />}
+      {s.installing && <Progress label={t("Installing {name}", { name: s.name })} state={downloadState(t, hook.progress[s.id])} />}
       {error && (
         <p role="alert" className="error small">
           {error}
@@ -125,28 +126,6 @@ export function ServiceCard({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function InstallProgressBar({ name, progress }: { name: string; progress?: ServiceProgress }) {
-  const t = useT();
-  const pct =
-    progress?.step === "unpacking"
-      ? 100
-      : progress?.step === "downloading" && progress.total
-        ? Math.floor(((progress.done ?? 0) * 100) / progress.total)
-        : null;
-  return (
-    <div
-      className="progress"
-      role="progressbar"
-      aria-label={t("Installing {name}", { name })}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={pct ?? undefined}
-    >
-      <div className={pct === null ? "progress-fill busy" : "progress-fill"} style={{ width: `${pct ?? 30}%` }} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
-import { api, errorText, type RuntimeFamily, type Site, type SiteFile } from "../lib/api";
+import { api, errorText, type PackProgress, type RuntimeFamily, type Site, type SiteFile } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { openTerminal } from "../lib/terminal";
@@ -9,6 +9,7 @@ import { SiteThumb } from "../components/SiteThumb";
 import { SiteDatabaseLine } from "../components/SiteDatabase";
 import { CloneSite } from "../components/wordpress/CloneSite";
 import { useT } from "../lib/i18n";
+import { Progress, packState } from "../components/Progress";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
 
@@ -559,12 +560,21 @@ function ImportSite({
   onClose: () => void;
   onImported: (domain: string) => void;
 }) {
+  const t = useT();
   const [name, setName] = useState(file.name);
   const [folder, setFolder] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<{ domain: string; text: string } | null>(null);
+  const [progress, setProgress] = useState<PackProgress | null>(null);
   const ending = file.domain.slice(file.name.length);
+
+  useEffect(() => {
+    const off = api.onSitePackProgress((p) => {
+      if (p.site === path) setProgress(p);
+    });
+    return () => void off.then((f) => f());
+  }, [path]);
 
   async function browse() {
     const picked = await api.pickFolder("Pick a new or empty folder for the site", folder || undefined);
@@ -574,6 +584,7 @@ function ImportSite({
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setProgress(null);
     setError(null);
     try {
       const result = await api.importSite(path, siteName(name) || null, folder.trim() || null);
@@ -635,6 +646,7 @@ function ImportSite({
           <span className="muted small">A new or empty folder.</span>
         </div>
       </div>
+      {busy && <Progress label={t("Importing {name}", { name: file.domain })} state={packState(t, progress)} />}
       {error && (
         <p className="error small" role="alert">
           {error}

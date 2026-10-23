@@ -11,6 +11,7 @@ import {
 } from "../lib/api";
 import { PhpMyAdminCard } from "../components/PhpMyAdminCard";
 import { useT } from "../lib/i18n";
+import { Progress } from "../components/Progress";
 
 const PAGE = 100;
 type Tab = "Tables" | "Query" | "Backups";
@@ -379,10 +380,13 @@ function Backups({
   onChange: (dbs: Database[]) => void;
   onCopied: (name: string) => void;
 }) {
+  const t = useT();
   const [all, setAll] = useState<DbBackup[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  /** The file the last backup made. */
+  const [saved, setSaved] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [copyName, setCopyName] = useState(`${database}_copy`);
   const [dropText, setDropText] = useState("");
@@ -397,6 +401,7 @@ function Backups({
     setBusy(label);
     setError(null);
     setDone(null);
+    setSaved(null);
     try {
       await action();
       setDone(message);
@@ -421,17 +426,44 @@ function Backups({
           type="button"
           className="btn primary"
           disabled={busy !== null}
-          onClick={() => attempt("backup", async () => setAll(await api.dbBackup(database, kind)), "Backup saved.")}
+          onClick={() =>
+            attempt(
+              "backup",
+              async () => {
+                const before = new Set(all.map((b) => b.file));
+                const after = await api.dbBackup(database, kind);
+                setAll(after);
+                setSaved(after.find((b) => b.database === database && !before.has(b.file))?.file ?? null);
+              },
+              "Backup saved.",
+            )
+          }
         >
           {busy === "backup" ? "Backing up…" : "Back up now"}
         </button>
       </div>
+      <div className="row">
+        <button type="button" className="btn ghost small" onClick={() => api.openDbBackups(database).catch((e) => setError(errorText(e)))}>
+          {t("Show backups folder")}
+        </button>
+      </div>
+      {busy === "backup" && <Progress label={t("Backing up {name}", { name: database })} state={{ text: t("Saving {name}…", { name: database }), percent: null }} />}
       {error && (
         <p className="error small" role="alert">
           {error}
         </p>
       )}
-      {done && <p className="status ok">{done}</p>}
+      {done && (
+        <p className="status ok" role="status">
+          {done}
+          {saved && (
+            <>
+              {" "}
+              {t("Saved as")} <span className="mono">{saved}</span>
+            </>
+          )}
+        </p>
+      )}
 
       {mine.length === 0 ? (
         <p className="muted">No backups of {database} yet.</p>

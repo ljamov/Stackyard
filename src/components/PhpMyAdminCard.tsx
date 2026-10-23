@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { api, errorText, type PhpMyAdminStatus, type ServiceProgress } from "../lib/api";
+import { useT } from "../lib/i18n";
+import { Progress, downloadState } from "./Progress";
 
 /** Installs and opens phpMyAdmin, the full database manager. */
 export function PhpMyAdminCard() {
+  const t = useT();
   const [status, setStatus] = useState<PhpMyAdminStatus | null>(null);
   const [busy, setBusy] = useState<"install" | "open" | "remove" | null>(null);
   const [progress, setProgress] = useState<ServiceProgress | null>(null);
@@ -100,6 +103,7 @@ export function PhpMyAdminCard() {
           )}
         </p>
       )}
+      {installing && <Progress label={t("Installing {name}", { name: "phpMyAdmin" })} state={downloadState(t, progress)} />}
       {status.problem && <p className="warn small">{status.problem}. Install a PHP version under Runtimes.</p>}
       {error && (
         <p className="error small" role="alert">
