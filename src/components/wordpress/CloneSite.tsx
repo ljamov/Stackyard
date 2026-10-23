@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { api, errorText } from "../../lib/api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { api, errorText, type Site } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import {
   wp,
@@ -16,6 +16,20 @@ import { size } from "./WordPressTools";
 
 type T = ReturnType<typeof useT>;
 type From = "saved" | "new" | "files";
+
+/** The core's errors end with this when it needs the live site's address typed in. */
+const NEED_ADDRESS = "Type it in the Live site's address box";
+
+/** The site this name would take, e.g. `shop` → `shop.stack` (stagings have more dots). */
+function takenBy(sites: Site[], name: string) {
+  return sites.find((s) => s.domain.startsWith(`${name}.`) && s.domain.split(".").length === 2);
+}
+
+/** `shop` → `shop-2`, or the next number no site uses. */
+function freeName(sites: Site[], name: string) {
+  const base = name.replace(/-\d+$/, "");
+  for (let n = 2; ; n++) if (!takenBy(sites, `${base}-${n}`)) return `${base}-${n}`;
+}
 
 /** `https://www.shop.example/` → `shop`. */
 function nameFrom(url: string) {
@@ -66,6 +80,22 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
   const [error, setError] = useState<string | null>(null);
   const [unfinished, setUnfinished] = useState(false);
   const [cloned, setCloned] = useState<WpCloned | null>(null);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [replace, setReplace] = useState(false);
+  const urlInput = useRef<HTMLInputElement>(null);
+  const needsAddress = !!error?.includes(NEED_ADDRESS);
+  const existing = name ? takenBy(sites, name) : undefined;
+
+  useEffect(() => {
+    api
+      .listSites()
+      .then(setSites)
+      .catch(() => setSites([]));
+  }, []);
+  useEffect(() => setReplace(false), [name]);
+  useEffect(() => {
+    if (needsAddress) urlInput.current?.focus();
+  }, [needsAddress]);
 
   useEffect(() => {
     wp.savedConnections()
@@ -140,6 +170,7 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
         url: url.trim() || null,
         media,
         https: true,
+        replace: !!existing && replace,
       });
       setCloned(result);
     } catch (e) {
@@ -308,10 +339,25 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
         {from !== "files" && (
           <div className="field">
             <label htmlFor="cl-url">{t("Live site's address")}</label>
-            <input id="cl-url" className="mono" value={url} placeholder="https://example.com" onChange={(e) => setUrl(e.target.value)} />
-            <span className="muted small">
-              {t("Needed only when the server has no SSH: the database then comes through the site's own address.")}
-            </span>
+            <input
+              id="cl-url"
+              ref={urlInput}
+              className="mono"
+              value={url}
+              placeholder="https://example.com"
+              aria-describedby={needsAddress ? "cl-url-why" : undefined}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+            {needsAddress ? (
+              <div id="cl-url-why" className="notice small stack">
+                <span>{t("Stackyard found the server, but needs the live site's address to read its database. Type it above, e.g. https://example.com, and press Look for WordPress again.")}</span>
+                <span className="muted">{error}</span>
+              </div>
+            ) : (
+              <span className="muted small">
+                {t("Needed only when the server has no SSH: the database then comes through the site's own address.")}
+              </span>
+            )}
           </div>
         )}
 
@@ -403,6 +449,20 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
               </div>
             )}
           </div>
+          {existing && !unfinished && !cloned && (
+            <div className="notice small stack">
+              <span>{t("A site named {domain} already exists.", { domain: existing.domain })}</span>
+              <label className="row centered">
+                <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+                {t("Replace it with the copy. Stackyard backs it up first (files and database), so you can restore it under Manage › Backups.")}
+              </label>
+              <div className="row">
+                <button type="button" className="btn" onClick={() => setName(freeName(sites, name))}>
+                  {t("Use {name} instead", { name: freeName(sites, name) })}
+                </button>
+              </div>
+            </div>
+          )}
           {unfinished && !busy && (
             <p className="notice small">{t("An earlier clone with this name stopped halfway; cloning again continues where it stopped.")}</p>
           )}
@@ -425,15 +485,20 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
                 {t("Stop")}
               </button>
             ) : (
-              <button type="button" className="btn primary" disabled={!name || busy !== null} onClick={clone}>
-                {unfinished ? t("Continue the clone") : t("Clone")}
+              <button
+                type="button"
+                className={`btn ${existing && replace ? "danger" : "primary"}`}
+                disabled={!name || busy !== null || (!!existing && !unfinished && !replace)}
+                onClick={clone}
+              >
+                {unfinished ? t("Continue the clone") : existing && replace ? t("Replace and clone") : t("Clone")}
               </button>
             )}
           </div>
         </div>
       )}
       {busy && !cloning && busy !== t("Looking for WordPress…") && <p className="muted small">{busy}</p>}
-      {error && (
+      {error && !needsAddress && (
         <p className="error small" role="alert">
           {error}
         </p>

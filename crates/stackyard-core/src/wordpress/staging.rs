@@ -233,6 +233,7 @@ pub fn create(
                 media: live.media,
                 https: parent.https,
                 staging_of: Some(parent_domain.clone()),
+                replace: false,
             };
             live::clone(
                 home,
