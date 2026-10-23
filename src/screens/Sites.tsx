@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
-import { api, errorText, type RuntimeFamily, type Site, type SiteFile } from "../lib/api";
+import { api, errorText, siteAddress, type RuntimeFamily, type Site, type SiteFile } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { openTerminal } from "../lib/terminal";
@@ -453,6 +453,7 @@ export function Sites() {
               <Fragment key={site.domain}>
                 <SiteRow
                   site={site}
+                  domainsReady={!system.data || system.data.needed.length === 0}
                   families={runtimes.data}
                   onVersionChanged={() => {
                     sites.reload();
@@ -474,29 +475,28 @@ function SiteRow({
   families,
   onVersionChanged,
   onRemove,
+  domainsReady,
 }: {
   site: Site;
   families: RuntimeFamily[];
   onVersionChanged: () => void;
   onRemove: (domain: string) => void;
+  domainsReady: boolean;
 }) {
   const { isOn } = useModules();
+  const address = siteAddress(site, domainsReady);
   return (
     <tr>
       <td>
         <div className="site-cell">
           <SiteThumb site={site} />
           <div>
-            <button type="button" className="link mono" onClick={() => api.openLocalPage(site.url)}>
-              {site.url}
+            <button type="button" className="link mono" onClick={() => api.openLocalPage(address)}>
+              {address}
             </button>
             <div className="muted small">
               {site.https ? "HTTPS" : "HTTP only"}
               {site.parked && " · parked"}
-              {" · "}
-              <button type="button" className="link small" onClick={() => api.openLocalPage(site.local_url)}>
-                {site.local_url.replace(/^https?:\/\//, "")}
-              </button>
             </div>
           </div>
         </div>

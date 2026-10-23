@@ -4,6 +4,17 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- WordPress **Plugins** no longer stop with "WP-CLI answered in a way Stackyard doesn't understand"
+  when a plugin or drop-in has no version or update (WP-CLI sends `false` for those).
+- WordPress **Themes**: **Activate** now comes before **Delete** under each theme.
+- WordPress **Database**: **Change prefix…** gives the site's tables a new prefix, e.g. `wp_` to
+  `shop_`. It backs up the database, renames every table, the user roles and user settings that
+  carry the prefix, and sets `$table_prefix` in wp-config.php.
+- A site shows **one address**: its own (`https://blog.stack`) once local domains are set up, and
+  its `.localhost` address only until then.
+
 ## 0.9.0
 
 - The **Problems, Logs and Terminal** panel now runs along the bottom of the whole window, under

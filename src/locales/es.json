@@ -733,5 +733,11 @@
   "This service isn't in Stackyard any more.": "Este servicio ya no está en Stackyard.",
   "This site isn't in Stackyard any more.": "Este sitio ya no está en Stackyard.",
   "Version": "Versión",
-  "parked": "aparcado"
+  "parked": "aparcado",
+  "Change prefix…": "Cambiar prefijo…",
+  "Change prefix": "Cambiar prefijo",
+  "New prefix": "Nuevo prefijo",
+  "Renaming the tables to {prefix}…": "Renombrando las tablas a {prefix}…",
+  "The tables now start with {prefix}. The database as it was is backed up as {file} (Databases screen).": "Las tablas ahora empiezan por {prefix}. La base de datos tal como estaba se guardó como {file} (pantalla Bases de datos).",
+  "Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.": "Letras, números y guiones bajos, p. ej. shop_. Se renombran todas las tablas, junto con los roles y ajustes de usuario que llevan el prefijo, y se actualiza wp-config.php. Antes se hace una copia de seguridad."
 }
