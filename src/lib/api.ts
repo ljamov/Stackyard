@@ -1178,6 +1178,11 @@ function browserApi(): Api {
       tool("set_site_runtime", "Switch a site's version", "Switches the PHP or Node.js version a site runs on.", true),
       tool("query_database", "Query a database", "Runs one read-only SELECT on MySQL or MariaDB.", true),
       tool("change_database", "Change a database", "Runs SQL that changes data or tables; never drops a database.", true),
+      tool("list_wordpress_environments", "List WordPress environments", "Lists WordPress sites, their stagings and live sites.", false),
+      tool("create_wordpress_staging", "Create a WordPress staging", "Makes a full copy of a WordPress site to try changes on.", true),
+      tool("run_wp_cli", "Run WP-CLI", "Runs a WP-CLI command in a local WordPress site.", true),
+      tool("merge_wordpress_staging", "Merge a WordPress staging", "Lists or merges a staging's changes into another copy.", true),
+      tool("destroy_wordpress_staging", "Destroy a WordPress staging", "Moves a staging to the trash for 7 days.", true),
     ],
     activity: [
       { at: Date.now() - 60_000, client: "claude-code", tool: "list_sites", summary: "", ok: true },

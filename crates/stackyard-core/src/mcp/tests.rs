@@ -159,6 +159,7 @@ fn action_tools_stay_off_until_allowed() {
         "list_runtimes",
         "list_databases",
         "read_logs",
+        "list_wordpress_environments",
     ];
     assert_eq!(tool_names(&mut server), reads);
     let message = failed(
@@ -684,4 +685,38 @@ fn tells_the_ai_tool_when_tools_change() {
     }
     drop(send);
     serving.join().unwrap().unwrap();
+}
+
+#[test]
+fn wordpress_tools_follow_their_module() {
+    let home = home();
+    let mut server = server(&home);
+    let listed = ok(&mut server, "list_wordpress_environments", json!({}));
+    assert_eq!(listed["sites"], json!([]));
+    assert!(listed["note"].as_str().unwrap().contains("live site"));
+
+    change_settings(&home, |s| set_allowed(s, "run_wp_cli", true).unwrap());
+    let message = failed(
+        &mut server,
+        "run_wp_cli",
+        json!({ "site": "nowhere.stack", "args": ["plugin", "list"] }),
+    );
+    assert!(message.contains("no site called"), "{message}");
+    let message = failed(
+        &mut server,
+        "run_wp_cli",
+        json!({ "site": "nowhere.stack", "args": "plugin list" }),
+    );
+    assert!(!message.is_empty());
+
+    change_settings(&home, |s| s.set_module("wordpress", false).unwrap());
+    let names = tool_names(&mut server);
+    assert!(!names
+        .iter()
+        .any(|n| n.contains("wordpress") || n == "run_wp_cli"));
+    let message = failed(&mut server, "list_wordpress_environments", json!({}));
+    assert!(
+        message.contains("WordPress tools are switched off"),
+        "{message}"
+    );
 }

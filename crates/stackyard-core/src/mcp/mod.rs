@@ -8,6 +8,7 @@
 pub mod activity;
 mod sql;
 mod tools;
+mod wordpress;
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -161,7 +162,14 @@ impl Server {
                         "title": tool.title,
                         "readOnlyHint": tool.read_only,
                         "destructiveHint": tool.destructive,
-                        "idempotentHint": !matches!(tool.name, "create_site" | "change_database"),
+                        "idempotentHint": !matches!(
+                            tool.name,
+                            "create_site"
+                                | "change_database"
+                                | "create_wordpress_staging"
+                                | "run_wp_cli"
+                                | "merge_wordpress_staging"
+                        ),
                         "openWorldHint": false,
                     },
                 })
@@ -239,6 +247,11 @@ fn blocked(home: &Path, tool: &ToolInfo) -> Option<String> {
     let settings = load_settings(home);
     if !settings.module_enabled("mcp") {
         return Some("The MCP server is switched off in Stackyard (Settings › Modules).".into());
+    }
+    if tools::wordpress_tool(tool.name) && !settings.module_enabled("wordpress") {
+        return Some(
+            "The WordPress tools are switched off in Stackyard (Settings › Modules).".into(),
+        );
     }
     (tool.action && !settings.mcp.allow.contains(tool.name)).then(|| {
         format!(

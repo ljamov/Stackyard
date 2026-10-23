@@ -38,6 +38,10 @@ Update button, and the app shows its own version's section after it updates.
   afterwards and puts the backup back by itself if a step fails. Pushing everything needs the site's
   name typed, keeps live orders, customers and payment settings, and stops if posts changed on the
   live site meanwhile. Backups of the live site can be put back from the same tab.
+- **`stackyard wp`** in the terminal: clone live sites, make, list, merge and destroy stagings,
+  push and pull (listing the changes until you add `--yes`), undo from snapshots, and any WP-CLI
+  command in a site. AI tools get new MCP tools to list WordPress environments, and once allowed,
+  make a staging, run WP-CLI, merge and destroy stagings; pushing to live stays in the app.
 
 - Stackyard is now licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) instead of
   MIT. Earlier releases stay under MIT.

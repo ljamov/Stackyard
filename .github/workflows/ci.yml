@@ -409,8 +409,20 @@ jobs:
             STACKYARD_TEST_WP="$made/blog" cargo test -p stackyard-core -- --ignored wordpress_tools_on_a_real_site
             echo "== stagings of it: made from it and from each other, snapshots, trash"
             STACKYARD_TEST_STAGING=blog.stack cargo test -p stackyard-core -- --ignored stagings_of_a_real_site
-          echo "== merging a staging back: one post with its image, settings, everything with orders kept, undo"
-          STACKYARD_TEST_STAGING=blog.stack cargo test -p stackyard-core -- --ignored merging_a_real_staging
+            echo "== merging a staging back: one post with its image, settings, everything with orders kept, undo"
+            STACKYARD_TEST_STAGING=blog.stack cargo test -p stackyard-core -- --ignored merging_a_real_staging
+            echo "== the same from the terminal: stackyard wp"
+            stackyard wp staging new cli --site blog.stack --no-media
+            stackyard wp option get home --site=cli.blog.stack | grep -q "cli.blog"
+            stackyard wp option update blogdescription "Made in the terminal" --site=cli.blog.stack
+            stackyard wp staging merge cli.blog.stack --level settings | grep -q blogdescription
+            stackyard wp staging merge cli.blog.stack --level settings --yes | tee "$RUNNER_TEMP/merged.txt"
+            [ "$(stackyard wp option get blogdescription --site=blog.stack)" = "Made in the terminal" ]
+            undo=$(sed -n 's/.*--undo \([0-9]*\).*/\1/p' "$RUNNER_TEMP/merged.txt")
+            stackyard wp snapshots blog.stack --undo "$undo"
+            [ "$(stackyard wp option get blogdescription --site=blog.stack)" != "Made in the terminal" ]
+            stackyard wp staging destroy cli.blog.stack --yes
+            if stackyard wp staging list blog.stack | grep -q cli.blog.stack; then echo "cli.blog.stack is still listed"; exit 1; fi
             echo "== clone it back from a stand-in live server: SSH, FTP and the site over HTTP"
             sudo apt-get install -y --no-install-recommends openssh-server vsftpd >/dev/null
             sudo useradd -m -s /bin/bash live
