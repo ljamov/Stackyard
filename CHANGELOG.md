@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.11.0
 
 - **Fixed: after making a new site, every site in Sites showed its `.localhost` address**, though
   clicking still opened the `.stack` one. On Windows a new site has to be added to the hosts file
