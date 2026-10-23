@@ -1199,6 +1199,25 @@ function browserApi(): Api {
   const logTicks: Record<string, number> = {};
   const warn = (t: string) =>
     t === ".local" ? ".local is used by Bonjour/mDNS for devices on your network" : null;
+  // What the preview's terminal prints for a command, worded like the real one.
+  let nextPid = 4205;
+  const consoleReply = (command: string): string[] => {
+    const installed = (kind: RuntimeKind) =>
+      runtimes.find((f) => f.kind === kind)?.versions.find((v) => v.default && v.installed)?.installed;
+    if (command === "stackyard status") {
+      const shown = services.filter((s) => s.installed);
+      const width = Math.max(...shown.map((s) => s.name.length));
+      const web = shown.some((s) => s.id === "caddy" && s.state === "running");
+      return [
+        "Stackyard is running in the Stackyard app (pid 4180).",
+        ...shown.map((s) => `  ${s.name.padEnd(width)} ${s.state === "running" ? `running (pid ${s.pid})` : s.state}`),
+        ...(web ? sites.map((s) => `  ${s.https ? "https" : "http"}://${s.domain}`) : []),
+      ];
+    }
+    if (command === "php -v" && installed("php")) return [`PHP ${installed("php")} (cli) (NTS)`];
+    if (command === "node -v" && installed("node")) return [`v${installed("node")}`];
+    return [command, "(the browser preview has no real shell)"];
+  };
   const mock: Api = {
     listRuntimes: async () => runtimes,
     installRuntime: async (kind, version) => {
@@ -1243,7 +1262,7 @@ function browserApi(): Api {
       const busy = services.find((s) => s.id !== id && s.state === "running" && s.ports.some((p) => services.find((x) => x.id === id)!.ports.includes(p)));
       if (busy) throw `port ${busy.ports[0]} is already in use, so ${services.find((s) => s.id === id)!.name} cannot start`;
       logs[id] = [...(logs[id] ?? []), `started ${id} (sample log line)`];
-      return updateService(id, (s) => ({ ...s, state: "running", pid: 4242 }) as Service);
+      return updateService(id, (s) => ({ ...s, state: "running", pid: (nextPid += 37) }) as Service);
     },
     stopService: async (id) => {
       logs[id] = [...(logs[id] ?? []), `stopped ${id}`];
@@ -1524,12 +1543,13 @@ function browserApi(): Api {
       return terminal;
     },
     onSitesChanged: async () => () => {},
-    // The preview has no shell: the terminal repeats what is typed.
+    // The preview has no shell: the terminal answers a few commands from the
+    // sample data and repeats anything else.
     consoleOpen: async (folder) => {
       const id = ++consoleCount;
       consoleLine[id] = "";
       const prompt = `${folder ?? "~"} $ `;
-      setTimeout(() => consoleOut.forEach((h) => h(id, `Stackyard preview: no real shell here.\r\n${prompt}`)), 50);
+      setTimeout(() => consoleOut.forEach((h) => h(id, prompt)), 50);
       consolePrompt[id] = prompt;
       return id;
     },
@@ -1538,7 +1558,8 @@ function browserApi(): Api {
         if (ch === "\r") {
           const typed = consoleLine[id];
           consoleLine[id] = "";
-          consoleOut.forEach((h) => h(id, `\r\n${typed ? `${typed}\r\n` : ""}${consolePrompt[id]}`));
+          const reply = typed.trim() ? consoleReply(typed.trim()) : [];
+          consoleOut.forEach((h) => h(id, `\r\n${reply.map((l) => `${l}\r\n`).join("")}${consolePrompt[id]}`));
         } else if (ch === "\u007f") {
           if (consoleLine[id]) {
             consoleLine[id] = consoleLine[id].slice(0, -1);
