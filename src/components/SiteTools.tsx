@@ -2,13 +2,17 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   api,
   errorText,
+  type PackProgress,
   type Packed,
+  type ShareProgress,
   type ShareStatus,
   type Site,
   type SiteBackup,
   type SiteSettingsInfo,
 } from "../lib/api";
 import { useModules } from "../lib/modules";
+import { useT } from "../lib/i18n";
+import { Progress, packState, shareState } from "./Progress";
 import { SiteRemote } from "./SiteRemote";
 import { WordPressTools } from "./wordpress/WordPressTools";
 
@@ -278,11 +282,28 @@ function SettingsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
   );
 }
 
+/** Follows a site's backup, export, restore or import; `null` until the first step. */
+function usePackProgress(site: string) {
+  const [progress, setProgress] = useState<PackProgress | null>(null);
+  useEffect(() => {
+    const off = api.onSitePackProgress((p) => {
+      if (p.site === site) setProgress(p);
+    });
+    return () => void off.then((f) => f());
+  }, [site]);
+  return [progress, setProgress] as const;
+}
+
+const RESTORING = "Restoring… (backing up the site as it is now first)";
+
 function BackupsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
+  const t = useT();
   const { isOn } = useModules();
   const [list, setList] = useState<SiteBackup[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
+  const [progress, setProgress] = usePackProgress(site.domain);
+  /** What finished, and the file it made when it is in the backups folder. */
+  const [done, setDone] = useState<{ text: string; saved: string | null } | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -295,21 +316,28 @@ function BackupsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
   }, [site.domain]);
   useEffect(reload, [reload]);
 
-  async function run(label: string, action: () => Promise<Packed | null>, message: (p: Packed) => string) {
+  async function run(
+    label: string,
+    action: () => Promise<Packed | null>,
+    message: (p: Packed) => string,
+    inBackups = false,
+  ) {
     setBusy(label);
+    setProgress(null);
     setDone(null);
     setWarning(null);
     setError(null);
     try {
       const packed = await action();
       if (packed) {
-        setDone(message(packed));
+        setDone({ text: message(packed), saved: inBackups ? packed.path : null });
         setWarning(packed.warning);
       }
     } catch (e) {
       setError(errorText(e));
     } finally {
       setBusy(null);
+      setProgress(null);
       reload();
     }
   }
@@ -328,7 +356,7 @@ function BackupsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
             type="button"
             className="btn primary"
             disabled={busy !== null}
-            onClick={() => run("Backing up…", () => api.backupSite(site.domain), (p) => `Backed up: ${what(p)}.`)}
+            onClick={() => run("Backing up…", () => api.backupSite(site.domain), (p) => `Backed up: ${what(p)}.`, true)}
           >
             {busy === "Backing up…" ? busy : "Back up now"}
           </button>
@@ -356,17 +384,23 @@ function BackupsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
           Show backups folder
         </button>
       </div>
+      {busy && <Progress label={busy} state={packState(t, progress, busy === RESTORING)} />}
       {done && (
-        <p className="notice small" role="status">
-          {done}
-        </p>
+        <div className="notice small stack tight" role="status">
+          <span>{done.text}</span>
+          {done.saved && (
+            <span className="row wrap centered">
+              <span>
+                {t("Saved to")} <span className="mono">{done.saved}</span>
+              </span>
+              <button type="button" className="btn small ghost" onClick={() => api.openSiteBackups(site.domain)}>
+                {t("Show in folder")}
+              </button>
+            </span>
+          )}
+        </div>
       )}
       {warning && <p className="warn small">{warning}</p>}
-      {busy && busy !== "Backing up…" && busy !== "Exporting…" && (
-        <p className="muted small" role="status">
-          {busy}
-        </p>
-      )}
       {error && (
         <p className="error small" role="alert">
           {error}
@@ -394,9 +428,10 @@ function BackupsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
                     onClick={() => {
                       setConfirm(null);
                       run(
-                        "Restoring… (backing up the site as it is now first)",
+                        RESTORING,
                         () => api.restoreSite(site.domain, b.file),
                         () => `Restored from the backup of ${when(b.created)}. How it was before is the newest backup.`,
+                        true,
                       ).then(() => onChanged());
                     }}
                   >
@@ -443,8 +478,10 @@ function BackupsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
 }
 
 function ShareTab({ site }: { site: Site }) {
+  const t = useT();
   const [status, setStatus] = useState<ShareStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ShareProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -454,11 +491,18 @@ function ShareTab({ site }: { site: Site }) {
       .then(setStatus)
       .catch((e) => setError(errorText(e)));
   }, []);
+  useEffect(() => {
+    const off = api.onShareProgress((p) => {
+      if (p.site === site.domain) setProgress(p);
+    });
+    return () => void off.then((f) => f());
+  }, [site.domain]);
 
   const link = status?.links.find((l) => l.site === site.domain);
 
   async function start() {
     setBusy(status?.cloudflared ? "Asking Cloudflare for an address…" : "Downloading cloudflared, then asking Cloudflare for an address…");
+    setProgress(status?.cloudflared ? { site: site.domain, step: "connecting" } : null);
     setError(null);
     try {
       await api.shareStart(site.domain);
@@ -467,6 +511,7 @@ function ShareTab({ site }: { site: Site }) {
       setError(errorText(e));
     } finally {
       setBusy(null);
+      setProgress(null);
     }
   }
 
@@ -526,9 +571,10 @@ function ShareTab({ site }: { site: Site }) {
         </div>
       )}
       {busy && (
-        <p className="muted small" role="status">
-          {busy}
-        </p>
+        <>
+          <p className="muted small">{busy}</p>
+          <Progress label={busy} state={shareState(t, progress)} />
+        </>
       )}
       {link?.url && (
         <p className="muted small">

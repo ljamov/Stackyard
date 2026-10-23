@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
-import { api, errorText } from "../lib/api";
+import { api, errorText, type Module, type Service } from "../lib/api";
 import { useModules } from "../lib/modules";
 import { useServices } from "../lib/useServices";
 import { ServiceCard } from "../components/ServiceCard";
+import { BrandIcon } from "../components/BrandIcon";
 import { useT } from "../lib/i18n";
 
 export function Services() {
   const t = useT();
   const hook = useServices();
-  const { isOn } = useModules();
+  const { modules, isOn } = useModules();
   const shown = hook.services.filter((s) => isOn(s.id));
+  // Services switched off in Settings, so people can see what else there is.
+  const off = modules.filter((m) => m.group === "service" && m.available && !m.enabled);
   const [logFor, setLogFor] = useState<string | null>(null);
   const logService = shown.find((s) => s.id === logFor);
 
@@ -31,8 +34,77 @@ export function Services() {
         ))}
       </div>
 
+      {off.length > 0 && (
+        <section className="stack" aria-labelledby="services-off-h">
+          <div>
+            <h2 id="services-off-h">{t("Turned off")}</h2>
+            <p className="muted small">
+              {t("These are in Stackyard too. A turned-off service downloads nothing and runs nothing until you turn it on.")}
+            </p>
+          </div>
+          <div className="grid">
+            {off.map((m) => (
+              <DisabledCard key={m.id} module={m} service={hook.services.find((s) => s.id === m.id)} />
+            ))}
+          </div>
+        </section>
+      )}
+
       {logService && <ServiceLog id={logService.id} name={logService.name} onClose={() => setLogFor(null)} />}
     </>
+  );
+}
+
+/** A service whose module is off: what it is, and a button to turn it on. */
+function DisabledCard({ module: m, service }: { module: Module; service?: Service }) {
+  const t = useT();
+  const { setModule } = useModules();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function turnOn() {
+    setBusy(true);
+    setError(null);
+    try {
+      await setModule(m.id, true);
+    } catch (e) {
+      setError(errorText(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card service disabled">
+      <div className="service-top">
+        <BrandIcon id={m.id} />
+        <div className="service-name">
+          <span className="strong">{m.name}</span>
+          {service && <span className="muted small">{service.version}</span>}
+        </div>
+        <button
+          type="button"
+          className="btn small"
+          disabled={busy}
+          onClick={turnOn}
+          aria-label={t("Turn on {name}", { name: m.name })}
+        >
+          {busy ? t("Turning on…") : t("Turn on")}
+        </button>
+      </div>
+      <div className="service-meta small">
+        <span className="status">
+          <span className="dot" aria-hidden="true" />
+          {t("Disabled")}
+          {service && ` · ${t(service.role)}`}
+        </span>
+      </div>
+      <p className="muted small">{t(m.description)}</p>
+      {error && (
+        <p role="alert" className="error small">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

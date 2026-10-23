@@ -10,6 +10,7 @@ import {
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { useT } from "../lib/i18n";
+import { downloadState } from "../components/Progress";
 
 const key = (kind: string, version: string) => `${kind}/${version}`;
 
@@ -274,25 +275,19 @@ function VersionRow({ name, available, v, progress, error, onInstall, onRemove, 
   );
 }
 
-function percent(p?: InstallProgress) {
-  return p?.step === "downloading" && p.total ? Math.floor(((p.done ?? 0) * 100) / p.total) : null;
-}
-
 function ProgressText({ progress }: { progress?: InstallProgress }) {
-  const pct = percent(progress);
-  const text =
-    progress?.step === "unpacking"
-      ? "Unpacking…"
-      : progress?.step === "downloading"
-        ? pct === null
-          ? `Downloading ${((progress.done ?? 0) / 1e6).toFixed(0)} MB…`
-          : `Downloading ${pct}%`
-        : "Looking up the latest release…";
-  return <span className="muted small">{text}</span>;
+  const t = useT();
+  const { text, percent } = downloadState(t, progress);
+  return (
+    <span className="muted small">
+      {text}
+      {percent !== null && ` · ${percent}%`}
+    </span>
+  );
 }
 
 function ProgressBar({ label, progress }: { label: string; progress?: InstallProgress }) {
-  const pct = progress?.step === "unpacking" ? 100 : percent(progress);
+  const pct = downloadState((text) => text, progress).percent;
   return (
     <div
       className="progress"

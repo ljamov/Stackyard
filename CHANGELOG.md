@@ -6,6 +6,15 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Long jobs show how far along they are.** Site backups, exports, restores and imports show a
+  bar with the step they are on (saving the database, packing files 1,234 of 5,000, writing files,
+  loading the database). Downloads of services, runtimes, phpMyAdmin and cloudflared (for public
+  links) show the megabytes so far, the total and a percent.
+- **After a backup you see where it went.** A site backup says the file it saved, with **Show in
+  folder**. Database backups say the file name and have **Show backups folder**.
+- **Turned-off services show on the Services screen** as dashed **Disabled** cards with what they
+  do and a **Turn on** button, so you can see everything Stackyard offers. They still download
+  nothing and run nothing until turned on.
 - WordPress **Plugins** no longer stop with "WP-CLI answered in a way Stackyard doesn't understand"
   when a plugin or drop-in has no version or update (WP-CLI sends `false` for those).
 - WordPress **Themes**: **Activate** now comes before **Delete** under each theme.
