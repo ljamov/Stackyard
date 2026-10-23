@@ -7,13 +7,14 @@ import { api, type Site } from "./api";
 import { ACCENTS, endPreview, previewTheme, setAppearance, THEMES, useAddedThemes, useAppearance } from "./appearance";
 import { importThemeFromFile } from "./themeImport";
 import { currentViewOptions, DEFAULT_VIEW, DENSITIES, ICON_THEMES, setViewOptions, useViewOptions, zoomBy } from "./viewOptions";
-import { closeTab, cycleTab, openTab, setLayout, showScreen, togglePanelTab } from "./layout";
+import { closeTab, cycleTab, openTab, setLayout, showScreen, siteTab, togglePanelTab } from "./layout";
 import { openTerminal } from "./terminal";
 import { openPalette } from "./palette";
 import { focusPart } from "./focus";
 import { checkForUpdate } from "./updates";
 import type { ServicesHook } from "./useServices";
 import type { TabScreen } from "./screens";
+import type { TabId } from "./layout";
 import { useT } from "./i18n";
 
 export type Command = {
@@ -44,8 +45,8 @@ export function useWorkbenchCommands({
   sites: Site[];
   logsOn: boolean;
   terminalOn: boolean;
-  tabs: TabScreen[];
-  active: TabScreen | null;
+  tabs: TabId[];
+  active: TabId | null;
 }): { commands: Command[]; places: Command[]; themes: Command[] } {
   const t = useT();
   const added = useAddedThemes();
@@ -168,7 +169,7 @@ export function useWorkbenchCommands({
         category: t("Sites"),
         title: site.domain,
         detail: site.runtime,
-        run: () => void api.openLocalPage(site.url),
+        run: () => openTab(siteTab(site.domain)),
       })),
       ...screens.map((s) => ({ id: `place.screen.${s}`, category: open, title: t(s), run: () => showScreen(s) })),
     ];

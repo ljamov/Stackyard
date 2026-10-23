@@ -17,6 +17,10 @@ import { Images } from "../screens/Images";
 import { Videos } from "../screens/Videos";
 import { AiTools } from "../screens/AiTools";
 import { KeyboardShortcuts } from "../screens/KeyboardShortcuts";
+import { ServicePage } from "../screens/ServicePage";
+import { SitePage } from "../screens/SitePage";
+import { BrandIcon } from "./BrandIcon";
+import { frameworkBrand } from "../lib/brands";
 import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 import { api } from "../lib/api";
@@ -24,7 +28,7 @@ import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
 import { SCREENS, isTabScreen, useScreenOn, type TabScreen } from "../lib/screens";
-import { closeTab, openTab, PANEL_HEIGHT, setLayout, showScreen, SIDE_BAR_WIDTH, useLayout } from "../lib/layout";
+import { closeTab, openTab, PANEL_HEIGHT, setLayout, showScreen, SIDE_BAR_WIDTH, useLayout, type TabId } from "../lib/layout";
 import { useViewOptions } from "../lib/viewOptions";
 import { CommandsProvider, useWorkbenchCommands } from "../lib/commands";
 import { dispatchKeys, withKey } from "../lib/keybindings";
@@ -37,10 +41,12 @@ import { TERMINAL_COMMANDS } from "../lib/terminal";
 import { useT } from "../lib/i18n";
 import { rovingGroup, rovingKeys } from "../lib/focus";
 
-const tabId = (s: TabScreen) => `tab-${s.replace(/\W+/g, "-")}`;
+const tabId = (s: TabId) => `tab-${s.replace(/\W+/g, "-")}`;
 
-function screen(s: TabScreen): ReactNode {
-  switch (s) {
+function screen(s: TabId): ReactNode {
+  if (s.startsWith("service:")) return <ServicePage key={s} id={s.slice("service:".length)} />;
+  if (s.startsWith("site:")) return <SitePage key={s} domain={s.slice("site:".length)} />;
+  switch (s as TabScreen) {
     case "Dashboard":
       return <Dashboard onNavigate={(to) => isTabScreen(to) && showScreen(to)} />;
     case "Sites":
@@ -87,7 +93,25 @@ export function Workbench() {
   const terminalOn = isOn("terminal");
   // Until the module switches load, every screen counts as off; keep the tabs.
   const loaded = modules.length > 0;
-  const tabs = loaded ? layout.tabs.filter(on) : layout.tabs;
+  const tabOn = (id: TabId) =>
+    isTabScreen(id) ? on(id) : id.startsWith("service:") ? isOn(id.slice("service:".length)) : true;
+  const tabs = loaded ? layout.tabs.filter(tabOn) : layout.tabs;
+  // A service or site tab always shows the row of tabs, so it can be closed.
+  const showTabs = tabs.length > 1 || tabs.some((x) => !isTabScreen(x));
+  /** A tab's name: the screen's, the service's or the site's. */
+  const tabTitle = (id: TabId): string =>
+    id.startsWith("service:")
+      ? (services.services.find((x) => `service:${x.id}` === id)?.name ?? id.slice("service:".length))
+      : id.startsWith("site:")
+        ? id.slice("site:".length)
+        : t(id);
+  /** The logo before a service's or site's tab name. */
+  const tabIcon = (id: TabId): ReactNode => {
+    if (id.startsWith("service:")) return <BrandIcon id={id.slice("service:".length)} />;
+    if (!id.startsWith("site:")) return null;
+    const site = sites.data.find((x) => `site:${x.domain}` === id);
+    return <BrandIcon id={frameworkBrand(site?.framework ?? null) ?? ""} fallback="sites" />;
+  };
   const active = layout.active && tabs.includes(layout.active) ? layout.active : (tabs[0] ?? null);
   const panel = layout.panel;
   // Logs or Terminal switched off: the panel shows Problems.
@@ -159,7 +183,7 @@ export function Workbench() {
           )}
           <div className="editor-column">
             <div className="editor" data-part="editor">
-              {tabs.length > 1 && (
+              {showTabs && (
                 <div
                   ref={rovingGroup}
                   className="tabs"
@@ -167,7 +191,7 @@ export function Workbench() {
                   aria-label={t("Open screens")}
                   onKeyDown={(e) => {
                     rovingKeys(e, "horizontal");
-                    const s = (e.target as HTMLElement).dataset.tab as TabScreen | undefined;
+                    const s = (e.target as HTMLElement).dataset.tab as TabId | undefined;
                     if (s && e.key === "Delete") {
                       e.preventDefault();
                       closeTab(s);
@@ -192,14 +216,15 @@ export function Workbench() {
                         onClick={() => openTab(s)}
                         onAuxClick={(e) => e.button === 1 && closeTab(s)}
                       >
-                        {t(s)}
+                        {tabIcon(s)}
+                        {tabTitle(s)}
                       </button>
                       <button
                         type="button"
                         className="icon-btn tab-close"
                         tabIndex={-1}
-                        aria-label={t("Close {name}", { name: t(s) })}
-                        title={withKey(t("Close {name}", { name: t(s) }), "tab.close")}
+                        aria-label={t("Close {name}", { name: tabTitle(s) })}
+                        title={withKey(t("Close {name}", { name: tabTitle(s) }), "tab.close")}
                         onClick={() => closeTab(s)}
                       >
                         <Icon name="close" />
@@ -212,9 +237,9 @@ export function Workbench() {
                 <main
                   id="editor-content"
                   className="content"
-                  role={tabs.length > 1 ? "tabpanel" : undefined}
-                  aria-labelledby={tabs.length > 1 ? tabId(active) : undefined}
-                  aria-label={tabs.length > 1 ? undefined : t(active)}
+                  role={showTabs ? "tabpanel" : undefined}
+                  aria-labelledby={showTabs ? tabId(active) : undefined}
+                  aria-label={showTabs ? undefined : tabTitle(active)}
                   tabIndex={-1}
                 >
                   <UpdateNotice />

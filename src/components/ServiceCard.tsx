@@ -2,6 +2,7 @@ import { api, type Service, type ServiceProgress } from "../lib/api";
 import type { ServicesHook } from "../lib/useServices";
 import { useT } from "../lib/i18n";
 import { BrandIcon } from "./BrandIcon";
+import { openTab, serviceTab } from "../lib/layout";
 
 /** What each service state is called; translate with t(). */
 export const SERVICE_STATE: Record<Service["state"], string> = {
@@ -61,10 +62,15 @@ export function ServiceCard({
     <div className="card service">
       <div className="service-top">
         <BrandIcon id={s.id} />
-        <div className="service-name">
+        <button
+          type="button"
+          className="service-name"
+          title={t("Open {name} in a tab", { name: s.name })}
+          onClick={() => openTab(serviceTab(s.id))}
+        >
           <span className="strong">{s.name}</span>
           <span className="muted small">{s.installed ?? s.version}</span>
-        </div>
+        </button>
         {primary}
       </div>
       <div className="service-meta small">

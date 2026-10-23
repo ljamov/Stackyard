@@ -672,5 +672,15 @@
   "Restart": "Рестартирај",
   "Show or hide the terminal": "Прикажи или скриј го терминалот",
   "Terminal": "Терминал",
-  "{version} available": "{version} достапна"
+  "{version} available": "{version} достапна",
+  "Details": "Детали",
+  "Open in browser": "Отвори во прелистувач",
+  "Open {name} in a tab": "Отвори го {name} во картичка",
+  "Ports": "Порти",
+  "Runs with": "Работи со",
+  "Site tools": "Алатки за сајтот",
+  "This service isn't in Stackyard any more.": "Овој сервис веќе не е во Stackyard.",
+  "This site isn't in Stackyard any more.": "Овој сајт веќе не е во Stackyard.",
+  "Version": "Верзија",
+  "parked": "паркиран"
 }

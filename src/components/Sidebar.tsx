@@ -2,10 +2,10 @@ import type { MouseEvent } from "react";
 import { Icon, type IconName } from "./Icon";
 import { Logo } from "./Logo";
 import { BrandIcon } from "./BrandIcon";
-import { api, type Site } from "../lib/api";
+import type { Site } from "../lib/api";
 import { frameworkBrand } from "../lib/brands";
 import { openPalette } from "../lib/palette";
-import { openTab, showScreen } from "../lib/layout";
+import { openTab, showScreen, siteTab, type TabId } from "../lib/layout";
 import { useUpdate } from "../lib/updates";
 import { useT } from "../lib/i18n";
 import { withKey } from "../lib/keybindings";
@@ -33,7 +33,7 @@ const SITES_SHOWN = 5;
 
 /**
  * The side bar: the logo and search, New site, every screen by name, a few
- * sites to open in the browser, and Settings at the bottom. A click shows a
+ * sites to open in tabs of their own, and Settings at the bottom. A click shows a
  * screen in place of the shown one; Ctrl+click or a middle click opens it as
  * a tab beside it. The screens are one Tab stop; the arrow keys move between them.
  * Collapsed (Ctrl+B) it is a rail of the same icons, each named in its tooltip.
@@ -48,7 +48,7 @@ export function Sidebar({
   width: number;
   collapsed: boolean;
   screens: TabScreen[];
-  active: TabScreen | null;
+  active: TabId | null;
   sites: Site[];
 }) {
   const t = useT();
@@ -125,9 +125,10 @@ export function Sidebar({
               key={site.domain}
               type="button"
               className="side-site"
-              title={t("Open {name} in your browser", { name: site.domain })}
-              aria-label={collapsed ? t("Open {name} in your browser", { name: site.domain }) : undefined}
-              onClick={() => void api.openLocalPage(site.url)}
+              title={t("Open {name} in a tab", { name: site.domain })}
+              aria-label={collapsed ? t("Open {name} in a tab", { name: site.domain }) : undefined}
+              aria-current={active === siteTab(site.domain) ? "page" : undefined}
+              onClick={() => openTab(siteTab(site.domain))}
             >
               <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
               <span className="side-label">{site.domain}</span>

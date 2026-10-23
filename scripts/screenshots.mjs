@@ -26,33 +26,29 @@ const SHOTS = {
     // The heading, the New site form and the site list under it.
     wait: 1200,
   },
+  // A site in its own tab, opened with Manage.
   servers: {
     screen: "Sites",
     prep: async (page) => {
-      const manage = page.getByRole("button", { name: "Manage blog.stack" });
-      await manage.click();
+      await page.getByRole("button", { name: "Manage blog.stack" }).click();
       await sleep(300);
       await page.getByRole("button", { name: "Servers & Git", exact: true }).click();
       await sleep(600);
-      await manage.evaluate((b) => b.scrollIntoView({ block: "start" }));
     },
+    after: closeTab,
   },
   // A WordPress site's copies: the main site, its stagings and the live site.
   wordpress: {
     screen: "Sites",
     prep: async (page) => {
-      const manage = page.getByRole("button", { name: "Manage legacy.stack" });
-      await manage.click();
+      await page.getByRole("button", { name: "Manage legacy.stack" }).click();
       await sleep(300);
       await page.getByRole("button", { name: "WordPress", exact: true }).click();
       await sleep(600);
       await page.getByRole("button", { name: "Environments", exact: true }).click();
       await sleep(800);
-      await manage.evaluate((b) => b.scrollIntoView({ block: "start" }));
     },
-    after: async (page) => {
-      await page.getByRole("button", { name: "Close", exact: true }).first().click().catch(() => {});
-    },
+    after: closeTab,
   },
   services: { screen: "Services" },
   runtimes: { screen: "Runtimes" },
@@ -213,4 +209,10 @@ async function dragPanel(page, by) {
 async function open(page, screen) {
   await page.locator(`.sidebar [data-screen="${screen}"]`).click();
   await sleep(300);
+}
+
+// Closes the tab a shot opened, so the next shot starts from the screens alone.
+async function closeTab(page) {
+  await page.locator(".tab-item[data-active] .tab-close").click({ force: true });
+  await sleep(200);
 }

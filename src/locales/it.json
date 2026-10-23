@@ -672,5 +672,15 @@
   "Restart": "Riavvia",
   "Show or hide the terminal": "Mostra o nascondi il terminale",
   "Terminal": "Terminale",
-  "{version} available": "{version} disponibile"
+  "{version} available": "{version} disponibile",
+  "Details": "Dettagli",
+  "Open in browser": "Apri nel browser",
+  "Open {name} in a tab": "Apri {name} in una scheda",
+  "Ports": "Porte",
+  "Runs with": "Gira con",
+  "Site tools": "Strumenti del sito",
+  "This service isn't in Stackyard any more.": "Questo servizio non è più in Stackyard.",
+  "This site isn't in Stackyard any more.": "Questo sito non è più in Stackyard.",
+  "Version": "Versione",
+  "parked": "parcheggiato"
 }

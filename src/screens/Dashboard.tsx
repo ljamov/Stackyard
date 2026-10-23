@@ -8,6 +8,7 @@ import { Logo } from "../components/Logo";
 import { useModules } from "../lib/modules";
 import { frameworkBrand } from "../lib/brands";
 import { openPalette } from "../lib/palette";
+import { openTab, siteTab } from "../lib/layout";
 import { keyLabel, keysFor, useKeyChanges } from "../lib/keybindings";
 import type { Screen } from "../lib/screens";
 import { useT, type Translate } from "../lib/i18n";
@@ -107,7 +108,14 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
             <div key={site.domain} className="item">
               <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
               <div className="grow">
-                <div className="item-name">{site.domain}</div>
+                <button
+                  type="button"
+                  className="item-name item-open"
+                  title={t("Open {name} in a tab", { name: site.domain })}
+                  onClick={() => openTab(siteTab(site.domain))}
+                >
+                  {site.domain}
+                </button>
                 <div className="muted small">
                   {site.framework ? `${site.framework} · ` : ""}
                   {site.runtime}

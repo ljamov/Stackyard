@@ -1,7 +1,9 @@
 # Site settings, backups, moving sites and public links
 
-Open a site's tools with **Manage** on its row on the Sites screen. Each part is a module of its
-own, so any of them can be switched off in Settings › Modules.
+Open a site's tools with **Manage** on its row on the Sites screen, or by clicking the site in the
+side bar: the site opens in a tab of its own, with its addresses, folder and versions at the top and
+its tools under them. Each part is a module of its own, so any of them can be switched off in
+Settings › Modules.
 
 ## Settings
 

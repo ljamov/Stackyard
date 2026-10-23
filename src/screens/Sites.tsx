@@ -5,7 +5,7 @@ import { api, errorText, type RuntimeFamily, type Site, type SiteFile } from "..
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { openTerminal } from "../lib/terminal";
-import { SiteTools } from "../components/SiteTools";
+import { openTab, siteTab } from "../lib/layout";
 import { SiteVersions } from "../components/SiteVersions";
 import { CloneSite } from "../components/wordpress/CloneSite";
 import { useT } from "../lib/i18n";
@@ -43,8 +43,6 @@ export function Sites() {
   const sitesFolder = useLoad(api.sitesFolder, "");
   const { isOn } = useModules();
   const options = runtimeOptions(runtimes.data, isOn);
-  const hasTools = ["sitesettings", "sitebackups", "sitetransfer", "share", "remote", "git"].some(isOn);
-  const [managing, setManaging] = useState<string | null>(null);
   const [importing, setImporting] = useState<{ path: string; file: SiteFile } | null>(null);
   const [cloning, setCloning] = useState(false);
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
@@ -216,7 +214,7 @@ export function Sites() {
           onClose={() => setCloning(false)}
           onCloned={(domain) => {
             setCloning(false);
-            setManaging(domain);
+            openTab(siteTab(domain));
             sites.reload();
           }}
         />
@@ -228,7 +226,7 @@ export function Sites() {
           onClose={() => setImporting(null)}
           onImported={(domain) => {
             setImporting(null);
-            setManaging(domain);
+            openTab(siteTab(domain));
             sites.reload();
             system.reload();
           }}
@@ -461,23 +459,7 @@ export function Sites() {
                     runtimes.reload();
                   }}
                   onRemove={remove}
-                  manageOpen={hasTools ? managing === site.domain : null}
-                  onManage={() => setManaging(managing === site.domain ? null : site.domain)}
                 />
-                {hasTools && managing === site.domain && (
-                  <tr className="site-detail">
-                    <td colSpan={4}>
-                      <SiteTools
-                        site={site}
-                        onChanged={(domain) => {
-                          if (domain) setManaging(domain);
-                          sites.reload();
-                          system.reload();
-                        }}
-                      />
-                    </td>
-                  </tr>
-                )}
               </Fragment>
             ))}
           </tbody>
@@ -492,16 +474,11 @@ function SiteRow({
   families,
   onVersionChanged,
   onRemove,
-  manageOpen,
-  onManage,
 }: {
   site: Site;
   families: RuntimeFamily[];
   onVersionChanged: () => void;
   onRemove: (domain: string) => void;
-  /** Whether the site's tools are open; null when every site tool is switched off. */
-  manageOpen: boolean | null;
-  onManage: () => void;
 }) {
   const { isOn } = useModules();
   return (
@@ -544,17 +521,15 @@ function SiteRow({
             Terminal
           </button>
         )}
-        {manageOpen !== null && (
-          <button
-            type="button"
-            className="btn ghost small"
-            aria-expanded={manageOpen}
-            aria-label={`Manage ${site.domain}`}
-            onClick={onManage}
-          >
-            {manageOpen ? "Close" : "Manage"}
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn ghost small"
+          aria-label={`Manage ${site.domain}`}
+          title={`Open ${site.domain} in a tab, with its settings, backups and tools`}
+          onClick={() => openTab(siteTab(site.domain))}
+        >
+          Manage
+        </button>
         {!site.parked && (
           <button
             type="button"

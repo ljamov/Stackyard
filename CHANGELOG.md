@@ -14,6 +14,11 @@ Update button, and the app shows its own version's section after it updates.
 - Every text box, list, check box, radio button and slider has the same look in every screen, in
   the theme's colors, and buttons light up under the pointer. Lists draw their own arrow.
 - **Scroll bars** are slim and rounded, like the system's own, and brighten under the pointer.
+- **Services and sites open in tabs.** Click a service's name on Home or Services to open it in a
+  tab of its own, with start, stop, restart, remove, its ports, how to connect and its log. Click a
+  site in the side bar, or **Manage** on the Sites screen, to open the site in a tab with its
+  addresses, versions, Terminal, Open in browser and all its tools across the whole window. Close
+  any of them with the tab's ×.
 - The **Terminal, Manage and Remove** buttons on the Sites screen have room between them.
 - A tab's **close button** sits a little apart from the tab's name and lights up as a round button
   when you point at it, instead of a cramped square against the tab's edge.
