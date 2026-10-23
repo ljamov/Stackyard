@@ -34,7 +34,7 @@ export function SitePage({ domain }: { domain: string }) {
   if (!sites.data) return null;
   const site = sites.data.find((s) => s.domain === domain);
   if (!site) return <p className="muted">{t("This site isn't in Stackyard any more.")}</p>;
-  const address = siteAddress(site, !system.data || system.data.needed.length === 0);
+  const address = siteAddress(site, system.data);
 
   async function remove() {
     setError(null);

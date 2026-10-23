@@ -1854,6 +1854,8 @@ struct SystemView {
     resolver: Resolver,
     /// Whether the local DNS server is answering.
     dns_running: bool,
+    /// Sites whose own name already works.
+    ready_domains: Vec<String>,
 }
 
 fn system_view(app: &AppHandle) -> CmdResult<SystemView> {
@@ -1865,6 +1867,7 @@ fn system_view(app: &AppHandle) -> CmdResult<SystemView> {
         waiting_for_certificate: status.waiting_for_certificate,
         resolver: wanted.resolver,
         dns_running: app.state::<Arc<Engine>>().dns_running(),
+        ready_domains: status.ready_domains,
     })
 }
 

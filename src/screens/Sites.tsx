@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
-import { api, errorText, siteAddress, type PackProgress, type RuntimeFamily, type Site, type SiteFile } from "../lib/api";
+import { api, errorText, siteAddress, type PackProgress, type RuntimeFamily, type Site, type SiteFile, type SystemStatus } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { openTerminal } from "../lib/terminal";
@@ -471,7 +471,7 @@ export function Sites() {
               <Fragment key={site.domain}>
                 <SiteRow
                   site={site}
-                  domainsReady={!system.data || system.data.needed.length === 0}
+                  system={system.data}
                   families={runtimes.data}
                   onVersionChanged={() => {
                     sites.reload();
@@ -495,7 +495,7 @@ function SiteRow({
   onVersionChanged,
   onRemove,
   onOpen,
-  domainsReady,
+  system,
 }: {
   site: Site;
   families: RuntimeFamily[];
@@ -503,12 +503,12 @@ function SiteRow({
   onRemove: (domain: string) => void;
   /** Runs an open action, showing what went wrong if it fails. */
   onOpen: (open: () => Promise<unknown>) => void;
-  domainsReady: boolean;
+  system: SystemStatus | null;
 }) {
   const t = useT();
   const { isOn } = useModules();
   const editor = editorName(useCodeEditors());
-  const address = siteAddress(site, domainsReady);
+  const address = siteAddress(site, system);
   return (
     <tr>
       <td>
