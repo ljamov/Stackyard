@@ -236,6 +236,18 @@ impl Site {
         domain::site_domain(&self.name, &self.tld)
     }
 
+    /// A name for the site that no other site has, for process ids and
+    /// `.localhost` names: `shop` for `shop.stack`, and `checkout.shop` for
+    /// a staging `checkout.shop.stack`, so it can't clash with `checkout.stack`.
+    pub fn key(&self) -> String {
+        let labels: Vec<&str> = self.tld.trim_matches('.').split('.').collect();
+        let middle = &labels[..labels.len().saturating_sub(1)];
+        std::iter::once(self.name.as_str())
+            .chain(middle.iter().copied())
+            .collect::<Vec<_>>()
+            .join(".")
+    }
+
     pub fn url(&self) -> String {
         let scheme = if self.https { "https" } else { "http" };
         format!("{scheme}://{}", self.domain())

@@ -96,7 +96,7 @@ pub fn uninstall(home: &Path) -> Result<()> {
 
 /// The process id of a site's link, e.g. `share-blog`.
 pub fn process_id(site: &Site) -> String {
-    format!("share-{}", site.name)
+    format!("share-{}", site.key())
 }
 
 /// The cloudflared command for a site: visits go to the local web server

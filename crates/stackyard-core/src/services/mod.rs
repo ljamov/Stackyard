@@ -259,6 +259,20 @@ fn follow_ports(home: &Path, def: &ServiceDef, text: &str) -> String {
     text
 }
 
+/// Drops endings that another one covers: a staging's `.shop.stack` is
+/// already answered for by `.stack`, so it needs no system setup of its own.
+fn covering(endings: Vec<String>) -> Vec<String> {
+    endings
+        .iter()
+        .filter(|e| {
+            !endings
+                .iter()
+                .any(|other| other != *e && e.ends_with(other.as_str()))
+        })
+        .cloned()
+        .collect()
+}
+
 /// The first port, the one programs connect to (3306 for MySQL).
 pub fn port(home: &Path, def: &ServiceDef) -> u16 {
     ports(home, def)[0]
@@ -374,7 +388,7 @@ impl ServiceManager {
                 endings.push(site.site.tld);
             }
         }
-        Ok(endings)
+        Ok(covering(endings))
     }
 
     /// What system setup should cover right now.
@@ -473,6 +487,12 @@ pub(crate) fn slash(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn endings_under_another_ending_are_covered() {
+        let all = covering(vec![".stack".into(), ".shop.stack".into(), ".test".into()]);
+        assert_eq!(all, vec![".stack".to_string(), ".test".to_string()]);
+    }
     use crate::archive::fixtures;
     use crate::download::{sha256_file, testserver};
 

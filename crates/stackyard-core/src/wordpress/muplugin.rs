@@ -29,6 +29,9 @@ pub struct Options {
     /// A staging copy: the label is shown in a warning color.
     pub staging: bool,
     pub safety: Option<Safety>,
+    /// Another copy's uploads folder: media missing here is copied from it
+    /// when a page asks (a staging made without its own copy of the media).
+    pub media_folder: Option<String>,
 }
 
 /// What keeps a copy of a live site from acting as the live site.
@@ -47,6 +50,10 @@ impl Options {
             Some(env) => env.kind == super::env::Kind::Staging,
             None => wp.config.get("WP_ENVIRONMENT_TYPE") == Some("staging"),
         };
+        let media_folder = env
+            .as_ref()
+            .and_then(|e| e.shared_media.as_ref())
+            .map(|p| p.display().to_string());
         let safety = env.filter(|e| e.safe).map(|env| Safety {
             mailpit: mailpit_port(home),
             media_from: env
@@ -56,12 +63,13 @@ impl Options {
         });
         Options {
             label: if staging {
-                "Staging".into()
+                format!("Staging: {}", wp.site.name)
             } else {
                 "Local".into()
             },
             staging,
             safety,
+            media_folder,
         }
     }
 }
@@ -122,8 +130,21 @@ pub fn source(options: &Options) -> String {
                 "define( 'STACKYARD_MEDIA_FROM', {} );\n",
                 php_string(live.trim_end_matches('/'))
             ));
-            out.push_str(MEDIA_FROM_LIVE);
         }
+    }
+    if let Some(folder) = &options.media_folder {
+        out.push_str(&format!(
+            "define( 'STACKYARD_MEDIA_FOLDER', {} );\n",
+            php_string(folder.trim_end_matches(['/', '\\']))
+        ));
+    }
+    if options.media_folder.is_some()
+        || options
+            .safety
+            .as_ref()
+            .is_some_and(|s| s.media_from.is_some())
+    {
+        out.push_str(MEDIA_MISSING);
     }
     out.push_str(LOGIN);
     out.push_str(&ADMIN_BAR.replace(
@@ -180,10 +201,11 @@ add_filter( 'woocommerce_webhook_should_deliver', '__return_false', PHP_INT_MAX 
 
 "#;
 
-/// Media left on the live site: a missing file under the uploads folder
+/// Media that is not in the copy: a missing file under the uploads folder
 /// reaches WordPress (the web server sends missing files to index.php), so
-/// it is fetched from the live site once, kept, and sent.
-const MEDIA_FROM_LIVE: &str = r#"( function () {
+/// it is copied from the folder the copy shares media with, or fetched from
+/// the live site, once, kept, and sent.
+const MEDIA_MISSING: &str = r#"( function () {
 	$path = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '';
 	if ( '' === $path || false === strpos( $path, '/' ) ) {
 		return;
@@ -201,12 +223,19 @@ const MEDIA_FROM_LIVE: &str = r#"( function () {
 	if ( is_file( $file ) ) {
 		return;
 	}
-	$home = rtrim( (string) wp_parse_url( home_url(), PHP_URL_PATH ), '/' );
-	$url  = STACKYARD_MEDIA_FROM . ( '' !== $home && 0 === strpos( $path, $home . '/' ) ? substr( $path, strlen( $home ) ) : $path );
 	wp_mkdir_p( dirname( $file ) );
-	$part     = $file . '.stackyard-part';
-	$response = wp_remote_get( $url, array( 'timeout' => 60, 'stream' => true, 'filename' => $part ) );
-	if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+	$part  = $file . '.stackyard-part';
+	$found = false;
+	if ( defined( 'STACKYARD_MEDIA_FOLDER' ) && is_file( STACKYARD_MEDIA_FOLDER . '/' . $relative ) ) {
+		$found = copy( STACKYARD_MEDIA_FOLDER . '/' . $relative, $part );
+	}
+	if ( ! $found && defined( 'STACKYARD_MEDIA_FROM' ) ) {
+		$home     = rtrim( (string) wp_parse_url( home_url(), PHP_URL_PATH ), '/' );
+		$url      = STACKYARD_MEDIA_FROM . ( '' !== $home && 0 === strpos( $path, $home . '/' ) ? substr( $path, strlen( $home ) ) : $path );
+		$response = wp_remote_get( $url, array( 'timeout' => 60, 'stream' => true, 'filename' => $part ) );
+		$found    = ! is_wp_error( $response ) && 200 === wp_remote_retrieve_response_code( $response );
+	}
+	if ( ! $found ) {
 		@unlink( $part );
 		status_header( 404 );
 		nocache_headers();
@@ -281,6 +310,7 @@ mod tests {
             label: "Staging: it's new".into(),
             staging: true,
             safety: None,
+            media_folder: None,
         });
         assert!(php.starts_with("<?php\n"));
         assert!(php.contains("define( 'STACKYARD_COPY', 'Staging: it\\'s new' );"));
@@ -300,6 +330,7 @@ mod tests {
                 mailpit: Some(1026),
                 media_from: Some("https://shop.example/".into()),
             }),
+            media_folder: None,
         };
         let php = source(&options);
         assert!(php.contains("$mailer->Port        = 1026;"));
@@ -315,6 +346,16 @@ mod tests {
         });
         assert!(dropped.contains("pre_wp_mail"));
         assert!(!dropped.contains("STACKYARD_MEDIA_FROM"));
+        assert!(!dropped.contains("wp_upload_dir"));
+        let shared = source(&Options {
+            label: "Staging: checkout".into(),
+            staging: true,
+            safety: None,
+            media_folder: Some("/sites/shop/wp-content/uploads/".into()),
+        });
+        assert!(shared
+            .contains("define( 'STACKYARD_MEDIA_FOLDER', '/sites/shop/wp-content/uploads' );"));
+        assert!(shared.contains("wp_upload_dir"));
 
         let dir = crate::testutil::tempdir();
         let file = dir.join("stackyard.php");

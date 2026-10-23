@@ -133,7 +133,7 @@ impl ServedSite {
 
     /// The `.localhost` name that works without any system setup.
     pub fn localhost(&self) -> String {
-        format!("{}.localhost", self.site.name)
+        format!("{}.localhost", self.site.key())
     }
 }
 
@@ -496,7 +496,7 @@ pub fn dev_servers(home: &Path, sites: &[ServedSite]) -> Vec<ProcessSpec> {
             );
             env.extend(served.site.settings.env.clone());
             Some(ProcessSpec {
-                id: dev_server_id(&served.site.name),
+                id: dev_server_id(&served.site.key()),
                 name: format!("{} dev server", served.domain()),
                 program: launch.program,
                 args: launch
@@ -572,7 +572,7 @@ fn command_server(
         )
     };
     Ok(ProcessSpec {
-        id: dev_server_id(&site.name),
+        id: dev_server_id(&site.key()),
         name: format!("{} command", served.domain()),
         program,
         args,

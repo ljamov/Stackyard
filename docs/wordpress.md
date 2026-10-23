@@ -83,6 +83,51 @@ Premium plugins whose licence is tied to the live domain may show as unlicensed 
 Stackyard can't change that. A multisite network's main site works; subsites on their own domains
 may need their addresses changed under Network Admin › Sites.
 
+## Stagings
+
+A staging is a full copy of a site, next to it, for trying a change before it goes to the main
+site: a new checkout, a plugin update, a redesign. Open the site's **WordPress** tab, then
+**Environments**.
+
+1. Type a name, e.g. `checkout`. The staging's address is that name in front of the main site's:
+   `checkout.shop.stack`.
+2. Pick what it is a copy of: the main site, one of its stagings, or (for a site cloned from a live
+   server) **The live site**, which downloads a fresh copy the same way a clone does.
+3. Choose whether to **copy the media too** (`wp-content/uploads`). Left out, the staging copies
+   each image from the site it was made from the first time a page shows it: faster to make and
+   much smaller for big shops.
+4. Click **Make the staging**. **Stop** cancels it and removes what was made.
+
+Each staging gets:
+
+- its own folder beside the main site's (`~/Code/shop@checkout` for `~/Code/shop`). On disks that
+  can share blocks between files (APFS on macOS, Btrfs and XFS on Linux) the copy takes almost no
+  time and no extra space until files change;
+- its own database (`shop_checkout`), with every address changed to the staging's;
+- `WP_ENVIRONMENT_TYPE` set to `staging`, and **Staging: checkout** in an orange label in the admin
+  bar, so it is never taken for the main site;
+- the main site's safety settings when the main site is a copy of a live site (mail to Mailpit and
+  the rest, see above);
+- a *starting point*: the database and a list of every file with a checksum, as they were when the
+  staging was made. Merging a staging back (coming next) compares both sides against it, to tell
+  what changed where.
+
+A staging is a site like any other: it shows under Sites, has its own tools, and can get a public
+link (Manage › Public link) when someone else needs to look at it. Public links are off unless you
+switch them on, for each staging.
+
+**Destroy…** moves a staging to the **Trash**: its folder, database and snapshots are kept for
+7 days. **Bring back** puts it back as it was; **Delete now** removes it for good. Only stagings can
+be destroyed this way; the main site is removed under Sites as before.
+
+### Snapshots
+
+Before Stackyard changes a copy (merges, pushes and pulls), it takes a snapshot: the whole database
+and every file the step is about to change. The Environments tab lists the last 5 snapshots of the
+site you are looking at. **Undo…** puts the database and those files back and removes files the step
+added; a snapshot of how things were just before is taken first, so the undo can itself be undone.
+Files the step never touched are left alone.
+
 ## Overview
 
 The WordPress, PHP and database versions, WooCommerce's version, the environment

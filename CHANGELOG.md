@@ -20,6 +20,11 @@ Update button, and the app shows its own version's section after it updates.
   can't call outside services and payment methods go into test mode. Media can be downloaded or
   left on the live site and loaded when a page needs it. Large sites can be stopped and continued,
   and a broken-off download continues where it stopped (in the Servers tab too).
+- **Stagings** (WordPress › Environments): make a full copy of a WordPress site next to it, such as
+  `checkout.shop.stack`, from the main site, another staging or the live site. Files are copied
+  instantly on disks that can share blocks; media can be left out and copied from the main site as
+  pages need it. Destroyed stagings stay in a trash for 7 days. Snapshots taken before Stackyard
+  changes a copy can be undone from the same tab.
 
 - Stackyard is now licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) instead of
   MIT. Earlier releases stay under MIT.

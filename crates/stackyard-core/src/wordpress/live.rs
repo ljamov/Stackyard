@@ -142,6 +142,10 @@ pub struct CloneOptions {
     pub media: Media,
     #[serde(default = "yes")]
     pub https: bool,
+    /// Makes the copy a staging of this main site (e.g. `shop.stack`): its
+    /// address, folder and database are named after it.
+    #[serde(default)]
+    pub staging_of: Option<String>,
 }
 
 fn yes() -> bool {
@@ -1074,9 +1078,23 @@ pub fn clone(
     let settings = Settings::load_from(&home.join("settings.toml"))?;
     let name = options.name.trim().to_string();
     domain::validate_site_name(&name)?;
-    let tld = domain::normalize_tld(&settings.tld)?;
-    let domain_name = domain::site_domain(&name, &tld);
     let mut store = SiteStore::load_from(&home.join("sites.toml"))?;
+    let parent = match &options.staging_of {
+        Some(domain) => Some(
+            store
+                .list()
+                .iter()
+                .find(|s| s.domain() == *domain)
+                .cloned()
+                .ok_or_else(|| Error::SiteNotFound(domain.clone()))?,
+        ),
+        None => None,
+    };
+    let tld = match &parent {
+        Some(parent) => domain::normalize_tld(&parent.domain())?,
+        None => domain::normalize_tld(&settings.tld)?,
+    };
+    let domain_name = domain::site_domain(&name, &tld);
     if store.list().iter().any(|s| s.domain() == domain_name) {
         return Err(Error::SiteExists(domain_name));
     }
@@ -1103,7 +1121,13 @@ pub fn clone(
             .collect::<Vec<_>>()
             .join("|"),
     };
-    let mut work = Work::open(home, &name, &source_key, &folder)?;
+    // A staging's work folder is named after its whole address, so it
+    // can't be taken for a clone of the same name.
+    let work_name = match &parent {
+        Some(_) => domain_name.replace('.', "-"),
+        None => name.clone(),
+    };
+    let mut work = Work::open(home, &work_name, &source_key, &folder)?;
     let has_files = folder
         .read_dir()
         .map(|mut entries| entries.next().is_some())
@@ -1115,7 +1139,10 @@ pub fn clone(
         )));
     }
     std::fs::create_dir_all(&folder).map_err(io(&folder))?;
-    let database = crate::starters::database_name(&name);
+    let database = match &parent {
+        Some(parent) => super::staging::database_name(parent, &name)?,
+        None => crate::starters::database_name(&name),
+    };
     let client = Client::open(home)?;
     if !work.state.database_made && client.databases()?.iter().any(|d| d.name == database) {
         return Err(fail(format!(
@@ -1209,6 +1236,8 @@ pub fn clone(
     store.save()?;
 
     let connection = match source {
+        // A staging uses its main site's saved connection.
+        Source::Server(connection) if parent.is_some() => Some(connection.id.clone()),
         Source::Server(connection) => {
             let saved = sessions.save_copy(connection, &site.domain(), "Live").ok();
             if saved.is_none() {
@@ -1223,7 +1252,11 @@ pub fn clone(
         home,
         &site.domain(),
         &Environment {
-            kind: env::Kind::Local,
+            kind: if parent.is_some() {
+                env::Kind::Staging
+            } else {
+                env::Kind::Local
+            },
             live: Some(Live {
                 url: live_url.clone(),
                 connection,
@@ -1233,6 +1266,10 @@ pub fn clone(
                 synced_at: env::now(),
             }),
             safe: true,
+            parent: parent.as_ref().map(Site::domain),
+            made_from: parent.as_ref().map(|_| "live".to_string()),
+            created_at: if parent.is_some() { env::now() } else { 0 },
+            shared_media: None,
         },
     )?;
     let wp = WpSite::open(&site)?;

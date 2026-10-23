@@ -10,9 +10,10 @@ use stackyard_core::engine::Engine;
 use stackyard_core::paths;
 use stackyard_core::remote::{self, Connection, ConnectionInput, RemoteStore, Sessions};
 use stackyard_core::settings::Settings;
+use stackyard_core::sites::Site;
 use stackyard_core::wordpress::{
-    self, env, live, woo, CoreUpdate, DebugSettings, DiskUse, Extension, ExtensionAction, Kind,
-    LogTail, Overview, Replaced, User, WpSite,
+    self, env, live, snapshot, staging, woo, CoreUpdate, DebugSettings, DiskUse, Extension,
+    ExtensionAction, Kind, LogTail, Overview, Replaced, User, WpSite,
 };
 
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -441,4 +442,152 @@ pub fn wp_clone_unfinished(name: String) -> bool {
 #[tauri::command]
 pub fn wp_environment(domain: String) -> CmdResult<Option<env::Environment>> {
     env::load(&paths::home(), &domain).map_err(err)
+}
+
+#[derive(Serialize)]
+pub struct Environments {
+    /// The main site: this site, or the one it is a staging of.
+    main: String,
+    stagings: Vec<staging::Staging>,
+    /// The main site was cloned from a live server Stackyard can reach.
+    from_live: bool,
+}
+
+/// The main site and its stagings, for the Environments tab.
+#[tauri::command]
+pub fn wp_stagings(domain: String) -> CmdResult<Environments> {
+    open(&domain)?;
+    let home = paths::home();
+    let main = staging::main_of(&home, &domain);
+    let from_live = env::load(&home, &main)
+        .ok()
+        .flatten()
+        .and_then(|e| e.live)
+        .is_some_and(|l| l.connection.is_some());
+    Ok(Environments {
+        stagings: staging::list(&home, &main).map_err(err)?,
+        main,
+        from_live,
+    })
+}
+
+/// Makes a staging, starting MySQL or MariaDB first and the web server
+/// after. Progress comes as `wp-staging-progress` events.
+#[tauri::command]
+pub async fn wp_staging_create(app: AppHandle, new: staging::NewStaging) -> CmdResult<Site> {
+    open(&new.parent)?;
+    {
+        let state = app.state::<CloneState>();
+        if state.busy.swap(true, Ordering::SeqCst) {
+            return Err("a copy is already being made; wait for it or stop it first".into());
+        }
+        state.stop.store(false, Ordering::SeqCst);
+    }
+    let worker = app.clone();
+    let result = blocking(move || {
+        let state = worker.state::<CloneState>();
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        let stop = state.stop.clone();
+        let name = new.name.clone();
+        let site = staging::create(&paths::home(), &state.sessions, &new, &mut |progress| {
+            let _ = worker.emit(
+                "wp-staging-progress",
+                CloneEvent {
+                    name: name.clone(),
+                    progress,
+                },
+            );
+            !stop.load(Ordering::SeqCst)
+        })
+        .map_err(err)?;
+        crate::ensure_web(&engine)?;
+        Ok(site)
+    })
+    .await;
+    app.state::<CloneState>()
+        .busy
+        .store(false, Ordering::SeqCst);
+    if result.is_ok() {
+        crate::sites_changed(&app);
+    }
+    result
+}
+
+/// Moves a staging to the trash.
+#[tauri::command]
+pub async fn wp_staging_destroy(app: AppHandle, domain: String) -> CmdResult<staging::Trashed> {
+    open(&domain)?;
+    let worker = app.clone();
+    let trashed = blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        let trashed = staging::destroy(&paths::home(), &domain).map_err(err)?;
+        crate::ensure_web(&engine)?;
+        Ok(trashed)
+    })
+    .await?;
+    crate::sites_changed(&app);
+    Ok(trashed)
+}
+
+#[tauri::command]
+pub fn wp_trash() -> Vec<staging::Trashed> {
+    staging::trash(&paths::home())
+}
+
+#[tauri::command]
+pub async fn wp_trash_restore(app: AppHandle, id: String) -> CmdResult<Site> {
+    let worker = app.clone();
+    let site = blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        let site = staging::restore(&paths::home(), &id).map_err(err)?;
+        crate::ensure_web(&engine)?;
+        Ok(site)
+    })
+    .await?;
+    crate::sites_changed(&app);
+    Ok(site)
+}
+
+#[tauri::command]
+pub fn wp_trash_delete(id: String) -> CmdResult<()> {
+    staging::delete(&paths::home(), &id).map_err(err)
+}
+
+#[derive(Serialize)]
+pub struct Snapshots {
+    list: Vec<snapshot::Snapshot>,
+    /// When the staging was made, if it has a base snapshot.
+    base: Option<u64>,
+}
+
+#[tauri::command]
+pub fn wp_snapshots(domain: String) -> CmdResult<Snapshots> {
+    open(&domain)?;
+    let home = paths::home();
+    Ok(Snapshots {
+        list: snapshot::list(&home, &domain),
+        base: snapshot::base(&home, &domain).map(|s| s.created_at),
+    })
+}
+
+/// Puts the copy back as it was before the snapshot's step.
+#[tauri::command]
+pub async fn wp_snapshot_restore(app: AppHandle, domain: String, id: String) -> CmdResult<()> {
+    let worker = app.clone();
+    blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        let wp = open(&domain)?;
+        snapshot::restore(&paths::home(), &wp, &id).map_err(err)?;
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn wp_snapshot_remove(domain: String, id: String) -> CmdResult<()> {
+    snapshot::remove(&paths::home(), &domain, &id).map_err(err)
 }
