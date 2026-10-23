@@ -99,7 +99,7 @@
   "Deleting…": "Suppression…",
   "Density": "Densité",
   "Destroy": "Détruire",
-  "Destroy {site}? It goes to the trash for 7 days.": "Détruire {site} ? Il part dans la corbeille pendant 7 jours.",
+  "Destroy {site}? It goes to the trash for 7 days. Type {name} to confirm.": "Détruire {site} ? Il part dans la corbeille pendant 7 jours. Tapez {name} pour confirmer.",
   "Destroying…": "Destruction…",
   "Destroy…": "Détruire…",
   "Disk use": "Espace disque",

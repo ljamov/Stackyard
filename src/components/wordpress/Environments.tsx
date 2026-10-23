@@ -33,6 +33,7 @@ export function EnvironmentsTab({ site }: { site: Site }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDestroy, setConfirmDestroy] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
 
   const reload = useCallback(() => {
     wp.stagings(site.domain)
@@ -96,11 +97,14 @@ export function EnvironmentsTab({ site }: { site: Site }) {
               </button>
               {confirmDestroy === s.domain ? (
                 <>
-                  <span className="warn small">{t("Destroy {site}? It goes to the trash for 7 days.", { site: s.domain })}</span>
+                  <label className="stack tight warn small">
+                    {t("Destroy {site}? It goes to the trash for 7 days. Type {name} to confirm.", { site: s.domain, name: s.domain.split(".")[0] })}
+                    <input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
+                  </label>
                   <button
                     type="button"
                     className="btn small danger"
-                    disabled={busy !== null}
+                    disabled={busy !== null || typed.trim() !== s.domain.split(".")[0]}
                     onClick={() => {
                       setConfirmDestroy(null);
                       act(t("Destroying…"), () => wp.destroyStaging(s.domain), t("{site} is in the trash.", { site: s.domain }));
@@ -114,7 +118,10 @@ export function EnvironmentsTab({ site }: { site: Site }) {
                 </>
               ) : (
                 s.domain !== site.domain && (
-                  <button type="button" className="btn small ghost" disabled={busy !== null} onClick={() => setConfirmDestroy(s.domain)}>
+                  <button type="button" className="btn small ghost" disabled={busy !== null} onClick={() => {
+                      setTyped("");
+                      setConfirmDestroy(s.domain);
+                    }}>
                     {t("Destroy…")}
                   </button>
                 )

@@ -99,7 +99,7 @@
   "Deleting…": "Се брише…",
   "Density": "Густина",
   "Destroy": "Уништи",
-  "Destroy {site}? It goes to the trash for 7 days.": "Да се уништи {site}? Оди во корпата 7 дена.",
+  "Destroy {site}? It goes to the trash for 7 days. Type {name} to confirm.": "Да се уништи {site}? Оди во корпата 7 дена. Напиши {name} за потврда.",
   "Destroying…": "Се уништува…",
   "Destroy…": "Уништи…",
   "Disk use": "Зафатен простор",
