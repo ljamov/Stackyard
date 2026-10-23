@@ -170,6 +170,16 @@ export type Service = {
 
 export type ServiceProgress = Omit<InstallProgress, "kind" | "version"> & { id: string };
 
+/** A code editor a site's folder can be opened in. */
+export type CodeEditor = { id: string; name: string; installed: boolean };
+export type CodeEditors = {
+  /** The editor Open in editor uses. */
+  current: string;
+  /** What was picked in Settings; null uses VS Code (or the first installed one). */
+  chosen: string | null;
+  list: CodeEditor[];
+};
+
 export type Site = {
   name: string;
   domain: string;
@@ -723,6 +733,13 @@ export interface Api {
   restoreSite(domain: string, file: string): Promise<Packed>;
   removeSiteBackup(domain: string, file: string): Promise<SiteBackup[]>;
   openSiteBackups(domain: string): Promise<void>;
+  /** Opens the site's own folder in the file manager. */
+  openSiteFolder(domain: string): Promise<void>;
+  /** Opens the site's folder in the code editor picked in Settings. */
+  openSiteInEditor(domain: string): Promise<void>;
+  codeEditors(): Promise<CodeEditors>;
+  /** Picks the editor; null goes back to the default (VS Code). */
+  setCodeEditor(id: string | null): Promise<CodeEditors>;
   exportSite(domain: string, dest: string): Promise<Packed>;
   inspectSiteFile(path: string): Promise<SiteFile>;
   importSite(path: string, name: string | null, folder: string | null): Promise<{ sites: Site[]; domain: string; warning: string | null }>;
@@ -921,6 +938,10 @@ const tauriApi: Api = {
   restoreSite: (domain, file) => invoke("restore_site", { domain, file }),
   removeSiteBackup: (domain, file) => invoke("remove_site_backup", { domain, file }),
   openSiteBackups: (domain) => invoke("open_site_backups", { domain }),
+  openSiteFolder: (domain) => invoke("open_site_folder", { domain }),
+  openSiteInEditor: (domain) => invoke("open_site_in_editor", { domain }),
+  codeEditors: () => invoke("code_editors"),
+  setCodeEditor: (id) => invoke("set_code_editor", { id }),
   exportSite: (domain, dest) => invoke("export_site", { domain, dest }),
   inspectSiteFile: (path) => invoke("inspect_site_file", { path }),
   importSite: (path, name, folder) => invoke("import_site", { path, name, folder }),
@@ -2031,6 +2052,13 @@ function browserApi(): Api {
       return siteBackups.filter((b) => b.site === domain);
     },
     openSiteBackups: async () => {},
+    openSiteFolder: async () => {},
+    openSiteInEditor: async () => {},
+    codeEditors: async () => previewEditors(),
+    setCodeEditor: async (id) => {
+      previewEditor = id;
+      return previewEditors();
+    },
     exportSite: async (domain, dest) => {
       await packSteps(domain);
       return { path: dest, size: 18_400_000, files: 1840, database: domain.startsWith("blog") ? "blog" : null, warning: null };
@@ -2113,6 +2141,21 @@ function browserApi(): Api {
 const siteSettings: Record<string, SiteSettings> = {
   "blog.stack": { env: { WP_ENVIRONMENT_TYPE: "local" }, php: { memory_limit: "1G" } },
 };
+let previewEditor: string | null = null;
+function previewEditors(): CodeEditors {
+  const list: CodeEditor[] = [
+    { id: "vscode", name: "VS Code", installed: true },
+    { id: "cursor", name: "Cursor", installed: true },
+    { id: "windsurf", name: "Windsurf", installed: false },
+    { id: "phpstorm", name: "PhpStorm", installed: false },
+    { id: "webstorm", name: "WebStorm", installed: false },
+    { id: "sublime", name: "Sublime Text", installed: true },
+    { id: "zed", name: "Zed", installed: false },
+    { id: "notepadpp", name: "Notepad++", installed: false },
+  ];
+  return { current: previewEditor ?? "vscode", chosen: previewEditor, list };
+}
+
 let siteBackups: SiteBackup[] = [
   { site: "blog.stack", file: "blog.stack-20261016-180000.zip", size: 21_300_000, created: Date.now() - 20 * 3600_000, database: "blog" },
 ];

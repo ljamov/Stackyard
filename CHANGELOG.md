@@ -4,6 +4,22 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Sites rows have Open folder and Open in VS Code.** Open folder shows the site's folder in the
+  file manager; Open in … opens it in your code editor.
+- **Settings has a Code editor choice**: VS Code, Cursor, Windsurf, PhpStorm, WebStorm, Sublime Text,
+  Zed and, on Windows, Notepad++. Stackyard says which are installed and remembers the one you pick
+  (`editor` in settings.toml). VS Code stays the default; without it, the first installed one is used.
+- **Fixed: making a WordPress staging site stopped at the database** with "Unknown table
+  'column_statistics' in information_schema", and **changing the table prefix** stopped with
+  "Could not set terminology mode for outputting events" before any table was renamed. With both
+  MySQL and MariaDB installed on Windows, Stackyard used MySQL's tools on a MariaDB server. It now
+  asks the server on the port which one it is and uses that server's own tools. MySQL's dump tool
+  also skips column statistics, which MariaDB and older servers don't have, and copies from a live
+  server do the same when the server's mysqldump is MySQL's.
+- Database errors show what actually went wrong, not a warning printed before it.
+
 ## 0.10.0
 
 - The **Problems, Logs and Terminal** panel now sits under the open screen only, so the side bar

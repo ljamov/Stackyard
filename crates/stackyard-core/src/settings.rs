@@ -28,6 +28,10 @@ pub struct Settings {
     /// server starts (see [`crate::sitedb`]).
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub start_databases: BTreeSet<String>,
+    /// The code editor Open in editor uses (see [`crate::editors`]); VS
+    /// Code when none is picked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor: Option<String>,
     /// The window's own settings (theme, accent color, language), kept as
     /// written; see [`crate::interface`].
     #[serde(skip_serializing_if = "toml::Table::is_empty")]
@@ -53,6 +57,7 @@ impl Default for Settings {
             sites_folder: None,
             mcp: McpSettings::default(),
             start_databases: BTreeSet::new(),
+            editor: None,
             interface: toml::Table::new(),
         }
     }

@@ -214,6 +214,9 @@ pub(super) struct Server<'a> {
     pub(super) shell: bool,
     pub(super) php_cli: bool,
     pub(super) dump_tool: Option<String>,
+    /// The dump tool takes `--column-statistics=0` (MySQL 8's does, and
+    /// needs it against MariaDB and older servers).
+    pub(super) dump_skips_statistics: bool,
     /// WordPress's own address on the server, for the helper over HTTPS.
     pub(super) siteurl: Option<String>,
     pub(super) helper: Option<Helper>,
@@ -393,6 +396,7 @@ impl<'a> Server<'a> {
             shell,
             php_cli: false,
             dump_tool: None,
+            dump_skips_statistics: false,
             siteurl: url
                 .map(str::to_string)
                 .or_else(|| config.get("WP_SITEURL").map(str::to_string))
@@ -403,14 +407,18 @@ impl<'a> Server<'a> {
             http: agent(),
         };
         if shell {
-            server.dump_tool = exec_text(
+            let found = exec_text(
                 sessions,
                 connection,
-                "command -v mariadb-dump || command -v mysqldump",
+                "t=$(command -v mariadb-dump || command -v mysqldump) || exit 1; echo \"$t\"; \
+                 \"$t\" --help 2>/dev/null | grep -q column-statistics && echo column-statistics; exit 0",
             )
             .ok()
-            .filter(|(ok, out)| *ok && out.starts_with('/'))
-            .and_then(|(_, out)| out.lines().next().map(str::to_string));
+            .filter(|(ok, out)| *ok && out.starts_with('/'));
+            if let Some((_, out)) = found {
+                server.dump_tool = out.lines().next().map(str::to_string);
+                server.dump_skips_statistics = out.lines().any(|l| l == "column-statistics");
+            }
             server.php_cli = exec_text(sessions, connection, "php -r 'echo PHP_VERSION;'")
                 .is_ok_and(|(ok, out)| ok && out.starts_with(|c: char| c.is_ascii_digit()));
         }
@@ -575,9 +583,14 @@ impl<'a> Server<'a> {
     pub(super) fn dump_table(&self, table: &str, dest: &Path) -> Result<()> {
         let tool = self.dump_tool.as_deref().unwrap_or("mysqldump");
         let command = format!(
-            "MYSQL_PWD={} {} --single-transaction --quick --skip-lock-tables --no-tablespaces --add-drop-table --default-character-set={} {} -u {} {} {} | gzip -c",
+            "MYSQL_PWD={} {}{} --single-transaction --quick --skip-lock-tables --no-tablespaces --add-drop-table --default-character-set={} {} -u {} {} {} | gzip -c",
             sh(&self.db.password),
             sh(tool),
+            if self.dump_skips_statistics {
+                " --column-statistics=0"
+            } else {
+                ""
+            },
             sh(&self.db.charset),
             host_options(&self.db.host),
             sh(&self.db.user),

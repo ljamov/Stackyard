@@ -8,12 +8,12 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use stackyard_core::catalog::RuntimeKind;
-use stackyard_core::detect;
 use stackyard_core::engine::Engine;
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::sitepack::{self, ImportOptions, PackStep, Packed, SiteBackup};
 use stackyard_core::sites::{Site, SiteDatabase, SiteSettings, SiteStore};
+use stackyard_core::{detect, editors};
 use stackyard_core::{paths, share};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -223,6 +223,44 @@ pub fn open_site_backups(domain: String) -> CmdResult<()> {
     let dir = sitepack::backups_dir(&paths::home()).join(&domain);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     open_with_system(dir.as_os_str())
+}
+
+/// Opens the site's own folder in the file manager.
+#[tauri::command]
+pub fn open_site_folder(domain: String) -> CmdResult<()> {
+    let (site, _) = find_site(&domain)?;
+    open_with_system(site.path.as_os_str())
+}
+
+/// The code editors, which are installed, and the one in use.
+#[tauri::command]
+pub fn code_editors() -> CmdResult<editors::Editors> {
+    let settings = Settings::load().map_err(err)?;
+    Ok(editors::list(settings.editor.as_deref()))
+}
+
+/// Picks the editor Open in editor uses; `None` goes back to the default.
+#[tauri::command]
+pub fn set_code_editor(id: Option<String>) -> CmdResult<editors::Editors> {
+    if let Some(id) = &id {
+        editors::check(id).map_err(err)?;
+    }
+    let mut settings = Settings::load().map_err(err)?;
+    settings.editor = id;
+    settings.save().map_err(err)?;
+    Ok(editors::list(settings.editor.as_deref()))
+}
+
+/// Opens the site's folder in the code editor picked in Settings.
+#[tauri::command]
+pub async fn open_site_in_editor(domain: String) -> CmdResult<()> {
+    let (site, _) = find_site(&domain)?;
+    blocking(move || {
+        let settings = Settings::load().map_err(err)?;
+        let current = editors::list(settings.editor.as_deref()).current;
+        editors::open(&current, &site.path).map_err(err)
+    })
+    .await
 }
 
 #[tauri::command]

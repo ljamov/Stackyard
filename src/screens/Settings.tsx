@@ -8,6 +8,7 @@ import { useLoad } from "../lib/useLoad";
 import { useT } from "../lib/i18n";
 import { AppearanceSettings } from "../components/AppearanceSettings";
 import { openTab } from "../lib/layout";
+import { setCodeEditor, useCodeEditors } from "../lib/editors";
 
 const GROUPS: { group: Module["group"]; title: string }[] = [
   { group: "runtime", title: "Runtimes" },
@@ -18,6 +19,8 @@ const GROUPS: { group: Module["group"]; title: string }[] = [
 export function Settings() {
   const t = useT();
   const { modules, setModule } = useModules();
+  const editors = useCodeEditors();
+  const editorInUse = editors?.list.find((e) => e.id === editors.current);
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +107,34 @@ export function Settings() {
           <button type="button" className="btn" onClick={() => void api.showInterfaceFile("keybindings")}>
             {t("Show {file} in the file manager", { file: "keybindings.toml" })}
           </button>
+        </div>
+      </section>
+
+      <section aria-labelledby="editor-h" className="card stack">
+        <h2 id="editor-h">{t("Code editor")}</h2>
+        <div className="field narrow">
+          <label htmlFor="s-editor">{t("Open in editor on the Sites screen uses")}</label>
+          <select
+            id="s-editor"
+            value={editors?.current ?? "vscode"}
+            disabled={!editors}
+            onChange={(e) => {
+              setCodeEditor(e.target.value)
+                .then(() => setError(null))
+                .catch((err) => setError(errorText(err)));
+            }}
+          >
+            {editors?.list.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.installed ? e.name : t("{name} (not installed)", { name: e.name })}
+              </option>
+            ))}
+          </select>
+          {editorInUse && !editorInUse.installed ? (
+            <span className="warn small">{t("{name} isn't installed on this computer.", { name: editorInUse.name })}</span>
+          ) : (
+            <span className="muted small">{t("VS Code is used unless you pick another one.")}</span>
+          )}
         </div>
       </section>
 
