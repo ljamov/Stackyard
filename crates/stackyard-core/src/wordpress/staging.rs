@@ -336,7 +336,10 @@ fn copy_site(
             ..source.clone()
         }
         .url();
-        let rules = replace::Rules::site_move(&source.url(), &local_url);
+        // The address WordPress has, which may differ from the local one
+        // (a site installed under another name, say).
+        let source_url = super::home_url(home, &source_wp);
+        let rules = replace::Rules::site_move(&source_url, &local_url);
         let input = flate2::read::GzDecoder::new(std::fs::File::open(&dump).map_err(io(&dump))?);
         let output = flate2::write::GzEncoder::new(
             std::fs::File::create(&rewritten).map_err(io(&rewritten))?,
