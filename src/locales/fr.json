@@ -765,5 +765,10 @@
   "New prefix": "Nouveau préfixe",
   "Renaming the tables to {prefix}…": "Renommage des tables en {prefix}…",
   "The tables now start with {prefix}. The database as it was is backed up as {file} (Databases screen).": "Les tables commencent maintenant par {prefix}. La base telle qu'elle était est sauvegardée sous {file} (écran Bases de données).",
-  "Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.": "Lettres, chiffres et tirets bas, par ex. shop_. Chaque table est renommée, ainsi que les rôles et réglages utilisateur qui portent le préfixe, et wp-config.php est mis à jour. Une sauvegarde est faite avant."
+  "Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.": "Lettres, chiffres et tirets bas, par ex. shop_. Chaque table est renommée, ainsi que les rôles et réglages utilisateur qui portent le préfixe, et wp-config.php est mis à jour. Une sauvegarde est faite avant.",
+  "Stackyard found the server, but needs the live site's address to read its database. Type it above, e.g. https://example.com, and press Look for WordPress again.": "Stackyard a trouvé le serveur, mais a besoin de l'adresse du site en ligne pour lire sa base de données. Saisissez-la ci-dessus, par ex. https://example.com, puis cliquez à nouveau sur Chercher WordPress.",
+  "A site named {domain} already exists.": "Un site nommé {domain} existe déjà.",
+  "Replace it with the copy. Stackyard backs it up first (files and database), so you can restore it under Manage › Backups.": "Le remplacer par la copie. Stackyard le sauvegarde d'abord (fichiers et base de données) ; vous pourrez le restaurer dans Gérer › Sauvegardes.",
+  "Use {name} instead": "Utiliser {name} à la place",
+  "Replace and clone": "Remplacer et cloner"
 }

@@ -97,6 +97,8 @@ export type WpCloneOptions = {
   url: string | null;
   media: WpMedia;
   https: boolean;
+  /** Back up the site that has this name and put the copy in its place. */
+  replace?: boolean;
 };
 export type WpCloneStage = "connecting" | "files" | "database" | "loading" | "finishing";
 export type WpCloneProgress = { name: string; stage: WpCloneStage; message: string; done: number; total: number };

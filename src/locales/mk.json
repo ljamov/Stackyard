@@ -765,5 +765,10 @@
   "New prefix": "Нов префикс",
   "Renaming the tables to {prefix}…": "Табелите се преименуваат во {prefix}…",
   "The tables now start with {prefix}. The database as it was is backed up as {file} (Databases screen).": "Табелите сега почнуваат со {prefix}. Базата каква што беше е зачувана како {file} (екран Бази на податоци).",
-  "Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.": "Букви, бројки и долни црти, на пр. shop_. Секоја табела се преименува, заедно со корисничките улоги и поставки што го носат префиксот, и wp-config.php се ажурира. Претходно се прави резервна копија."
+  "Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.": "Букви, бројки и долни црти, на пр. shop_. Секоја табела се преименува, заедно со корисничките улоги и поставки што го носат префиксот, и wp-config.php се ажурира. Претходно се прави резервна копија.",
+  "Stackyard found the server, but needs the live site's address to read its database. Type it above, e.g. https://example.com, and press Look for WordPress again.": "Stackyard го најде серверот, но му треба адресата на живиот сајт за да ја прочита неговата база. Внесете ја горе, на пр. https://example.com, и повторно притиснете Барај WordPress.",
+  "A site named {domain} already exists.": "Веќе постои сајт со име {domain}.",
+  "Replace it with the copy. Stackyard backs it up first (files and database), so you can restore it under Manage › Backups.": "Замени го со копијата. Stackyard прво прави резервна копија (датотеки и база), за да можете да го вратите во Управувај › Резервни копии.",
+  "Use {name} instead": "Користи {name}",
+  "Replace and clone": "Замени и клонирај"
 }
