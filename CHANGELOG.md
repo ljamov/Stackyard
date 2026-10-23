@@ -11,11 +11,20 @@ Update button, and the app shows its own version's section after it updates.
   the whole window again; Stackyard remembers which you picked.
 - The panel's tabs have more room between their underline and what the panel shows.
 - **Tabs can be dragged** along the row to put them in another order, or moved with
-  **Ctrl+Shift+Left/Right**. A tab's ✕ lights up as a small square only under the pointer, and
-  stays dark while a tab is dragged.
+  **Ctrl+Shift+Left/Right**. A tab's round ✕ only lights up under the pointer, and stays dark
+  while a tab is dragged.
 - On **Sites**, the New site and Parked folders forms fold away under one heading, closed at first.
   Stackyard remembers whether you left it open; **New site** in the side bar and on Home opens it.
 - On **AI tools**, the **Choose folder…** button lines up with the Site or folder list.
+- **Long jobs show how far along they are.** Site backups, exports, restores and imports show a
+  bar with the step they are on (saving the database, packing files 1,234 of 5,000, writing files,
+  loading the database). Downloads of services, runtimes, phpMyAdmin and cloudflared (for public
+  links) show the megabytes so far, the total and a percent.
+- **After a backup you see where it went.** A site backup says the file it saved, with **Show in
+  folder**. Database backups say the file name and have **Show backups folder**.
+- **Turned-off services show on the Services screen** as dashed **Disabled** cards with what they
+  do and a **Turn on** button, so you can see everything Stackyard offers. They still download
+  nothing and run nothing until turned on.
 
 ## 0.9.0
 

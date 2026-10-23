@@ -77,6 +77,11 @@ button, input, select { font: inherit; color: inherit; }
 .service-name .strong { font-size: 14px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .service-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--muted); }
 .service-meta .status { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A service switched off in Settings (screens/Services.tsx): dashed and quieter. */
+.card.service.disabled { border-style: dashed; background: transparent; }
+.card.service.disabled .brand-icon { filter: grayscale(1); opacity: 0.55; }
+.card.service.disabled .service-name { cursor: default; }
+.card.service.disabled p { margin: 0; }
 .grid.services { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
 
 /* Home (screens/Dashboard.tsx): one centered column. */
@@ -242,6 +247,8 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .badge { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; padding: 2px 8px; border-radius: 999px; background: var(--accent); color: var(--on-accent); white-space: nowrap; }
 .progress { width: min(320px, 60vw); height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .progress-fill { height: 100%; background: var(--accent); transition: width 0.2s; }
+.progress-line { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.progress-line .progress { width: 100%; max-width: 320px; }
 .progress-fill.busy { animation: progress-busy 1.2s ease-in-out infinite alternate; }
 @keyframes progress-busy { from { margin-left: 0; } to { margin-left: 70%; } }
 @media (prefers-reduced-motion: reduce) { .progress-fill, .progress-fill.busy, .switch input::after { transition: none; animation: none; } }
@@ -512,9 +519,9 @@ details summary { cursor: pointer; color: var(--text-2); }
 .tab-label { height: 100%; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; white-space: nowrap; }
 .tab-label:focus-visible { outline-offset: -2px; }
 /* The close button keeps its place whether it shows or not, so pointing at a
-   tab never moves anything. Only its ✕ fades in and out; its own square lights
-   up only under the pointer, and nothing about it animates. */
-.icon-btn.tab-close { width: 22px; height: 22px; border-radius: 5px; color: var(--muted); transition: none; }
+   tab never moves anything. Only its ✕ shows and hides; its own round button
+   lights up only under the pointer, and nothing about it animates. */
+.icon-btn.tab-close { width: 20px; height: 20px; border-radius: 50%; color: var(--muted); transition: none; }
 .icon-btn.tab-close > * { opacity: 0; }
 .icon-btn.tab-close svg { width: 12px; height: 12px; stroke-width: 2; }
 .icon-btn.tab-close .codicon[class*="codicon-"] { font-size: 14px; }
