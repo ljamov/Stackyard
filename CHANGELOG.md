@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.8.0
 
 - A **WordPress** tab in the tools of every WordPress site (Sites › Manage): an overview with disk
   use, plugins and themes (switch on and off, update, install from wordpress.org), users (log in as
