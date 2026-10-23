@@ -62,6 +62,8 @@ Update button, and the app shows its own version's section after it updates.
 - New app icon: the Stackyard bricks stepping down like an S.
 - A **Terminal** tab in the panel (**Ctrl+`**). Open it from a site's row on the Sites screen and it
   starts in that site's folder with its PHP and Node.js versions. A module you can switch off.
+- Installing SeaweedFS works again when its newest release doesn't have a file for your computer yet:
+  Stackyard takes the newest release that does.
 
 ## 0.7.0
 

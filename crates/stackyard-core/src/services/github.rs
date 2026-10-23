@@ -14,6 +14,10 @@ const API: &str = "https://api.github.com/repos";
 pub(crate) struct Latest {
     pub tag_name: String,
     pub assets: Vec<Asset>,
+    #[serde(default)]
+    pub draft: bool,
+    #[serde(default)]
+    pub prerelease: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,14 +76,47 @@ pub(crate) fn release(
     })
 }
 
+/// Like [`release`] on the latest release, but when that one has no file
+/// for this platform (a project still uploading its builds, or one that
+/// skipped a platform), the newest of the last few releases that has one.
+pub(crate) fn newest_with(
+    http: &Http,
+    repo: &str,
+    name: &str,
+    names: &[String],
+    platform: crate::platform::Platform,
+) -> Result<crate::install::Release> {
+    let latest = latest(http, repo)?;
+    match release(&latest, name, names, platform) {
+        Err(Error::NoBuild { .. }) => {}
+        other => return other,
+    }
+    let json = get(http, &format!("{repo}/releases?per_page=10"))?;
+    let list: Vec<Latest> = serde_json::from_str(&json).map_err(|e| Error::Download {
+        url: format!("{API}/{repo}/releases"),
+        message: format!("unexpected answer: {e}"),
+    })?;
+    list.into_iter()
+        .filter(|r| !r.draft && !r.prerelease && check_tag(r, repo).is_ok())
+        .find(|r| names.iter().any(|n| r.asset(n).is_some()))
+        .map_or_else(
+            || release(&latest, name, names, platform),
+            |r| release(&r, name, names, platform),
+        )
+}
+
 /// `repo` is `owner/name`, e.g. `axllent/mailpit`.
 pub(crate) fn latest(http: &Http, repo: &str) -> Result<Latest> {
+    parse(&get(http, &format!("{repo}/releases/latest"))?, repo)
+}
+
+/// `path` follows the repos API base, e.g. `owner/name/releases/latest`.
+fn get(http: &Http, path: &str) -> Result<String> {
     let base = std::env::var("STACKYARD_GITHUB_API").unwrap_or_else(|_| API.into());
     let token = std::env::var("STACKYARD_GITHUB_TOKEN")
         .ok()
         .filter(|t| !t.is_empty() && base == API);
-    let url = format!("{base}/{repo}/releases/latest");
-    parse(&http.get_text_as(&url, token.as_deref())?, repo)
+    http.get_text_as(&format!("{base}/{path}"), token.as_deref())
 }
 
 fn parse(json: &str, repo: &str) -> Result<Latest> {
@@ -87,6 +124,11 @@ fn parse(json: &str, repo: &str) -> Result<Latest> {
         url: format!("{API}/{repo}/releases/latest"),
         message: format!("unexpected answer: {e}"),
     })?;
+    check_tag(&latest, repo)?;
+    Ok(latest)
+}
+
+fn check_tag(latest: &Latest, repo: &str) -> Result<()> {
     let tag_ok = !latest.tag_name.is_empty()
         && latest
             .tag_name
@@ -98,7 +140,7 @@ fn parse(json: &str, repo: &str) -> Result<Latest> {
             message: format!("unexpected release tag {:?}", latest.tag_name),
         });
     }
-    Ok(latest)
+    Ok(())
 }
 
 #[cfg(test)]
