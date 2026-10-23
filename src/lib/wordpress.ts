@@ -117,6 +117,47 @@ export type WpTrashed = { id: string; site: { name: string; tld: string; path: s
 export type WpSnapshot = { id: string; domain: string; reason: string; created_at: number; saved: string[]; added: string[]; bytes: number };
 export type WpSnapshots = { list: WpSnapshot[]; base: number | null };
 
+export type WpChange = "added" | "changed" | "removed";
+export type WpMergeLevel = "code" | "settings" | "everything";
+export type WpFileChange = { path: string; group: string; change: WpChange; target: WpChange | null; conflict: boolean };
+export type WpSwitch = { id: string; title: string; on: boolean; conflict: boolean };
+export type WpSettingChange = { name: string; change: WpChange; conflict: boolean; staging: string | null; target: string | null };
+export type WpChangeList = {
+  source: string;
+  target: string;
+  base_at: number;
+  files: WpFileChange[];
+  switches: WpSwitch[];
+  settings: WpSettingChange[];
+  store: { hpos: boolean; orders: number } | null;
+  target_new_posts: number;
+  staging_new_users: number;
+};
+export type WpMergeChoice = { level: WpMergeLevel; files: string[]; switches: string[]; settings: string[] };
+export type WpMerged = { snapshot: string; files: number; switches: number; settings: number; notes: string[] };
+export type WpPostSummary = { id: number; title: string; post_type: string; status: string; slug: string; modified: string };
+export type WpExisting = "update" | "skip" | "new";
+export type WpMoveChoice = { ids: number[]; existing: Record<number, WpExisting>; comments: boolean };
+export type WpPlannedPost = {
+  source_id: number;
+  title: string;
+  post_type: string;
+  action: "add" | "update" | "skip" | "reuse";
+  target_id: number;
+  picked: boolean;
+  exists: boolean;
+};
+export type WpMoveWarning = { post: number; title: string; text: string };
+export type WpMovePlan = {
+  source: string;
+  target: string;
+  posts: WpPlannedPost[];
+  counts: { posts: number; meta: number; new_terms: number; terms: number; comments: number; menu_items: number; files: number };
+  files: string[];
+  warnings: WpMoveWarning[];
+};
+export type WpMoved = { snapshot: string; posts: number; files: number; warnings: WpMoveWarning[] };
+
 export interface WpApi {
   overview(domain: string): Promise<WpOverview>;
   diskUse(domain: string): Promise<WpDiskUse>;
@@ -161,6 +202,11 @@ export interface WpApi {
   snapshots(domain: string): Promise<WpSnapshots>;
   restoreSnapshot(domain: string, id: string): Promise<void>;
   removeSnapshot(domain: string, id: string): Promise<void>;
+  mergeChanges(source: string, target: string): Promise<WpChangeList>;
+  merge(source: string, target: string, choice: WpMergeChoice): Promise<WpMerged>;
+  postsList(domain: string, search: string): Promise<WpPostSummary[]>;
+  postsPlan(source: string, target: string, choice: WpMoveChoice): Promise<WpMovePlan>;
+  postsMove(source: string, target: string, choice: WpMoveChoice): Promise<WpMoved>;
 }
 
 const tauriWp: WpApi = {
@@ -206,6 +252,11 @@ const tauriWp: WpApi = {
   snapshots: (domain) => invoke("wp_snapshots", { domain }),
   restoreSnapshot: (domain, id) => invoke("wp_snapshot_restore", { domain, id }),
   removeSnapshot: (domain, id) => invoke("wp_snapshot_remove", { domain, id }),
+  mergeChanges: (source, target) => invoke("wp_merge_changes", { source, target }),
+  merge: (source, target, choice) => invoke("wp_merge", { source, target, choice }),
+  postsList: (domain, search) => invoke("wp_posts_list", { domain, search }),
+  postsPlan: (source, target, choice) => invoke("wp_posts_plan", { source, target, choice }),
+  postsMove: (source, target, choice) => invoke("wp_posts_move", { source, target, choice }),
 };
 
 function mockWp(): WpApi {
@@ -435,8 +486,86 @@ function mockWp(): WpApi {
     }),
     restoreSnapshot: async () => wait(800),
     removeSnapshot: async (_d, id) => void snapshots.splice(snapshots.findIndex((s) => s.id === id), 1),
+    mergeChanges: async (source, target) => {
+      await wait(600);
+      return {
+        source,
+        target,
+        base_at: Date.now() / 1000 - 7200,
+        files: [
+          { path: "wp-content/themes/shop/style.css", group: "theme:shop", change: "changed", target: null, conflict: false },
+          { path: "wp-content/themes/shop/checkout.php", group: "theme:shop", change: "added", target: null, conflict: false },
+          { path: "wp-content/themes/shop/header.php", group: "theme:shop", change: "changed", target: "changed", conflict: true },
+          { path: "wp-content/plugins/fast-checkout/fast-checkout.php", group: "plugin:fast-checkout", change: "added", target: null, conflict: false },
+          { path: "wp-content/plugins/fast-checkout/readme.txt", group: "plugin:fast-checkout", change: "added", target: null, conflict: false },
+          { path: "wp-content/uploads/2026/10/banner.jpg", group: "media", change: "added", target: null, conflict: false },
+        ],
+        switches: [{ id: "plugin:fast-checkout", title: "Fast Checkout", on: true, conflict: false }],
+        settings: [
+          { name: "blogdescription", change: "changed", conflict: false, staging: "Shirts that last", target: "Just another WordPress site" },
+          { name: "woocommerce_enable_guest_checkout", change: "changed", conflict: false, staging: "yes", target: "no" },
+          { name: "widget_block", change: "changed", conflict: true, staging: "a:3:{i:2;a:1:{s:7:\"content\";…", target: "a:2:{i:2;a:1:{s:7:\"content\";…" },
+        ],
+        store: { hpos: true, orders: 12 },
+        target_new_posts: 2,
+        staging_new_users: 1,
+      };
+    },
+    merge: async (_s, target, choice) => {
+      await wait(1200);
+      snapshots.unshift({ id: `${Date.now()}`, domain: target, reason: `Merge from ${_s}`, created_at: Date.now() / 1000, saved: choice.files, added: [], bytes: 2.4e7 });
+      return { snapshot: snapshots[0].id, files: choice.files.length, switches: choice.switches.length, settings: choice.settings.length, notes: [] };
+    },
+    postsList: async (_d, search) =>
+      mockPosts.filter((p) => !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.slug.includes(search.toLowerCase())),
+    postsPlan: async (source, target, choice) => {
+      await wait(400);
+      const picked = mockPosts.filter((p) => choice.ids.includes(p.id));
+      const posts: WpPlannedPost[] = picked.map((p, i) => {
+        const exists = p.slug === "about";
+        const existing = choice.existing[p.id] ?? "update";
+        return {
+          source_id: p.id,
+          title: p.title,
+          post_type: p.post_type,
+          action: exists ? existing === "new" ? "add" : existing : "add",
+          target_id: exists && existing !== "new" ? 2 : 140 + i,
+          picked: true,
+          exists,
+        };
+      });
+      if (picked.length) {
+        posts.push({ source_id: 77, title: "banner", post_type: "attachment", action: "add", target_id: 150, picked: false, exists: false });
+        posts.push({ source_id: 31, title: "logo", post_type: "attachment", action: "reuse", target_id: 12, picked: false, exists: false });
+      }
+      const warnings: WpMoveWarning[] = picked.some((p) => p.id === 96)
+        ? [{ post: 96, title: "Summer sale", text: "_wcfm_product_ref: a number in a plugin's setting (WCFM) that can't be checked safely; left as it is" }]
+        : [];
+      return {
+        source,
+        target,
+        posts,
+        counts: { posts: posts.length, meta: 24, new_terms: 1, terms: 3, comments: choice.comments ? 2 : 0, menu_items: 0, files: picked.length ? 4 : 0 },
+        files: picked.length ? ["2026/10/banner.jpg", "2026/10/banner-300x200.jpg", "2026/10/banner-768x512.jpg", "2026/10/banner-1024x683.jpg"] : [],
+        warnings,
+      };
+    },
+    postsMove: async (source, target, choice) => {
+      const plan = await mock.postsPlan(source, target, choice);
+      await wait(800);
+      snapshots.unshift({ id: `${Date.now()}`, domain: target, reason: `Posts moved from ${source}`, created_at: Date.now() / 1000, saved: [], added: plan.files, bytes: 1.2e6 });
+      return { snapshot: snapshots[0].id, posts: plan.posts.filter((p) => p.action !== "skip" && p.action !== "reuse").length, files: plan.files.length, warnings: plan.warnings };
+    },
   };
 }
+
+const mockPosts: WpPostSummary[] = [
+  { id: 98, title: "New checkout, step by step", post_type: "post", status: "draft", slug: "new-checkout", modified: "2026-10-22 18:40:11" },
+  { id: 96, title: "Summer sale", post_type: "page", status: "publish", slug: "summer-sale", modified: "2026-10-22 17:02:45" },
+  { id: 2, title: "About", post_type: "page", status: "publish", slug: "about", modified: "2026-10-22 16:10:03" },
+  { id: 91, title: "Linen shirt", post_type: "product", status: "publish", slug: "linen-shirt", modified: "2026-10-21 12:00:00" },
+  { id: 54, title: "Hello world!", post_type: "post", status: "publish", slug: "hello-world", modified: "2026-10-01 09:00:00" },
+];
 
 const stagings: WpStaging[] = [
   { domain: "checkout.legacy.stack", url: "https://checkout.legacy.stack", made_from: "legacy.stack", created_at: Date.now() / 1000 - 7200, shared_media: true },

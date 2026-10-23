@@ -109,8 +109,8 @@ Each staging gets:
 - the main site's safety settings when the main site is a copy of a live site (mail to Mailpit and
   the rest, see above);
 - a *starting point*: the database and a list of every file with a checksum, as they were when the
-  staging was made. Merging a staging back (coming next) compares both sides against it, to tell
-  what changed where.
+  staging was made. Merging a staging back compares both sides against it, to tell what changed
+  where.
 
 A staging is a site like any other: it shows under Sites, has its own tools, and can get a public
 link (Manage › Public link) when someone else needs to look at it. Public links are off unless you
@@ -119,6 +119,59 @@ switch them on, for each staging.
 **Destroy…** moves a staging to the **Trash**: its folder, database and snapshots are kept for
 7 days. **Bring back** puts it back as it was; **Delete now** removes it for good. Only stagings can
 be destroyed this way; the main site is removed under Sites as before.
+
+### Merging a staging
+
+When the work on a staging is done, open the **staging's** WordPress tab, then **Environments**.
+**Merge into another copy** takes it into the main site or another staging (**Into**).
+
+**Changes since the staging was made** compares the staging, and the copy it goes into, with the
+staging's starting point. **Find the changes** lists:
+
+- **Files**, grouped by plugin, theme, media and the rest. A file the other copy also changed since
+  then, differently, is marked **changed on both** and left unticked: you decide.
+- **Plugins and theme** switched on or off on the staging.
+- **Settings** (WordPress options, WooCommerce settings, widgets, theme settings) with the value on
+  each side. Things that belong to each copy (its address, caches, Stackyard's own settings) are
+  never listed.
+
+Then pick how much to merge:
+
+- **Code**: the ticked files and plugin and theme switches. The other copy keeps its whole database.
+  The safe choice for a new theme, plugin or code change.
+- **Settings**: Code, plus the ticked settings.
+- **Everything**: Code, plus the staging's whole database: posts, pages, products, menus and
+  settings. The other copy's **users, orders and customers are kept** (for stores with and without
+  High-Performance Order Storage). Posts made on the other copy since the staging was made are
+  replaced, and the screen says how many; move them to the staging first if you need them. Type the
+  site's name to confirm.
+
+A snapshot of the copy it goes into is taken first. **Undo** right after the merge, or **Undo…**
+under that copy's snapshots later, puts it back.
+
+### Moving single posts and pages
+
+**Single posts and pages** moves just the content you pick, without touching anything else. Search by
+title or slug, tick the posts, pages or products, and click **Preview**. The preview lists:
+
+- what moves, with what comes along: featured images and images in the content, galleries,
+  reusable blocks and patterns;
+- for each one the other copy already has (same type and slug): **Replace the one there**,
+  **Add as a new one** or **Leave it out**;
+- how many media files, categories and tags (and which are new) and comments (tick **Take their
+  comments too**) go with them.
+
+Posts get new numbers in the other copy, so every number that points to another post is changed to
+match: featured images, block attributes and `wp-image-…` classes, gallery shortcodes, parent pages,
+menu items, WooCommerce gallery, upsell and cross-sell lists, Elementor data, Yoast SEO and Rank
+Math primary categories, and Advanced Custom Fields image, file, gallery, post and relationship
+fields. Images the other copy already has (same file) are reused, not copied twice. Authors are
+matched by login; an author the other copy doesn't have becomes its first administrator.
+
+Where a plugin keeps a number Stackyard can't check safely, the preview says so under **Can't be
+changed safely** instead of guessing: those values are copied as they are, for you to check.
+
+**Move** takes a snapshot of the other copy first, so **Undo** puts it back.
 
 ### Snapshots
 

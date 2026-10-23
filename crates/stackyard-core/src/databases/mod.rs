@@ -31,6 +31,8 @@ const SYSTEM: [&str; 4] = ["mysql", "information_schema", "performance_schema", 
 pub const MAX_ROWS: usize = 1000;
 /// Output read from one query at most; the rest is cut off.
 const MAX_OUTPUT: usize = 16 * 1024 * 1024;
+/// How much [`Client::rows`] reads at most.
+pub const MAX_ALL_OUTPUT: usize = 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Server {
@@ -288,6 +290,41 @@ impl Client {
         Ok(sets)
     }
 
+    /// Runs one statement and returns every row it gives, for work that
+    /// must see all of them (MySQL and MariaDB only). Fails rather than
+    /// cutting the rows off past [`MAX_ALL_OUTPUT`].
+    pub fn rows(&self, database: &str, sql: &str) -> Result<ResultSet> {
+        if self.pg.is_some() {
+            return Err(Error::Database(
+                "this works for MySQL and MariaDB only".into(),
+            ));
+        }
+        let args: Vec<OsString> = vec!["--xml".into(), format!("--database={database}").into()];
+        let output = self.run_limited(&self.mysql, args, sql.as_bytes(), MAX_ALL_OUTPUT)?;
+        if output.cut_off {
+            return Err(Error::Database(format!(
+                "the answer was larger than {} MB",
+                MAX_ALL_OUTPUT / 1024 / 1024
+            )));
+        }
+        Ok(xml::parse(&output.stdout)
+            .into_iter()
+            .next()
+            .unwrap_or_default())
+    }
+
+    /// Runs SQL statements that return no rows, e.g. a script of inserts,
+    /// stopping at the first error (MySQL and MariaDB only).
+    pub fn execute(&self, database: &str, sql: &str) -> Result<()> {
+        if self.pg.is_some() {
+            return Err(Error::Database(
+                "this works for MySQL and MariaDB only".into(),
+            ));
+        }
+        let args: Vec<OsString> = vec![format!("--database={database}").into()];
+        self.run(&self.mysql, args, sql.as_bytes()).map(|_| ())
+    }
+
     fn single(&self, database: Option<&str>, sql: &str) -> Result<ResultSet> {
         Ok(self
             .query(database, sql)?
@@ -477,6 +514,16 @@ impl Client {
     /// Runs a client program with `input` on stdin and reads its output,
     /// up to [`MAX_OUTPUT`].
     fn run(&self, launch: &Launch, args: Vec<OsString>, input: &[u8]) -> Result<Output> {
+        self.run_limited(launch, args, input, MAX_OUTPUT)
+    }
+
+    fn run_limited(
+        &self,
+        launch: &Launch,
+        args: Vec<OsString>,
+        input: &[u8],
+        limit: usize,
+    ) -> Result<Output> {
         let mut child = client_command(launch)
             .arg("--connect-timeout=5")
             .args(args)
@@ -504,7 +551,7 @@ impl Client {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     out.extend_from_slice(&buf[..n]);
-                    if out.len() > MAX_OUTPUT {
+                    if out.len() > limit {
                         cut_off = true;
                         let _ = child.kill();
                         break;
@@ -764,7 +811,7 @@ pub fn ident(name: &str) -> String {
 
 /// A string quoted for SQL in the servers' default mode, where a
 /// backslash escapes.
-pub(crate) fn literal(text: &str) -> String {
+pub fn literal(text: &str) -> String {
     let mut out = String::from("'");
     for c in text.chars() {
         match c {

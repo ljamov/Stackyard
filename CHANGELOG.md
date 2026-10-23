@@ -25,6 +25,12 @@ Update button, and the app shows its own version's section after it updates.
   instantly on disks that can share blocks; media can be left out and copied from the main site as
   pages need it. Destroyed stagings stay in a trash for 7 days. Snapshots taken before Stackyard
   changes a copy can be undone from the same tab.
+- **Merge a staging** into the main site or another staging: a list of changed files, plugin and
+  theme switches and settings since the staging was made, with anything the other copy also changed
+  marked for you to decide, merged at three levels: code only, code and picked settings, or
+  everything with the other copy's users, orders and customers kept. **Move single posts and pages**
+  between copies with their images, categories and custom fields, every post number changed to
+  match, and a preview that says what can't be changed safely. Both can be undone.
 
 - Stackyard is now licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) instead of
   MIT. Earlier releases stay under MIT.
