@@ -31,6 +31,13 @@ Update button, and the app shows its own version's section after it updates.
   everything with the other copy's users, orders and customers kept. **Move single posts and pages**
   between copies with their images, categories and custom fields, every post number changed to
   match, and a preview that says what can't be changed safely. Both can be undone.
+- **Push to live and pull from live** for copies cloned from a live server (WordPress ›
+  Environments): what changed on each side since they were last in step, at the same three levels
+  as a merge, or single posts and pages in either direction. A push backs up the live database and
+  every file it changes first, shows the maintenance page while it works, checks the site answers
+  afterwards and puts the backup back by itself if a step fails. Pushing everything needs the site's
+  name typed, keeps live orders, customers and payment settings, and stops if posts changed on the
+  live site meanwhile. Backups of the live site can be put back from the same tab.
 
 - Stackyard is now licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) instead of
   MIT. Earlier releases stay under MIT.

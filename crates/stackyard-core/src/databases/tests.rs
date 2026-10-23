@@ -6,6 +6,7 @@ fn quotes_names_and_strings() {
     assert_eq!(ident("we`ird"), "`we``ird`");
     assert_eq!(literal("it's"), "'it''s'");
     assert_eq!(literal(r"a\b"), r"'a\\b'");
+    assert_eq!(literal("a\nb\r"), r"'a\nb\r'");
     assert!(check_name("shop_2-test").is_ok());
     for bad in ["", "a b", "a.b", "x;DROP", "ü", &"x".repeat(65)] {
         assert!(check_name(bad).is_err(), "{bad}");

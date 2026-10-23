@@ -381,6 +381,48 @@ impl Client {
     /// plain SQL otherwise. `tables` limits it to those tables. The file
     /// appears only once the dump is complete.
     pub fn dump_to(&self, database: &str, tables: &[String], dest: &Path) -> Result<()> {
+        self.dump_with(
+            database,
+            tables,
+            dest,
+            &[
+                "--single-transaction",
+                "--routines",
+                "--triggers",
+                "--hex-blob",
+                "--skip-lock-tables",
+            ],
+        )
+    }
+
+    /// Dumps tables and rows only, one statement per line, without locks,
+    /// triggers or comments: a file another server's PHP can load
+    /// statement by statement.
+    pub fn dump_portable(&self, database: &str, dest: &Path) -> Result<()> {
+        self.dump_with(
+            database,
+            &[],
+            dest,
+            &[
+                "--single-transaction",
+                "--skip-triggers",
+                "--hex-blob",
+                "--skip-lock-tables",
+                "--skip-add-locks",
+                "--skip-comments",
+                "--no-tablespaces",
+                "--default-character-set=utf8mb4",
+            ],
+        )
+    }
+
+    fn dump_with(
+        &self,
+        database: &str,
+        tables: &[String],
+        dest: &Path,
+        options: &[&str],
+    ) -> Result<()> {
         if self.pg.is_some() {
             return Err(Error::Database(
                 "dumping to a file works for MySQL and MariaDB only".into(),
@@ -390,16 +432,7 @@ impl Client {
         let context = Context::load(&self.home)?;
         let dump = context.launch(Tool::Mysqldump, &self.home, Vec::new())?;
         let mut command = client_command(&dump);
-        command
-            .args([
-                "--single-transaction",
-                "--routines",
-                "--triggers",
-                "--hex-blob",
-                "--skip-lock-tables",
-            ])
-            .arg(database)
-            .args(tables);
+        command.args(options).arg(database).args(tables);
         let io = |path: &Path| {
             let path = path.to_owned();
             move |source| Error::Io { path, source }
@@ -818,6 +851,10 @@ pub fn literal(text: &str) -> String {
             '\'' => out.push_str("''"),
             '\\' => out.push_str("\\\\"),
             '\0' => out.push_str("\\0"),
+            // Kept on one line, so a dump can be split at line ends.
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\x1a' => out.push_str("\\Z"),
             c => out.push(c),
         }
     }

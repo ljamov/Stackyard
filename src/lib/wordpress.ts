@@ -157,6 +157,27 @@ export type WpMovePlan = {
   warnings: WpMoveWarning[];
 };
 export type WpMoved = { snapshot: string; posts: number; files: number; warnings: WpMoveWarning[] };
+export type WpWay = "push" | "pull";
+export type WpSyncChanges = {
+  way: WpWay;
+  domain: string;
+  live_url: string;
+  base_at: number;
+  files: WpFileChange[];
+  switches: WpSwitch[];
+  settings: WpSettingChange[];
+  live_content_changed: boolean;
+  local_content_changed: boolean;
+  live_wordpress: string;
+  live_php: string;
+  local_wordpress: string;
+  notes: string[];
+};
+export type WpPushed = { backup: string; files: number; switches: number; settings: number; site_answers: boolean; notes: string[] };
+export type WpPulled = { snapshot: string; files: number; switches: number; settings: number; notes: string[] };
+export type WpLiveBackup = { id: string; domain: string; created_at: number; database: string[]; saved: string[]; added: string[]; bytes: number };
+export type WpSyncProgress = { domain: string; stage: WpCloneStage; message: string; done: number; total: number };
+export type WpPostsMoved = { posts: number; files: number; warnings: WpMoveWarning[]; undo: string };
 
 export interface WpApi {
   overview(domain: string): Promise<WpOverview>;
@@ -207,6 +228,21 @@ export interface WpApi {
   postsList(domain: string, search: string): Promise<WpPostSummary[]>;
   postsPlan(source: string, target: string, choice: WpMoveChoice): Promise<WpMovePlan>;
   postsMove(source: string, target: string, choice: WpMoveChoice): Promise<WpMoved>;
+  syncChanges(domain: string, way: WpWay): Promise<WpSyncChanges>;
+  /** `confirm` is the main site's name, typed for an Everything push. */
+  push(domain: string, choice: WpMergeChoice, confirm: string): Promise<WpPushed>;
+  pull(domain: string, choice: WpMergeChoice): Promise<WpPulled>;
+  syncStop(): Promise<void>;
+  onSyncProgress(handler: (p: WpSyncProgress) => void): Promise<() => void>;
+  liveBackups(domain: string): Promise<WpLiveBackup[]>;
+  restoreLiveBackup(domain: string, id: string): Promise<void>;
+  removeLiveBackup(domain: string, id: string): Promise<void>;
+  /** Reads the live database to pick single posts from; returns when. */
+  readLive(domain: string): Promise<number>;
+  liveReadAt(domain: string): Promise<number | null>;
+  livePosts(domain: string, search: string): Promise<WpPostSummary[]>;
+  livePostsPlan(domain: string, way: WpWay, choice: WpMoveChoice): Promise<WpMovePlan>;
+  livePostsMove(domain: string, way: WpWay, choice: WpMoveChoice): Promise<WpPostsMoved>;
 }
 
 const tauriWp: WpApi = {
@@ -257,6 +293,19 @@ const tauriWp: WpApi = {
   postsList: (domain, search) => invoke("wp_posts_list", { domain, search }),
   postsPlan: (source, target, choice) => invoke("wp_posts_plan", { source, target, choice }),
   postsMove: (source, target, choice) => invoke("wp_posts_move", { source, target, choice }),
+  syncChanges: (domain, way) => invoke("wp_sync_changes", { domain, way }),
+  push: (domain, choice, confirm) => invoke("wp_push", { domain, choice, confirm }),
+  pull: (domain, choice) => invoke("wp_pull", { domain, choice }),
+  syncStop: () => invoke("wp_sync_stop"),
+  onSyncProgress: (handler) => listen<WpSyncProgress>("wp-sync-progress", (e) => handler(e.payload)),
+  liveBackups: (domain) => invoke("wp_live_backups", { domain }),
+  restoreLiveBackup: (domain, id) => invoke("wp_live_backup_restore", { domain, id }),
+  removeLiveBackup: (domain, id) => invoke("wp_live_backup_remove", { domain, id }),
+  readLive: (domain) => invoke("wp_live_read", { domain }),
+  liveReadAt: (domain) => invoke("wp_live_read_at", { domain }),
+  livePosts: (domain, search) => invoke("wp_live_posts", { domain, search }),
+  livePostsPlan: (domain, way, choice) => invoke("wp_live_posts_plan", { domain, way, choice }),
+  livePostsMove: (domain, way, choice) => invoke("wp_live_posts_move", { domain, way, choice }),
 };
 
 function mockWp(): WpApi {
@@ -556,8 +605,83 @@ function mockWp(): WpApi {
       snapshots.unshift({ id: `${Date.now()}`, domain: target, reason: `Posts moved from ${source}`, created_at: Date.now() / 1000, saved: [], added: plan.files, bytes: 1.2e6 });
       return { snapshot: snapshots[0].id, posts: plan.posts.filter((p) => p.action !== "skip" && p.action !== "reuse").length, files: plan.files.length, warnings: plan.warnings };
     },
+    syncChanges: async (domain, way) => {
+      const steps: [WpCloneStage, string][] = [
+        ["connecting", "Connecting to the live server…"],
+        ["files", "Listing the live files…"],
+        ["database", "Reading the live settings…"],
+      ];
+      for (const [i, [stage, message]] of steps.entries()) {
+        for (const h of syncHandlers) h({ domain, stage, message, done: i + 1, total: steps.length });
+        await wait(400);
+      }
+      const push = way === "push";
+      return {
+        way,
+        domain,
+        live_url: "https://shop.example",
+        base_at: Date.now() / 1000 - 86400,
+        files: push
+          ? [
+              { path: "wp-content/themes/shop/style.css", group: "theme:shop", change: "changed", target: null, conflict: false },
+              { path: "wp-content/themes/shop/checkout.php", group: "theme:shop", change: "added", target: null, conflict: false },
+              { path: "wp-content/plugins/fast-checkout/fast-checkout.php", group: "plugin:fast-checkout", change: "added", target: null, conflict: false },
+              { path: "wp-content/plugins/fast-checkout/readme.txt", group: "plugin:fast-checkout", change: "added", target: null, conflict: false },
+            ]
+          : [
+              { path: "wp-content/plugins/woocommerce/woocommerce.php", group: "plugin:woocommerce", change: "changed", target: null, conflict: false },
+              { path: "wp-content/themes/shop/header.php", group: "theme:shop", change: "changed", target: "changed", conflict: true },
+            ],
+        switches: push ? [{ id: "plugin:fast-checkout", title: "Fast Checkout", on: true, conflict: false }] : [],
+        settings: push
+          ? [{ name: "woocommerce_enable_guest_checkout", change: "changed", conflict: false, staging: "yes", target: "no" }]
+          : [{ name: "blogdescription", change: "changed", conflict: false, staging: "Shirts that last, since 2009", target: "Shirts that last" }],
+        live_content_changed: true,
+        local_content_changed: false,
+        live_wordpress: "6.8.3",
+        live_php: "8.2.29",
+        local_wordpress: "6.8.3",
+        notes: [],
+      };
+    },
+    push: async (domain, choice) => {
+      await wait(1200);
+      liveBackups.unshift({ id: `${Date.now()}`, domain, created_at: Date.now() / 1000, database: ["database/wp_options.sql.gz"], saved: choice.files, added: [], bytes: 3.2e8 });
+      return { backup: liveBackups[0].id, files: choice.files.length, switches: choice.switches.length, settings: choice.settings.length, site_answers: true, notes: [] };
+    },
+    pull: async (domain, choice) => {
+      await wait(1000);
+      snapshots.unshift({ id: `${Date.now()}`, domain, reason: "Pull from live", created_at: Date.now() / 1000, saved: choice.files, added: [], bytes: 1.1e7 });
+      return { snapshot: snapshots[0].id, files: choice.files.length, switches: choice.switches.length, settings: choice.settings.length, notes: [] };
+    },
+    syncStop: async () => {},
+    onSyncProgress: async (handler) => {
+      syncHandlers.push(handler);
+      return () => syncHandlers.splice(syncHandlers.indexOf(handler), 1);
+    },
+    liveBackups: async (domain) => liveBackups.filter((b) => b.domain === domain),
+    restoreLiveBackup: async () => wait(1200),
+    removeLiveBackup: async (_d, id) => void liveBackups.splice(liveBackups.findIndex((b) => b.id === id), 1),
+    readLive: async () => {
+      await wait(900);
+      liveRead = Date.now() / 1000;
+      return liveRead;
+    },
+    liveReadAt: async () => liveRead,
+    livePosts: async (_d, search) => mock.postsList(_d, search),
+    livePostsPlan: async (domain, way, choice) => mock.postsPlan(way === "push" ? domain : "live", way === "push" ? "live" : domain, choice),
+    livePostsMove: async (domain, way, choice) => {
+      const moved = await mock.postsMove(way === "push" ? domain : "live", way === "push" ? "live" : domain, choice);
+      return { posts: moved.posts, files: moved.files, warnings: moved.warnings, undo: moved.snapshot };
+    },
   };
 }
+
+const syncHandlers: ((p: WpSyncProgress) => void)[] = [];
+const liveBackups: WpLiveBackup[] = [
+  { id: "1792600000", domain: "legacy.stack", created_at: Date.now() / 1000 - 172800, database: ["database/wp_posts.sql.gz"], saved: ["wp-content/themes/shop/style.css"], added: [], bytes: 2.9e8 },
+];
+let liveRead: number | null = null;
 
 const mockPosts: WpPostSummary[] = [
   { id: 98, title: "New checkout, step by step", post_type: "post", status: "draft", slug: "new-checkout", modified: "2026-10-22 18:40:11" },

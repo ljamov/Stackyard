@@ -32,6 +32,7 @@ use super::config::{self, WpConfig};
 use super::env::{self, Environment, Live, Media, Route};
 use super::helper::{self, DbSettings, Helper, Info};
 use super::replace::{self, Rules};
+use super::snapshot;
 use super::WpSite;
 use crate::catalog::RuntimeKind;
 use crate::databases::Client;
@@ -169,7 +170,7 @@ pub struct Cloned {
 
 /// Folders not worth copying: caches and the backups backup plugins keep
 /// inside the site, which are often bigger than the site itself.
-const SKIP: &[&str] = &[
+pub(super) const SKIP: &[&str] = &[
     "wp-content/cache",
     "wp-content/et-cache",
     "wp-content/updraft",
@@ -204,23 +205,23 @@ const NOT_SEARCHED: &[&str] = &[
 ];
 
 /// A logged-in live server, with what is known about its WordPress.
-struct Server<'a> {
-    sessions: &'a Sessions,
-    connection: Connection,
-    root: String,
-    config_text: String,
-    db: DbSettings,
-    shell: bool,
-    php_cli: bool,
-    dump_tool: Option<String>,
+pub(super) struct Server<'a> {
+    pub(super) sessions: &'a Sessions,
+    pub(super) connection: Connection,
+    pub(super) root: String,
+    pub(super) config_text: String,
+    pub(super) db: DbSettings,
+    pub(super) shell: bool,
+    pub(super) php_cli: bool,
+    pub(super) dump_tool: Option<String>,
     /// WordPress's own address on the server, for the helper over HTTPS.
-    siteurl: Option<String>,
-    helper: Option<Helper>,
-    http: ureq::Agent,
+    pub(super) siteurl: Option<String>,
+    pub(super) helper: Option<Helper>,
+    pub(super) http: ureq::Agent,
 }
 
 /// Quotes text for a POSIX shell.
-fn sh(text: &str) -> String {
+pub(super) fn sh(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
@@ -325,7 +326,7 @@ fn host_options(host: &str) -> String {
     )
 }
 
-fn agent() -> ureq::Agent {
+pub(super) fn agent() -> ureq::Agent {
     use ureq::tls::{RootCerts, TlsConfig};
     ureq::Agent::config_builder()
         .tls_config(
@@ -344,7 +345,7 @@ fn agent() -> ureq::Agent {
 
 impl<'a> Server<'a> {
     /// Finds WordPress on the server and reads its `wp-config.php`.
-    fn open(
+    pub(super) fn open(
         sessions: &'a Sessions,
         connection: &Connection,
         root: Option<&str>,
@@ -416,7 +417,7 @@ impl<'a> Server<'a> {
         Ok(server)
     }
 
-    fn route(&self) -> Route {
+    pub(super) fn route(&self) -> Route {
         if self.dump_tool.is_some() {
             Route::Ssh
         } else {
@@ -425,13 +426,23 @@ impl<'a> Server<'a> {
     }
 
     /// Uploads a fresh helper, working for [`helper::LIFETIME_SECS`].
-    fn upload_helper(&mut self, temp: &Path) -> Result<()> {
+    pub(super) fn upload_helper(&mut self, temp: &Path) -> Result<()> {
+        self.upload_helper_with(temp, false)
+    }
+
+    /// Uploads a fresh helper; `write` lets it load SQL files.
+    pub(super) fn upload_helper_with(&mut self, temp: &Path, write: bool) -> Result<()> {
         if !self.php_cli && self.siteurl.is_none() {
             return Err(fail(
                 "this server has no shell Stackyard can use, so the database comes through the site's own address; enter the live site's address",
             ));
         }
-        let made = helper::make(&self.db, env::now() + helper::LIFETIME_SECS)?;
+        let until = env::now() + helper::LIFETIME_SECS;
+        let made = if write {
+            helper::make_writing(&self.db, until)?
+        } else {
+            helper::make(&self.db, until)?
+        };
         let local = temp.join(&made.file);
         std::fs::write(&local, &made.source).map_err(io(&local))?;
         let remote = remote::join(&self.root, &made.file);
@@ -448,7 +459,11 @@ impl<'a> Server<'a> {
     }
 
     /// Runs the helper with these arguments, writing its answer to `out`.
-    fn call(&self, args: &[(&str, &str)], out: &mut dyn Write) -> Result<Option<helper::Chunk>> {
+    pub(super) fn call(
+        &self,
+        args: &[(&str, &str)],
+        out: &mut dyn Write,
+    ) -> Result<Option<helper::Chunk>> {
         let helper = self
             .helper
             .as_ref()
@@ -518,7 +533,7 @@ impl<'a> Server<'a> {
 
     /// Asks the helper about the site. When the server's command-line PHP
     /// can't run it (say it lacks mysqli), the site's address is tried.
-    fn info(&mut self) -> Result<Info> {
+    pub(super) fn info(&mut self) -> Result<Info> {
         match self.read_info() {
             Err(e) if self.php_cli && self.siteurl.is_some() => {
                 self.php_cli = false;
@@ -541,7 +556,7 @@ impl<'a> Server<'a> {
 
     /// Takes the helper off the server; if deleting it fails, the helper
     /// is asked to delete itself.
-    fn remove_helper(&mut self) {
+    pub(super) fn remove_helper(&mut self) {
         let Some(helper) = self.helper.clone() else {
             return;
         };
@@ -557,7 +572,7 @@ impl<'a> Server<'a> {
     }
 
     /// Exports one table with `mysqldump` on the server, compressed, into `dest`.
-    fn dump_table(&self, table: &str, dest: &Path) -> Result<()> {
+    pub(super) fn dump_table(&self, table: &str, dest: &Path) -> Result<()> {
         let tool = self.dump_tool.as_deref().unwrap_or("mysqldump");
         let command = format!(
             "MYSQL_PWD={} {} --single-transaction --quick --skip-lock-tables --no-tablespaces --add-drop-table --default-character-set={} {} -u {} {} {} | gzip -c",
@@ -1016,14 +1031,14 @@ impl Work {
 }
 
 /// Reads several `.sql.gz` files one after another, as one dump.
-struct Concat {
+pub(super) struct Concat {
     files: std::vec::IntoIter<PathBuf>,
     current: Option<Box<dyn Read>>,
     head: std::io::Cursor<Vec<u8>>,
 }
 
 impl Concat {
-    fn new(files: Vec<PathBuf>) -> Self {
+    pub(super) fn new(files: Vec<PathBuf>) -> Self {
         Concat {
             files: files.into_iter(),
             current: None,
@@ -1297,6 +1312,16 @@ pub fn clone(
         )?;
         notes.extend(payments_to_test_mode(home, &wp));
     }
+    if live.route != Route::Files {
+        say(
+            progress,
+            Stage::Finishing,
+            "Noting where the copy and the live site stand…",
+        )?;
+        if let Err(e) = super::sync::record_after_clone(home, &site, live.facts.clone()) {
+            notes.push(format!("Stackyard could not note how the copy matches the live site ({e}); the first push or pull lists every difference."));
+        }
+    }
     work.finish();
     Ok(Cloned {
         url: site.url(),
@@ -1313,6 +1338,9 @@ struct LiveSide {
     root: String,
     php: String,
     route: Route,
+    /// What the live database looked like, read on the server, for the
+    /// copy's sync base.
+    facts: Option<snapshot::Facts>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1621,6 +1649,7 @@ fn clone_from_server_database(
             }
         }
     }
+    let facts = s.facts().ok();
     s.remove_helper();
 
     say(
@@ -1672,12 +1701,18 @@ fn clone_from_server_database(
         root: s.root.clone(),
         php: info.php.clone(),
         route: s.route(),
+        facts,
     })
 }
 
 /// Fetches one chunk of a table through the helper into `dest`, trying a
 /// few times when the connection drops.
-fn fetch_chunk(s: &Server, table: &str, from: &str, dest: &Path) -> Result<helper::Chunk> {
+pub(super) fn fetch_chunk(
+    s: &Server,
+    table: &str,
+    from: &str,
+    dest: &Path,
+) -> Result<helper::Chunk> {
     let mut last = None;
     for attempt in 0..5 {
         if attempt > 0 {
@@ -1762,6 +1797,7 @@ fn clone_from_files(
         root: String::new(),
         php: String::new(),
         route: Route::Files,
+        facts: None,
     })
 }
 
@@ -1882,7 +1918,7 @@ fn php_version(
 }
 
 /// Puts WooCommerce payment methods that have a test mode into it; returns notes.
-fn payments_to_test_mode(home: &Path, wp: &WpSite) -> Vec<String> {
+pub(super) fn payments_to_test_mode(home: &Path, wp: &WpSite) -> Vec<String> {
     let mut notes = Vec::new();
     let gateways = match super::woo::gateways(home, wp) {
         Ok(g) => g,

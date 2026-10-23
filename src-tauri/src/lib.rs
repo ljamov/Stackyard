@@ -1946,6 +1946,7 @@ pub fn run() {
         .manage(ai::AiInstalls::default())
         .manage(console::Consoles::default())
         .manage(wordpress::CloneState::default())
+        .manage(wordpress::SyncState::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -2008,6 +2009,18 @@ pub fn run() {
             wordpress::wp_posts_list,
             wordpress::wp_posts_plan,
             wordpress::wp_posts_move,
+            wordpress::wp_sync_changes,
+            wordpress::wp_push,
+            wordpress::wp_pull,
+            wordpress::wp_sync_stop,
+            wordpress::wp_live_backups,
+            wordpress::wp_live_backup_restore,
+            wordpress::wp_live_backup_remove,
+            wordpress::wp_live_read,
+            wordpress::wp_live_read_at,
+            wordpress::wp_live_posts,
+            wordpress::wp_live_posts_plan,
+            wordpress::wp_live_posts_move,
             sitetools::site_settings,
             sitetools::save_site_settings,
             sitetools::site_backups,
