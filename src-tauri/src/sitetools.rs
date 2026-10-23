@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use stackyard_core::catalog::RuntimeKind;
@@ -11,10 +12,10 @@ use stackyard_core::detect;
 use stackyard_core::engine::Engine;
 use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
-use stackyard_core::sitepack::{self, ImportOptions, Packed, SiteBackup};
+use stackyard_core::sitepack::{self, ImportOptions, PackStep, Packed, SiteBackup};
 use stackyard_core::sites::{Site, SiteDatabase, SiteSettings, SiteStore};
 use stackyard_core::{paths, share};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{err, site_views, sites_changed, CmdResult, SiteView};
 
@@ -41,6 +42,47 @@ async fn blocking<T: Send + 'static>(
     tauri::async_runtime::spawn_blocking(work)
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// What a site backup, export, restore or import is doing, sent to the
+/// window as `site-pack-progress`.
+#[derive(Clone, Serialize)]
+struct PackProgress {
+    /// The site's domain, or the file being imported.
+    site: String,
+    #[serde(flatten)]
+    step: PackStep,
+}
+
+/// Sends pack steps to the window: every new stage and the last file, and
+/// otherwise at most ten a second, so a big site doesn't flood it.
+fn pack_progress(app: &AppHandle, site: String) -> impl FnMut(PackStep) + Send + 'static {
+    let app = app.clone();
+    let mut last: Option<(PackStep, Instant)> = None;
+    move |step| {
+        let finished = matches!(
+            step,
+            PackStep::Files { done, total } | PackStep::Unpacking { done, total } if done == total
+        );
+        let due = match last {
+            Some((before, at)) => {
+                std::mem::discriminant(&before) != std::mem::discriminant(&step)
+                    || finished
+                    || at.elapsed() >= Duration::from_millis(100)
+            }
+            None => true,
+        };
+        if due {
+            last = Some((step, Instant::now()));
+            let _ = app.emit(
+                "site-pack-progress",
+                PackProgress {
+                    site: site.clone(),
+                    step,
+                },
+            );
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -146,10 +188,11 @@ pub fn site_backups(domain: String) -> Vec<SiteBackup> {
 }
 
 #[tauri::command]
-pub async fn backup_site(domain: String) -> CmdResult<Packed> {
+pub async fn backup_site(app: AppHandle, domain: String) -> CmdResult<Packed> {
     require("sitebackups")?;
     let (site, _) = find_site(&domain)?;
-    blocking(move || sitepack::backup(&paths::home(), &site).map_err(err)).await
+    let mut progress = pack_progress(&app, domain);
+    blocking(move || sitepack::backup(&paths::home(), &site, &mut progress).map_err(err)).await
 }
 
 /// Puts a backup back; the site as it was is backed up first.
@@ -159,7 +202,10 @@ pub async fn restore_site(app: AppHandle, domain: String, file: String) -> CmdRe
     let (site, _) = find_site(&domain)?;
     let home = paths::home();
     let path = sitepack::backup_path(&home, &domain, &file).map_err(err)?;
-    let packed = blocking(move || sitepack::restore(&home, &site, &path).map_err(err)).await?;
+    let mut progress = pack_progress(&app, domain);
+    let packed =
+        blocking(move || sitepack::restore(&home, &site, &path, &mut progress).map_err(err))
+            .await?;
     sites_changed(&app);
     Ok(packed)
 }
@@ -180,14 +226,15 @@ pub fn open_site_backups(domain: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn export_site(domain: String, dest: String) -> CmdResult<Packed> {
+pub async fn export_site(app: AppHandle, domain: String, dest: String) -> CmdResult<Packed> {
     require("sitetransfer")?;
     let (site, _) = find_site(&domain)?;
     let mut dest = PathBuf::from(dest);
     if dest.extension().is_none() {
         dest.set_extension("zip");
     }
-    blocking(move || sitepack::pack(&paths::home(), &site, &dest).map_err(err)).await
+    let mut progress = pack_progress(&app, domain);
+    blocking(move || sitepack::pack(&paths::home(), &site, &dest, &mut progress).map_err(err)).await
 }
 
 #[derive(Serialize)]
@@ -246,8 +293,15 @@ pub async fn import_site(
         name: name.map(|n| n.trim().to_string()),
         path: folder.filter(|f| !f.trim().is_empty()).map(PathBuf::from),
     };
+    let mut progress = pack_progress(&app, path.clone());
     let (site, warning) = blocking(move || {
-        sitepack::import(&paths::home(), std::path::Path::new(&path), options).map_err(err)
+        sitepack::import(
+            &paths::home(),
+            std::path::Path::new(&path),
+            options,
+            &mut progress,
+        )
+        .map_err(err)
     })
     .await?;
     sites_changed(&app);
@@ -293,10 +347,13 @@ pub fn share_status(engine: State<'_, Arc<Engine>>) -> CmdResult<ShareView> {
 #[tauri::command]
 pub async fn share_install(app: AppHandle) -> CmdResult<ShareView> {
     require("share")?;
-    blocking(|| {
-        share::install(&paths::home(), &mut |_| {})
-            .map(|_| ())
-            .map_err(err)
+    let worker = app.clone();
+    blocking(move || {
+        share::install(&paths::home(), &mut |step| {
+            share_progress(&worker, "", step)
+        })
+        .map(|_| ())
+        .map_err(err)
     })
     .await?;
     share_view(&app.state::<Arc<Engine>>())
@@ -331,11 +388,25 @@ pub async fn share_start(app: AppHandle, domain: String) -> CmdResult<share::Lin
     blocking(move || {
         let home = paths::home();
         if share::program(&home).is_none() {
-            share::install(&home, &mut |_| {}).map_err(err)?;
+            share::install(&home, &mut |step| share_progress(&app, &domain, step)).map_err(err)?;
         }
+        let _ = app.emit(
+            "share-progress",
+            serde_json::json!({ "site": domain, "step": "connecting" }),
+        );
         share::start(&home, engine.supervisor(), &site).map_err(err)
     })
     .await
+}
+
+/// Sends cloudflared's download progress to the window as `share-progress`;
+/// `site` is the site the link is for, or empty.
+fn share_progress(app: &AppHandle, site: &str, step: stackyard_core::install::Step) {
+    let mut value = serde_json::to_value(step).unwrap_or_default();
+    if let Some(fields) = value.as_object_mut() {
+        fields.insert("site".into(), site.into());
+    }
+    let _ = app.emit("share-progress", value);
 }
 
 /// Opens a site's public link in the browser. Only the address cloudflared
@@ -352,7 +423,7 @@ pub fn open_share_link(engine: State<'_, Arc<Engine>>, domain: String) -> CmdRes
 }
 
 /// Opens a folder in the file manager, or an address in the browser.
-fn open_with_system(target: &std::ffi::OsStr) -> CmdResult<()> {
+pub(crate) fn open_with_system(target: &std::ffi::OsStr) -> CmdResult<()> {
     #[cfg(target_os = "macos")]
     let mut cmd = std::process::Command::new("open");
     #[cfg(target_os = "windows")]

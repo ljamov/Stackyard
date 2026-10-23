@@ -554,6 +554,24 @@ fn db_backups() -> Vec<Backup> {
     databases::backups(&paths::home())
 }
 
+/// Opens the folder a database's backups are in, or the backups folder
+/// when it has none yet.
+#[tauri::command]
+fn open_db_backups(database: String) -> CmdResult<()> {
+    let home = paths::home();
+    let root = databases::backups_dir(&home);
+    let has_backups = databases::backups(&home)
+        .iter()
+        .any(|b| b.database == database);
+    let dir = if has_backups {
+        root.join(&database)
+    } else {
+        root
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    sitetools::open_with_system(dir.as_os_str())
+}
+
 #[tauri::command]
 async fn db_restore(
     database: String,
@@ -2117,6 +2135,7 @@ pub fn run() {
             db_query,
             db_backup,
             db_backups,
+            open_db_backups,
             db_restore,
             db_remove_backup,
             list_tasks,

@@ -88,6 +88,20 @@ pub struct Packed {
     pub warning: Option<String>,
 }
 
+/// What a backup, export, restore or import is doing, for progress bars.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "stage", rename_all = "lowercase")]
+pub enum PackStep {
+    /// Saving the site's database to a file.
+    Database,
+    /// Adding the site's files to the zip.
+    Files { done: u64, total: u64 },
+    /// Writing the files in a zip into the site's folder.
+    Unpacking { done: u64, total: u64 },
+    /// Loading the database in a zip into the database server.
+    Loading,
+}
+
 pub fn backups_dir(home: &Path) -> PathBuf {
     databases::backups_dir(home).join("sites")
 }
@@ -157,7 +171,12 @@ fn from_wp_config(dir: &Path) -> Option<SiteDatabase> {
 /// by looking at the project but cannot be dumped (server stopped, no such
 /// database) is left out with a warning; one picked in the site's settings
 /// must work.
-pub fn pack(home: &Path, site: &Site, dest: &Path) -> Result<Packed> {
+pub fn pack(
+    home: &Path,
+    site: &Site,
+    dest: &Path,
+    progress: &mut dyn FnMut(PackStep),
+) -> Result<Packed> {
     if !site.path.is_dir() {
         return Err(Error::NotAFolder(site.path.clone()));
     }
@@ -169,7 +188,7 @@ pub fn pack(home: &Path, site: &Site, dest: &Path) -> Result<Packed> {
         std::fs::create_dir_all(parent).map_err(io(parent))?;
     }
     let partial = dest.with_extension("zip.partial");
-    let result = write_pack(home, site, &partial, dest);
+    let result = write_pack(home, site, &partial, dest, progress);
     if result.is_err() {
         let _ = std::fs::remove_file(&partial);
     }
@@ -178,12 +197,18 @@ pub fn pack(home: &Path, site: &Site, dest: &Path) -> Result<Packed> {
     Ok(packed)
 }
 
-fn write_pack(home: &Path, site: &Site, partial: &Path, dest: &Path) -> Result<Packed> {
+fn write_pack(
+    home: &Path,
+    site: &Site,
+    partial: &Path,
+    dest: &Path,
+    progress: &mut dyn FnMut(PackStep),
+) -> Result<Packed> {
     let io = |path: &Path| {
         let path = path.to_owned();
         move |source| Error::Io { path, source }
     };
-    let (dump, warning) = dump_database(home, site)?;
+    let (dump, warning) = dump_database(home, site, progress)?;
     let file = File::create(partial).map_err(io(partial))?;
     let mut zip = zip::ZipWriter::new(BufWriter::new(file));
     let zip_err = |e: zip::result::ZipError| Error::Archive {
@@ -216,20 +241,14 @@ fn write_pack(home: &Path, site: &Site, partial: &Path, dest: &Path) -> Result<P
     zip.write_all(toml::to_string_pretty(&manifest)?.as_bytes())
         .map_err(io(partial))?;
 
-    let mut count = 0;
     let skip = [dest.to_path_buf(), partial.to_path_buf()];
-    add_folder(
-        &mut zip,
-        &site.path,
-        Path::new(""),
-        options,
-        &skip,
-        &mut count,
-    )
-    .map_err(|e| Error::Archive {
-        path: dest.to_owned(),
-        message: e,
-    })?;
+    let mut entries = Vec::new();
+    let count = list_folder(&site.path, Path::new(""), &skip, &mut entries)
+        .and_then(|()| add_entries(&mut zip, &site.path, &entries, options, progress))
+        .map_err(|e| Error::Archive {
+            path: dest.to_owned(),
+            message: e,
+        })?;
 
     if let Some((_, path)) = &dump {
         zip.start_file(
@@ -261,10 +280,15 @@ type Dump = (SiteDatabase, PathBuf);
 /// Dumps the site's database into the Databases screen's backups folder;
 /// the caller moves it into the zip. The second part says why a database
 /// that was found was left out.
-fn dump_database(home: &Path, site: &Site) -> Result<(Option<Dump>, Option<String>)> {
+fn dump_database(
+    home: &Path,
+    site: &Site,
+    progress: &mut dyn FnMut(PackStep),
+) -> Result<(Option<Dump>, Option<String>)> {
     let Some(db) = site_database(site) else {
         return Ok((None, None));
     };
+    progress(PackStep::Database);
     let picked = site.settings.database.is_some();
     let dumped = Client::open_server(home, Some(&db.server)).and_then(|client| {
         let exists = client.databases()?.iter().any(|d| d.name == db.name);
@@ -291,13 +315,18 @@ fn dump_database(home: &Path, site: &Site) -> Result<(Option<Dump>, Option<Strin
     }
 }
 
-fn add_folder<W: Write + std::io::Seek>(
-    zip: &mut zip::ZipWriter<W>,
+/// A folder or file to pack, by its path inside the project.
+struct Entry {
+    inner: PathBuf,
+    dir: bool,
+}
+
+/// Lists what to pack under `root/relative`, folders before what is in them.
+fn list_folder(
     root: &Path,
     relative: &Path,
-    options: zip::write::SimpleFileOptions,
     skip: &[PathBuf],
-    count: &mut u64,
+    out: &mut Vec<Entry>,
 ) -> std::result::Result<(), String> {
     let dir = root.join(relative);
     let mut entries: Vec<_> = std::fs::read_dir(&dir)
@@ -316,36 +345,63 @@ fn add_folder<W: Write + std::io::Seek>(
         if kind.is_symlink() || skip.contains(&path) {
             continue;
         }
-        let zip_name = format!("{FILES}{}", slash(&inner));
         if kind.is_dir() {
             if SKIP.iter().any(|s| name == *s) {
                 continue;
             }
-            zip.add_directory(format!("{zip_name}/"), options)
-                .map_err(|e| e.to_string())?;
-            add_folder(zip, root, &inner, options, skip, count)?;
+            out.push(Entry {
+                inner: inner.clone(),
+                dir: true,
+            });
+            list_folder(root, &inner, skip, out)?;
         } else if kind.is_file() {
-            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-            let mut file_options = options.large_file(size >= u32::MAX as u64);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Ok(meta) = entry.metadata() {
-                    file_options = file_options.unix_permissions(meta.permissions().mode() & 0o777);
-                }
-            }
-            zip.start_file(zip_name, file_options)
-                .map_err(|e| e.to_string())?;
-            let mut from = File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            std::io::copy(&mut from, zip).map_err(|e| format!("{}: {e}", path.display()))?;
-            *count += 1;
+            out.push(Entry { inner, dir: false });
         }
     }
     Ok(())
 }
 
+/// Adds the listed folders and files to the zip. Returns how many files.
+fn add_entries<W: Write + std::io::Seek>(
+    zip: &mut zip::ZipWriter<W>,
+    root: &Path,
+    entries: &[Entry],
+    options: zip::write::SimpleFileOptions,
+    progress: &mut dyn FnMut(PackStep),
+) -> std::result::Result<u64, String> {
+    let total = entries.iter().filter(|e| !e.dir).count() as u64;
+    let mut done = 0;
+    progress(PackStep::Files { done, total });
+    for entry in entries {
+        let zip_name = format!("{FILES}{}", slash(&entry.inner));
+        if entry.dir {
+            zip.add_directory(format!("{zip_name}/"), options)
+                .map_err(|e| e.to_string())?;
+            continue;
+        }
+        let path = root.join(&entry.inner);
+        let meta = std::fs::metadata(&path).ok();
+        let size = meta.as_ref().map_or(0, |m| m.len());
+        let mut file_options = options.large_file(size >= u32::MAX as u64);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Some(meta) = &meta {
+                file_options = file_options.unix_permissions(meta.permissions().mode() & 0o777);
+            }
+        }
+        zip.start_file(zip_name, file_options)
+            .map_err(|e| e.to_string())?;
+        let mut from = File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::io::copy(&mut from, zip).map_err(|e| format!("{}: {e}", path.display()))?;
+        done += 1;
+        progress(PackStep::Files { done, total });
+    }
+    Ok(done)
+}
+
 /// Backs a site up into its backups folder.
-pub fn backup(home: &Path, site: &Site) -> Result<Packed> {
+pub fn backup(home: &Path, site: &Site, progress: &mut dyn FnMut(PackStep)) -> Result<Packed> {
     let domain = site.domain();
     let dir = backups_dir(home).join(&domain);
     let stamp = databases::stamp();
@@ -357,7 +413,7 @@ pub fn backup(home: &Path, site: &Site) -> Result<Packed> {
         })
         .find(|p| !p.exists())
         .expect("a free name");
-    pack(home, site, &dest)
+    pack(home, site, &dest, progress)
 }
 
 /// A site's backups, newest first.
@@ -451,24 +507,35 @@ fn not_a_pack(pack: &Path) -> Error {
 /// Puts back a site's files and database from `pack`. Files in the backup
 /// replace the site's files of the same name; files added since are kept.
 /// A backup of the site as it is now is made first, and returned.
-pub fn restore(home: &Path, site: &Site, pack: &Path) -> Result<Packed> {
+pub fn restore(
+    home: &Path,
+    site: &Site,
+    pack: &Path,
+    progress: &mut dyn FnMut(PackStep),
+) -> Result<Packed> {
     let manifest = read_manifest(pack)?;
-    let safety = backup(home, site)?;
-    unpack_files(pack, &site.path)?;
+    let safety = backup(home, site, progress)?;
+    unpack_files(pack, &site.path, progress)?;
     if let Some(db) = &manifest.database {
+        progress(PackStep::Loading);
         restore_database(home, pack, db, None)?;
     }
     Ok(safety)
 }
 
 /// Writes the files in `pack` into `dest`.
-fn unpack_files(pack: &Path, dest: &Path) -> Result<u64> {
+fn unpack_files(pack: &Path, dest: &Path, progress: &mut dyn FnMut(PackStep)) -> Result<u64> {
     let fail = |message: String| Error::Archive {
         path: pack.to_owned(),
         message,
     };
     let mut zip = open_zip(pack)?;
+    let total = zip
+        .file_names()
+        .filter(|n| n.len() > FILES.len() && n.starts_with(FILES) && !n.ends_with('/'))
+        .count() as u64;
     let mut count = 0;
+    progress(PackStep::Unpacking { done: 0, total });
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| fail(e.to_string()))?;
         let Some(name) = entry.name().strip_prefix(FILES).map(str::to_string) else {
@@ -505,6 +572,7 @@ fn unpack_files(pack: &Path, dest: &Path) -> Result<u64> {
                 std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode & 0o777));
         }
         count += 1;
+        progress(PackStep::Unpacking { done: count, total });
     }
     Ok(count)
 }
@@ -562,7 +630,12 @@ pub struct ImportOptions {
 
 /// Brings in a site file made by [`pack`] (or a backup): unpacks its
 /// files, adds the site and loads its database.
-pub fn import(home: &Path, pack: &Path, options: ImportOptions) -> Result<(Site, Option<String>)> {
+pub fn import(
+    home: &Path,
+    pack: &Path,
+    options: ImportOptions,
+    progress: &mut dyn FnMut(PackStep),
+) -> Result<(Site, Option<String>)> {
     let manifest = read_manifest(pack)?;
     let settings = Settings::load_from(&home.join("settings.toml"))?;
     let name = options
@@ -602,10 +675,11 @@ pub fn import(home: &Path, pack: &Path, options: ImportOptions) -> Result<(Site,
         path: path.clone(),
         source,
     })?;
-    unpack_files(pack, &path)?;
+    unpack_files(pack, &path, progress)?;
     let site = store.add(site)?.clone();
     store.save()?;
     let warning = manifest.database.as_ref().and_then(|db| {
+        progress(PackStep::Loading);
         restore_database(home, pack, db, None).err().map(|e| {
             format!(
                 "the files are in place, but the database {} could not be loaded ({e}); start the database server and restore it from the site's backups",
@@ -727,8 +801,11 @@ mod tests {
     fn backs_up_restores_and_imports() {
         let home = crate::testutil::tempdir();
         let site = site(&home);
-        let packed = backup(&home, &site).unwrap();
+        let mut steps = Vec::new();
+        let packed = backup(&home, &site, &mut |step| steps.push(step)).unwrap();
         assert_eq!(packed.files, 2, "node_modules is left out");
+        assert_eq!(steps.first(), Some(&PackStep::Files { done: 0, total: 2 }));
+        assert_eq!(steps.last(), Some(&PackStep::Files { done: 2, total: 2 }));
         assert_eq!(packed.database, None);
         let list = backups(&home, "blog.stack");
         assert_eq!(list.len(), 1);
@@ -742,7 +819,12 @@ mod tests {
         std::fs::write(site.path.join("README.md"), "changed").unwrap();
         std::fs::write(site.path.join("new.txt"), "new").unwrap();
         std::fs::remove_file(site.path.join("public/index.php")).unwrap();
-        let safety = restore(&home, &site, &packed.path).unwrap();
+        let mut steps = Vec::new();
+        let safety = restore(&home, &site, &packed.path, &mut |step| steps.push(step)).unwrap();
+        assert_eq!(
+            steps.last(),
+            Some(&PackStep::Unpacking { done: 2, total: 2 })
+        );
         assert_eq!(
             std::fs::read_to_string(site.path.join("README.md")).unwrap(),
             "old"
@@ -759,6 +841,7 @@ mod tests {
                 name: Some("blog-copy".into()),
                 path: Some(home.join("Code/blog-copy")),
             },
+            &mut |_| {},
         )
         .unwrap();
         assert_eq!(warning, None);
@@ -777,6 +860,7 @@ mod tests {
                     name: Some(name.into()),
                     path: Some(home.join("Code/blog-copy")),
                 },
+                &mut |_| {},
             )
         };
         assert!(again("third").is_err());
@@ -788,6 +872,7 @@ mod tests {
                     name: Some("blog-copy".into()),
                     path: Some(home.join("Code/empty")),
                 },
+                &mut |_| {},
             ),
             Err(Error::SiteExists(_))
         ));

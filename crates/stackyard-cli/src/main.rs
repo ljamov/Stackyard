@@ -1998,7 +1998,7 @@ fn site_pack_action(action: SitesCommand) -> stackyard_core::Result<()> {
     match action {
         SitesCommand::Backup { site } => {
             settings.require_module("sitebackups")?;
-            report(&sitepack::backup(&home, &find_site(&site)?)?);
+            report(&sitepack::backup(&home, &find_site(&site)?, &mut |_| {})?);
         }
         SitesCommand::Backups { site } => {
             let site = find_site(&site)?;
@@ -2022,7 +2022,7 @@ fn site_pack_action(action: SitesCommand) -> stackyard_core::Result<()> {
             settings.require_module("sitebackups")?;
             let site = find_site(&site)?;
             let path = sitepack::backup_path(&home, &site.domain(), &file)?;
-            let safety = sitepack::restore(&home, &site, &path)?;
+            let safety = sitepack::restore(&home, &site, &path, &mut |_| {})?;
             notify(Request::SitesChanged);
             println!(
                 "Restored {} from {file}. How it was before is in {}",
@@ -2036,12 +2036,21 @@ fn site_pack_action(action: SitesCommand) -> stackyard_core::Result<()> {
             if file.extension().is_none() {
                 file.set_extension("zip");
             }
-            report(&sitepack::pack(&home, &find_site(&site)?, &file)?);
+            report(&sitepack::pack(
+                &home,
+                &find_site(&site)?,
+                &file,
+                &mut |_| {},
+            )?);
         }
         SitesCommand::Import { file, name, path } => {
             settings.require_module("sitetransfer")?;
-            let (site, warning) =
-                sitepack::import(&home, &file, sitepack::ImportOptions { name, path })?;
+            let (site, warning) = sitepack::import(
+                &home,
+                &file,
+                sitepack::ImportOptions { name, path },
+                &mut |_| {},
+            )?;
             notify(Request::SitesChanged);
             println!("Added {} in {}", site.url(), site.path.display());
             if let Some(warning) = warning {
