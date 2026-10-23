@@ -194,6 +194,9 @@ pub fn sites(
     }
     for folder in &settings.parked {
         for (name, path) in project_folders(folder) {
+            if settings.hidden.contains(&path) {
+                continue;
+            }
             let site = parked_site(name, path, settings, runtimes);
             if taken.insert(site.domain()) {
                 served.push(from_site(site, true, runtimes));
@@ -968,6 +971,15 @@ mod tests {
         std::fs::write(code.join("blog/.stackyard"), "php = \"8.2\"\n").unwrap();
         let served = sites(&home, &settings, &runtimes).unwrap();
         assert!(matches!(&served[1].backend, Backend::Php { version, .. } if version == "8.2"));
+
+        // A removed project in a parked folder stays off the list.
+        assert!(settings.hide_parked(&code.join("blog")));
+        assert!(!settings.hide_parked(&home.join("elsewhere")));
+        let served = sites(&home, &settings, &runtimes).unwrap();
+        let names: Vec<_> = served.iter().map(|s| s.domain()).collect();
+        assert_eq!(names, ["shop.stack", "landing-page.stack"]);
+        assert!(settings.unhide(&code.join("blog")));
+        assert_eq!(sites(&home, &settings, &runtimes).unwrap().len(), 3);
     }
 
     #[test]

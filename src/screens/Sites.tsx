@@ -266,7 +266,7 @@ export function Sites() {
         </p>
       )}
       {error && (
-        <p className="error small" role="alert">
+        <p className="error small" role="alert" ref={(el) => el?.scrollIntoView({ block: "nearest", behavior: "smooth" })}>
           {error}
         </p>
       )}
@@ -573,16 +573,15 @@ function SiteRow({
         >
           Manage
         </button>
-        {!site.parked && (
-          <button
-            type="button"
-            className="btn ghost small"
-            aria-label={`Remove ${site.domain}`}
-            onClick={() => onRemove(site.domain)}
-          >
-            Remove
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn ghost small"
+          aria-label={`Remove ${site.domain}`}
+          title={t("Take {site} off the list; its folder and files stay", { site: site.domain })}
+          onClick={() => onRemove(site.domain)}
+        >
+          Remove
+        </button>
         </div>
       </td>
     </tr>

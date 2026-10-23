@@ -19,6 +19,10 @@ Update button, and the app shows its own version's section after it updates.
   also skips column statistics, which MariaDB and older servers don't have, and copies from a live
   server do the same when the server's mysqldump is MySQL's.
 - Database errors show what actually went wrong, not a warning printed before it.
+- **Fixed: Remove on Sites did nothing** for sites in a parked folder, which is where new sites go
+  (C:\stackyard\www on Windows). The site was taken off the list and then came straight back as a
+  parked site. Removed sites now stay off the list; their folder and files are kept. Parked sites
+  have a Remove button too, and an error from Remove or Open now scrolls into view.
 
 ## 0.10.0
 
