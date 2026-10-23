@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
-import { BrandIcon } from "../components/BrandIcon";
-import { frameworkBrand } from "../lib/brands";
 import { api, errorText, type RuntimeFamily, type Site, type SiteFile } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { openTerminal } from "../lib/terminal";
 import { openTab, siteTab } from "../lib/layout";
 import { SiteVersions } from "../components/SiteVersions";
+import { SiteThumb } from "../components/SiteThumb";
+import { SiteDatabaseLine } from "../components/SiteDatabase";
 import { CloneSite } from "../components/wordpress/CloneSite";
 import { useT } from "../lib/i18n";
 
@@ -485,7 +485,7 @@ function SiteRow({
     <tr>
       <td>
         <div className="site-cell">
-          <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
+          <SiteThumb site={site} />
           <div>
             <button type="button" className="link mono" onClick={() => api.openLocalPage(site.url)}>
               {site.url}
@@ -505,6 +505,7 @@ function SiteRow({
         {site.framework ? `${site.framework} · ` : ""}
         {site.runtime}
         {site.problem && <div className="warn small">{site.problem}</div>}
+        <SiteDatabaseLine domain={site.domain} />
         <SiteVersions site={site} families={families} onChanged={onVersionChanged} />
       </td>
       <td className="mono muted small">{site.root}</td>

@@ -45,7 +45,7 @@ const SHOTS = {
       await sleep(300);
       await page.getByRole("button", { name: "WordPress", exact: true }).click();
       await sleep(600);
-      await page.getByRole("button", { name: "Environments", exact: true }).click();
+      await page.getByRole("tab", { name: "Environments", exact: true }).click();
       await sleep(800);
     },
     after: closeTab,

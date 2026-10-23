@@ -24,6 +24,10 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sites_folder: Option<PathBuf>,
     pub mcp: McpSettings,
+    /// Sites, by domain, whose database server starts whenever the web
+    /// server starts (see [`crate::sitedb`]).
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub start_databases: BTreeSet<String>,
     /// The window's own settings (theme, accent color, language), kept as
     /// written; see [`crate::interface`].
     #[serde(skip_serializing_if = "toml::Table::is_empty")]
@@ -48,6 +52,7 @@ impl Default for Settings {
             parked: Vec::new(),
             sites_folder: None,
             mcp: McpSettings::default(),
+            start_databases: BTreeSet::new(),
             interface: toml::Table::new(),
         }
     }

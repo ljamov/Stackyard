@@ -17,6 +17,10 @@ import {
   type WpUser,
 } from "../../lib/wordpress";
 import { EnvironmentsTab } from "./Environments";
+import { Icon } from "../Icon";
+import { SiteThumb } from "../SiteThumb";
+import { AutostartCheck, SiteDatabaseNotice, useSiteDatabase } from "../SiteDatabase";
+import "../site-views.css";
 
 export function size(bytes: number) {
   if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -68,7 +72,7 @@ function useAction() {
   return { busy, run, status, setError };
 }
 
-const TABS = ["Overview", "Environments", "Plugins", "Themes", "Users", "Debug", "Search and replace", "Database", "WooCommerce"] as const;
+const TABS = ["Overview", "Plugins", "Themes", "Users", "Environments", "Database", "Debug", "Search and replace", "WooCommerce"] as const;
 type Tab = (typeof TABS)[number];
 
 function tabLabel(t: T, tab: Tab) {
@@ -85,48 +89,111 @@ function tabLabel(t: T, tab: Tab) {
   }[tab];
 }
 
-/** The WordPress tab of a site's tools: everyday jobs without opening wp-admin. */
+/** The tab each site was on, so coming back to a site opens where it was left. */
+const lastTab = new Map<string, Tab>();
+
+/**
+ * The WordPress view of a site, laid out like Local or WordPress Studio: the
+ * site's picture and its main buttons on top, then tabs for everyday jobs
+ * without opening wp-admin.
+ */
 export function WordPressTools({ site }: { site: Site }) {
   const t = useT();
   const [overview, setOverview] = useState<WpOverview | null>(null);
+  const [env, setEnv] = useState<WpEnvironment | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("Overview");
+  const [tab, setTabState] = useState<Tab>(() => lastTab.get(site.domain) ?? "Overview");
+  const database = useSiteDatabase(site.domain);
+  const setTab = (x: Tab) => {
+    lastTab.set(site.domain, x);
+    setTabState(x);
+  };
 
   const reload = useCallback(() => {
     setError(null);
     wp.overview(site.domain)
       .then(setOverview)
       .catch((e) => setError(errorText(e)));
+    wp.environment(site.domain)
+      .then(setEnv)
+      .catch(() => setEnv(null));
   }, [site.domain]);
   useEffect(reload, [reload]);
 
-  if (error) {
-    return (
-      <p className="error small" role="alert">
-        {error}
-      </p>
-    );
-  }
-  if (!overview) return <p className="muted small">{t("Reading the site…")}</p>;
-  const tabs = TABS.filter((x) => x !== "WooCommerce" || overview.woocommerce);
+  const tabs = TABS.filter((x) => x !== "WooCommerce" || overview?.woocommerce);
+  const shown = tabs.includes(tab) ? tab : "Overview";
   return (
-    <div className="stack">
-      <div className="row wrap" role="group" aria-label={t("WordPress tools for {site}", { site: site.domain })}>
+    <div className="wp-view">
+      <header className="wp-hero">
+        <SiteThumb site={site} large />
+        <div className="wp-hero-main">
+          <div className="wp-hero-title">
+            <h2>{site.name}</h2>
+            {env?.kind === "staging" && <span className="wp-pill">{t("Staging")}</span>}
+            {env?.live && <span className="wp-pill">{t("Copy of a live site")}</span>}
+          </div>
+          <button type="button" className="link mono small" onClick={() => api.openLocalPage(site.url)}>
+            {site.url.replace(/^https?:\/\//, "")}
+          </button>
+          <div className="wp-facts-line small">
+            {overview?.woocommerce ? (
+              <span>
+                {t("WooCommerce")} {overview.woocommerce}
+              </span>
+            ) : null}
+            <span>
+              {t("WordPress")} {overview?.wordpress ?? "…"}
+            </span>
+            <span>
+              {t("PHP")} {overview?.php ?? "…"}
+            </span>
+            {database.db && (
+              <span className={database.db.running ? "wp-db ok" : "wp-db warn"}>
+                <span className={database.db.running ? "dot ok" : "dot warn"} aria-hidden="true" />
+                {database.db.service_name ?? t("Database")} {database.db.running ? t("running") : t("stopped")}
+              </span>
+            )}
+          </div>
+          <div className="row wrap wp-hero-buttons">
+            <button type="button" className="btn primary" onClick={() => api.openLocalPage(site.url)}>
+              {t("Open site")}
+            </button>
+            <button type="button" className="btn" onClick={() => api.openLocalPage(`${site.url}/wp-admin/`)}>
+              {t("WP Admin")}
+            </button>
+          </div>
+        </div>
+      </header>
+      <SiteDatabaseNotice site={site} state={database} />
+      {error && (
+        <p className="error small" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="wp-tabs" role="tablist" aria-label={t("WordPress tools for {site}", { site: site.domain })}>
         {tabs.map((x) => (
-          <button key={x} type="button" className="tab" aria-pressed={tab === x} onClick={() => setTab(x)}>
+          <button key={x} type="button" role="tab" className="wp-tab" aria-selected={shown === x} onClick={() => setTab(x)}>
             {tabLabel(t, x)}
           </button>
         ))}
       </div>
-      {tab === "Overview" && <OverviewTab site={site} overview={overview} />}
-      {tab === "Environments" && <EnvironmentsTab site={site} />}
-      {tab === "Plugins" && <ExtensionsTab site={site} kind="plugin" />}
-      {tab === "Themes" && <ExtensionsTab site={site} kind="theme" />}
-      {tab === "Users" && <UsersTab site={site} />}
-      {tab === "Debug" && <DebugTab site={site} overview={overview} onChanged={setOverview} />}
-      {tab === "Search and replace" && <ReplaceTab site={site} />}
-      {tab === "Database" && <DatabaseTab site={site} overview={overview} />}
-      {tab === "WooCommerce" && <WooTab site={site} />}
+      <div className="wp-panel" role="tabpanel">
+        {!overview ? (
+          !error && <p className="muted small">{t("Reading the site…")}</p>
+        ) : (
+          <>
+            {shown === "Overview" && <OverviewTab site={site} overview={overview} env={env} database={database} onTab={setTab} />}
+            {shown === "Environments" && <EnvironmentsTab site={site} />}
+            {shown === "Plugins" && <ExtensionsTab site={site} kind="plugin" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />}
+            {shown === "Themes" && <ExtensionsTab site={site} kind="theme" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />}
+            {shown === "Users" && <UsersTab site={site} />}
+            {shown === "Debug" && <DebugTab site={site} overview={overview} onChanged={setOverview} />}
+            {shown === "Search and replace" && <ReplaceTab site={site} />}
+            {shown === "Database" && <DatabaseTab site={site} overview={overview} />}
+            {shown === "WooCommerce" && <WooTab site={site} />}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -144,239 +211,506 @@ function Facts({ rows }: { rows: [string, ReactNode][] }) {
   );
 }
 
-function OverviewTab({ site, overview }: { site: Site; overview: WpOverview }) {
+/** Shortcuts into wp-admin, like WordPress Studio's "Customize" box. */
+function shortcuts(t: T, blockTheme: boolean): [string, string][] {
+  return [
+    ...(blockTheme
+      ? ([
+          [t("Site editor"), "site-editor.php"],
+          [t("Styles"), "site-editor.php?path=%2Fwp_global_styles"],
+          [t("Patterns"), "site-editor.php?path=%2Fpatterns"],
+        ] as [string, string][])
+      : ([
+          [t("Customizer"), "customize.php"],
+          [t("Menus"), "nav-menus.php"],
+          [t("Widgets"), "widgets.php"],
+        ] as [string, string][])),
+    [t("Pages"), "edit.php?post_type=page"],
+    [t("Posts"), "edit.php"],
+    [t("Media"), "upload.php"],
+    [t("Settings"), "options-general.php"],
+    [t("Permalinks"), "options-permalink.php"],
+  ];
+}
+
+function OverviewTab({
+  site,
+  overview,
+  env,
+  database,
+  onTab,
+}: {
+  site: Site;
+  overview: WpOverview;
+  env: WpEnvironment | null;
+  database: ReturnType<typeof useSiteDatabase>;
+  onTab: (tab: Tab) => void;
+}) {
   const t = useT();
   const { isOn } = useModules();
   const [disk, setDisk] = useState<WpDiskUse | null>(null);
   const [update, setUpdate] = useState<WpCoreUpdate | null>(null);
-  const [env, setEnv] = useState<WpEnvironment | null>(null);
   const action = useAction();
 
   useEffect(() => {
     wp.diskUse(site.domain).then(setDisk).catch(() => setDisk(null));
-    wp.environment(site.domain).then(setEnv).catch(() => setEnv(null));
   }, [site.domain]);
   const live = env?.live;
+  const db = database.db;
+
+  const rows: [string, ReactNode][] = [
+    [t("Site domain"), <span className="mono">{site.domain}</span>],
+    [t("SSL"), site.https ? t("Local HTTPS certificate") : t("HTTP only")],
+    [t("Web server"), "Caddy"],
+    [t("PHP version"), overview.php ?? t("unknown")],
+    [
+      t("Database"),
+      db ? (
+        <>
+          <span className="mono">{db.database}</span>
+          {` · ${db.service_name ?? t("no server has it yet")}`}
+          {db.service_name && ` · ${db.running ? t("running") : t("stopped")}`}
+        </>
+      ) : (
+        overview.database ?? "?"
+      ),
+    ],
+    [t("Table prefix"), <span className="mono">{overview.prefix}</span>],
+    [t("WordPress version"), overview.wordpress ?? t("unknown")],
+    ...(overview.woocommerce ? ([[t("WooCommerce"), overview.woocommerce]] as [string, ReactNode][]) : []),
+    [t("Environment"), overview.environment ?? t("not set")],
+    ...(live
+      ? ([
+          [
+            t("Live site"),
+            <>
+              <span className="mono">{live.url}</span>
+              {` · ${t("copied {date}", { date: new Date(live.synced_at * 1000).toLocaleString() })}`}
+              {live.media === "from-live" ? ` · ${t("media loads from the live site")}` : ""}
+            </>,
+          ],
+        ] as [string, ReactNode][])
+      : []),
+    ...(overview.multisite ? ([[t("Multisite"), t("yes")]] as [string, ReactNode][]) : []),
+    [
+      t("Disk use"),
+      disk
+        ? `${size(disk.total)} ${t("in all")} · ${t("media")} ${size(disk.uploads)} · ${t("plugins")} ${size(disk.plugins)} · ${t("themes")} ${size(disk.themes)}${disk.database != null ? ` · ${t("database")} ${size(disk.database)}` : ""}`
+        : t("Counting…"),
+    ],
+  ];
 
   return (
-    <div className="stack">
-      {overview.warnings.map((w) => (
-        <p key={w} className="warn small">
-          {w}
-        </p>
-      ))}
-      <Facts
-        rows={[
-          [t("WordPress"), overview.wordpress ?? t("unknown")],
-          [t("PHP"), overview.php ?? t("unknown")],
-          [t("Database"), `${overview.database ?? "?"} · ${t("tables start with {prefix}", { prefix: overview.prefix })}${overview.database_server ? ` · ${overview.database_server}` : ""}`],
-          ...(overview.woocommerce ? ([[t("WooCommerce"), overview.woocommerce]] as [string, ReactNode][]) : []),
-          [t("Environment"), overview.environment ?? t("not set")],
-          ...(live
-            ? ([
-                [
-                  t("Live site"),
-                  <>
-                    <span className="mono">{live.url}</span>
-                    {` · ${t("copied {date}", { date: new Date(live.synced_at * 1000).toLocaleString() })}`}
-                    {live.media === "from-live" ? ` · ${t("media loads from the live site")}` : ""}
-                  </>,
-                ],
-              ] as [string, ReactNode][])
-            : []),
-          ...(overview.multisite ? ([[t("Multisite"), t("yes")]] as [string, ReactNode][]) : []),
-          [
-            t("Disk use"),
-            disk
-              ? `${size(disk.total)} ${t("in all")} · ${t("media")} ${size(disk.uploads)} · ${t("plugins")} ${size(disk.plugins)} · ${t("themes")} ${size(disk.themes)}${disk.database != null ? ` · ${t("database")} ${size(disk.database)}` : ""}`
-              : t("Counting…"),
-          ],
-        ]}
-      />
-      <div className="row wrap">
-        <button type="button" className="btn" onClick={() => api.openLocalPage(site.url)}>
-          {t("Open site")}
-        </button>
-        <button type="button" className="btn" onClick={() => api.openLocalPage(`${site.url}/wp-admin/`)}>
-          {t("Open wp-admin")}
-        </button>
-        {isOn("mailpit") && (
-          <button type="button" className="btn ghost" onClick={() => api.openLocalPage("http://127.0.0.1:8025")}>
-            {t("Mail caught by Mailpit")}
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn ghost"
-          disabled={action.busy !== null}
-          onClick={() =>
-            action.run(
-              overview.wp_cli ? t("Checking for a new WordPress…") : t("Downloading WP-CLI, then checking for a new WordPress…"),
-              () => wp.coreUpdate(site.domain),
-              (u) => {
-                setUpdate(u);
-                return u.available ? null : t("WordPress is up to date.");
-              },
-            )
-          }
-        >
-          {t("Check for a WordPress update")}
-        </button>
-      </div>
-      {update?.available && (
-        <div className="row centered wrap">
-          <span className="small">{t("WordPress {version} is available.", { version: update.available })}</span>
+    <div className="wp-overview">
+      <section className="wp-card" aria-labelledby="wp-details-h">
+        <h3 id="wp-details-h">{t("Site details")}</h3>
+        {overview.warnings.map((w) => (
+          <p key={w} className="warn small">
+            {w}
+          </p>
+        ))}
+        <Facts rows={rows} />
+        {db?.service_name && db.running && <AutostartCheck state={database} />}
+        <div className="row wrap">
           <button
             type="button"
-            className="btn small primary"
+            className="btn small"
             disabled={action.busy !== null}
             onClick={() =>
-              action.run(t("Updating WordPress…"), () => wp.updateCore(site.domain), () => {
-                setUpdate(null);
-                return t("WordPress is updated.");
-              })
+              action.run(
+                overview.wp_cli ? t("Checking for a new WordPress…") : t("Downloading WP-CLI, then checking for a new WordPress…"),
+                () => wp.coreUpdate(site.domain),
+                (u) => {
+                  setUpdate(u);
+                  return u.available ? null : t("WordPress is up to date.");
+                },
+              )
             }
           >
-            {t("Update WordPress")}
+            {t("Check for a WordPress update")}
           </button>
+          {update?.available && (
+            <button
+              type="button"
+              className="btn small primary"
+              disabled={action.busy !== null}
+              onClick={() =>
+                action.run(t("Updating WordPress…"), () => wp.updateCore(site.domain), () => {
+                  setUpdate(null);
+                  return t("WordPress is updated.");
+                })
+              }
+            >
+              {t("Update to WordPress {version}", { version: update.available })}
+            </button>
+          )}
         </div>
-      )}
-      {action.status}
-      {!isOn("mailpit") && (
-        <p className="muted small">{t("Turn on Mailpit in Settings › Modules to catch the mail this site sends.")}</p>
-      )}
+        {action.status}
+      </section>
+      <div className="wp-side">
+        <section className="wp-card" aria-labelledby="wp-customize-h">
+          <h3 id="wp-customize-h">{t("Customize")}</h3>
+          <div className="wp-shortcuts">
+            {shortcuts(t, overview.block_theme).map(([label, path]) => (
+              <button key={path} type="button" className="wp-shortcut" onClick={() => api.openLocalPage(`${site.url}/wp-admin/${path}`)}>
+                {label}
+                <Icon name="external" />
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="wp-card" aria-labelledby="wp-tools-h">
+          <h3 id="wp-tools-h">{t("Tools")}</h3>
+          <div className="wp-shortcuts">
+            <button type="button" className="wp-shortcut" onClick={() => onTab("Plugins")}>
+              {t("Plugins")}
+            </button>
+            <button type="button" className="wp-shortcut" onClick={() => onTab("Themes")}>
+              {t("Themes")}
+            </button>
+            <button type="button" className="wp-shortcut" onClick={() => onTab("Users")}>
+              {t("Log in as a user")}
+            </button>
+            <button type="button" className="wp-shortcut" onClick={() => onTab("Debug")}>
+              {t("Debug log")}
+            </button>
+            {isOn("mailpit") && (
+              <button type="button" className="wp-shortcut" onClick={() => api.openLocalPage("http://127.0.0.1:8025")}>
+                {t("Mail caught by Mailpit")}
+                <Icon name="external" />
+              </button>
+            )}
+          </div>
+          {!isOn("mailpit") && (
+            <p className="muted small">{t("Turn on Mailpit in Settings › Modules to catch the mail this site sends.")}</p>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
 
-function ExtensionsTab({ site, kind }: { site: Site; kind: WpKind }) {
+/** Plugin and theme lists already read this session, so switching tabs shows them at once. */
+const extensionLists = new Map<string, WpExtension[]>();
+/** Lists whose updates were checked with wordpress.org this session. */
+const updatesChecked = new Set<string>();
+/** Theme pictures already read, by site and theme. */
+const themePictures = new Map<string, string | null>();
+
+type Filter = "all" | "active" | "inactive" | "updates";
+
+function ExtensionsTab({ site, kind, wpCli, blockTheme }: { site: Site; kind: WpKind; wpCli: boolean; blockTheme: boolean }) {
   const t = useT();
-  const [list, setList] = useState<WpExtension[] | null>(null);
+  const key = `${site.domain}|${kind}`;
+  const [list, setList] = useState<WpExtension[] | null>(() => extensionLists.get(key) ?? null);
+  const [checking, setChecking] = useState(false);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [search, setSearch] = useState("");
   const [slug, setSlug] = useState("");
   const action = useAction();
   const word = kind === "plugin" ? t("plugins") : t("themes");
 
-  useEffect(() => {
-    action.run(t("Reading the {what}… (the first time, WP-CLI is downloaded)", { what: word }), () => wp.extensions(site.domain, kind), (l) => {
+  const keep = useCallback(
+    (l: WpExtension[]) => {
+      extensionLists.set(key, l);
       setList(l);
-      return null;
-    });
-  }, [site.domain, kind]);
+    },
+    [key],
+  );
+
+  const checkUpdates = useCallback(async () => {
+    setChecking(true);
+    try {
+      keep(await wp.extensions(site.domain, kind, true));
+      updatesChecked.add(key);
+    } catch (e) {
+      action.setError(errorText(e));
+    } finally {
+      setChecking(false);
+    }
+  }, [site.domain, kind, key, keep]);
+
+  useEffect(() => {
+    const cached = extensionLists.get(key);
+    setList(cached ?? null);
+    (async () => {
+      if (cached) {
+        // Shown at once; read again quietly in case it changed in wp-admin.
+        await wp.extensions(site.domain, kind, false).then(keep).catch(() => {});
+      } else {
+        const first = await action.run(
+          wpCli ? t("Reading the {what}…", { what: word }) : t("Downloading WP-CLI (only this once), then reading the {what}…", { what: word }),
+          () => wp.extensions(site.domain, kind, false),
+        );
+        if (!first) return;
+        keep(first);
+      }
+      if (!updatesChecked.has(key)) await checkUpdates();
+    })();
+  }, [key]);
 
   const change = (name: string, act: "activate" | "deactivate" | "update" | "delete", label: string) =>
     action.run(label, () => wp.changeExtension(site.domain, kind, name, act), (l) => {
-      setList(l);
+      keep(l);
       return null;
     });
 
-  async function install(e: FormEvent) {
-    e.preventDefault();
+  async function install(activate: boolean) {
     const s = slug.trim();
     if (!s) return;
-    await action.run(t("Installing {name}…", { name: s }), () => wp.installExtension(site.domain, kind, s, false), (l) => {
-      setList(l);
+    await action.run(t("Installing {name}…", { name: s }), () => wp.installExtension(site.domain, kind, s, activate), (l) => {
+      keep(l);
       setSlug("");
-      return t("{name} is installed.", { name: s });
+      return activate ? t("{name} is installed and active.", { name: s }) : t("{name} is installed.", { name: s });
     });
   }
 
-  const updates = list?.filter((e) => e.update === "available").length ?? 0;
+  const isActive = (e: WpExtension) => e.status === "active" || e.status === "parent" || e.status === "active-network";
+  const counts = {
+    all: list?.length ?? 0,
+    active: list?.filter(isActive).length ?? 0,
+    inactive: list?.filter((e) => e.status === "inactive").length ?? 0,
+    updates: list?.filter((e) => e.update === "available").length ?? 0,
+  };
+  const needle = search.trim().toLowerCase();
+  const shown = (list ?? []).filter((e) => {
+    if (filter === "active" && !isActive(e)) return false;
+    if (filter === "inactive" && e.status !== "inactive") return false;
+    if (filter === "updates" && e.update !== "available") return false;
+    return !needle || e.title.toLowerCase().includes(needle) || e.name.includes(needle);
+  });
+  const filters: [Filter, string][] = [
+    ["all", t("All")],
+    ["active", t("Active")],
+    ["inactive", t("Inactive")],
+    ["updates", t("Update available")],
+  ];
+  const disabled = action.busy !== null;
+
   return (
     <div className="stack">
-      {list && (
-        <div className="row between centered wrap">
-          <span className="muted small">
-            {updates > 0 ? t("{count} with updates", { count: updates }) : t("All up to date.")}
-          </span>
-          {updates > 0 && (
-            <button
-              type="button"
-              className="btn small"
-              disabled={action.busy !== null}
-              onClick={() => change("*", "update", t("Updating all {what}…", { what: word }))}
-            >
-              {t("Update all")}
-            </button>
-          )}
-        </div>
-      )}
-      {list?.map((e) => {
-        const active = e.status === "active" || e.status === "parent";
-        const fixed = e.status === "must-use" || e.status === "dropin";
-        return (
-          <div key={e.name} className="list-row">
-            <span className="small">
-              <strong>{e.title || e.name}</strong> <span className="muted">{e.version}</span>
-              {active && <span className="ok small"> · {e.status === "parent" ? t("parent theme") : t("on")}</span>}
-              {fixed && <span className="muted small"> · {e.status}</span>}
-              {e.update === "available" && e.update_version && (
-                <span className="warn small"> · {t("{version} available", { version: e.update_version })}</span>
-              )}
-            </span>
-            {!fixed && (
-              <span className="row">
-                {e.update === "available" && (
-                  <button
-                    type="button"
-                    className="btn small"
-                    disabled={action.busy !== null}
-                    onClick={() => change(e.name, "update", t("Updating {name}…", { name: e.title || e.name }))}
-                  >
-                    {t("Update")}
-                  </button>
-                )}
-                {!active && (
-                  <button
-                    type="button"
-                    className="btn small"
-                    disabled={action.busy !== null}
-                    onClick={() => change(e.name, "activate", t("Switching on {name}…", { name: e.title || e.name }))}
-                  >
-                    {kind === "theme" ? t("Use") : t("Switch on")}
-                  </button>
-                )}
-                {active && kind === "plugin" && (
-                  <button
-                    type="button"
-                    className="btn small ghost"
-                    disabled={action.busy !== null}
-                    onClick={() => change(e.name, "deactivate", t("Switching off {name}…", { name: e.title || e.name }))}
-                  >
-                    {t("Switch off")}
-                  </button>
-                )}
-                {!active && (
-                  <button
-                    type="button"
-                    className="btn small ghost"
-                    aria-label={t("Delete {name}", { name: e.title || e.name })}
-                    disabled={action.busy !== null}
-                    onClick={() => change(e.name, "delete", t("Deleting {name}…", { name: e.title || e.name }))}
-                  >
-                    {t("Delete")}
-                  </button>
-                )}
-              </span>
-            )}
-          </div>
-        );
-      })}
-      <form className="row centered wrap" onSubmit={install}>
+      <form
+        className="wp-add"
+        onSubmit={(e: FormEvent) => {
+          e.preventDefault();
+          install(false);
+        }}
+      >
         <label className="small" htmlFor={`wp-install-${kind}`}>
-          {kind === "plugin" ? t("Install a plugin from wordpress.org") : t("Install a theme from wordpress.org")}
+          {kind === "plugin" ? t("Add a plugin from wordpress.org") : t("Add a theme from wordpress.org")}
         </label>
         <input
           id={`wp-install-${kind}`}
           className="mono"
           placeholder={kind === "plugin" ? "query-monitor" : "twentytwentyfive"}
           value={slug}
+          spellCheck={false}
           onChange={(e) => setSlug(e.target.value)}
         />
-        <button type="submit" className="btn small" disabled={action.busy !== null || !slug.trim()}>
+        <button type="submit" className="btn small" disabled={disabled || !slug.trim()}>
           {t("Install")}
         </button>
+        <button type="button" className="btn small primary" disabled={disabled || !slug.trim()} onClick={() => install(true)}>
+          {t("Install and activate")}
+        </button>
       </form>
+
+      {list && (
+        <div className="wp-list-bar">
+          <div className="wp-filters" role="group" aria-label={t("Show")}>
+            {filters
+              .filter(([f]) => f !== "updates" || counts.updates > 0)
+              .map(([f, label]) => (
+                <button key={f} type="button" className="wp-filter" aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                  {label} <span className="wp-count">{counts[f]}</span>
+                </button>
+              ))}
+          </div>
+          <div className="row wp-list-tools">
+            {counts.updates > 1 && (
+              <button
+                type="button"
+                className="btn small"
+                disabled={disabled}
+                onClick={() => change("*", "update", t("Updating all {what}…", { what: word }))}
+              >
+                {t("Update all")}
+              </button>
+            )}
+            <button type="button" className="btn small ghost" disabled={checking} onClick={checkUpdates}>
+              {checking ? t("Checking for updates…") : t("Check for updates")}
+            </button>
+            <input
+              type="search"
+              className="wp-search"
+              placeholder={kind === "plugin" ? t("Search plugins") : t("Search themes")}
+              aria-label={kind === "plugin" ? t("Search plugins") : t("Search themes")}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
       {action.status}
+      {list && shown.length === 0 && <p className="muted small">{t("Nothing to show.")}</p>}
+      {kind === "plugin" ? (
+        <div className="wp-plugins">
+          {shown.map((e) => (
+            <PluginRow key={e.name} e={e} active={isActive(e)} disabled={disabled} change={change} />
+          ))}
+        </div>
+      ) : (
+        <div className="wp-themes">
+          {shown.map((e) => (
+            <ThemeCard key={e.name} site={site} e={e} active={isActive(e)} blockTheme={blockTheme} disabled={disabled} change={change} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type Change = (name: string, act: "activate" | "deactivate" | "update" | "delete", label: string) => unknown;
+
+/** A plugin as the Plugins screen in wp-admin shows it: Activate, Deactivate and Delete under its name. */
+function PluginRow({ e, active, disabled, change }: { e: WpExtension; active: boolean; disabled: boolean; change: Change }) {
+  const t = useT();
+  const name = e.title || e.name;
+  const fixed = e.status === "must-use" || e.status === "dropin";
+  return (
+    <div className="wp-plugin" data-active={active || undefined}>
+      <div className="wp-plugin-main">
+        <strong>{name}</strong>
+        <span className="muted small mono">{e.name}</span>
+      </div>
+      <div className="wp-plugin-meta small">
+        <span className="muted">{t("Version {version}", { version: e.version })}</span>
+        <span className={active ? "wp-state on" : "wp-state"}>
+          {fixed ? (e.status === "must-use" ? t("Must-use") : t("Drop-in")) : active ? t("Active") : t("Inactive")}
+        </span>
+      </div>
+      {!fixed && (
+        <div className="wp-plugin-actions">
+          {active ? (
+            <button type="button" className="btn small" disabled={disabled} onClick={() => change(e.name, "deactivate", t("Deactivating {name}…", { name }))}>
+              {t("Deactivate")}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn small primary"
+                disabled={disabled}
+                onClick={() => change(e.name, "activate", t("Activating {name}…", { name }))}
+              >
+                {t("Activate")}
+              </button>
+              <button
+                type="button"
+                className="btn small ghost danger"
+                aria-label={t("Delete {name}", { name })}
+                disabled={disabled}
+                onClick={() => change(e.name, "delete", t("Deleting {name}…", { name }))}
+              >
+                {t("Delete")}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {e.update === "available" && e.update_version && (
+        <div className="wp-update small">
+          <span>{t("There is a new version of {name} available: {version}.", { name, version: e.update_version })}</span>
+          <button type="button" className="btn small" disabled={disabled} onClick={() => change(e.name, "update", t("Updating {name}…", { name }))}>
+            {t("Update now")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A theme as Appearance › Themes shows it: its picture, and Activate on the ones not in use. */
+function ThemeCard({
+  site,
+  e,
+  active,
+  blockTheme,
+  disabled,
+  change,
+}: {
+  site: Site;
+  e: WpExtension;
+  active: boolean;
+  blockTheme: boolean;
+  disabled: boolean;
+  change: Change;
+}) {
+  const t = useT();
+  const name = e.title || e.name;
+  const key = `${site.domain}|${e.name}`;
+  const [picture, setPicture] = useState<string | null>(() => themePictures.get(key) ?? null);
+  useEffect(() => {
+    if (themePictures.has(key)) return;
+    wp.themeScreenshot(site.domain, e.name)
+      .catch(() => null)
+      .then((url) => {
+        themePictures.set(key, url);
+        setPicture(url);
+      });
+  }, [key]);
+  return (
+    <div className="wp-theme" data-active={active || undefined}>
+      <div className="wp-theme-picture">
+        {picture ? <img src={picture} alt="" draggable={false} /> : <span className="muted small">{name}</span>}
+        {e.update === "available" && e.update_version && (
+          <button
+            type="button"
+            className="wp-theme-update small"
+            disabled={disabled}
+            onClick={() => change(e.name, "update", t("Updating {name}…", { name }))}
+          >
+            {t("New version {version}. Update now", { version: e.update_version })}
+          </button>
+        )}
+      </div>
+      <div className="wp-theme-bar">
+        <span className="wp-theme-name" title={name}>
+          {active && e.status !== "parent" && <span className="wp-theme-active">{t("Active:")}</span>} {name}
+          {e.status === "parent" && <span className="muted small"> · {t("parent theme")}</span>}
+        </span>
+        {active ? (
+          e.status !== "parent" && (
+            <button
+              type="button"
+              className="btn small"
+              onClick={() => api.openLocalPage(`${site.url}/wp-admin/${blockTheme ? "site-editor.php" : "customize.php"}`)}
+            >
+              {t("Customize")}
+            </button>
+          )
+        ) : (
+          <span className="row">
+            <button
+              type="button"
+              className="btn small ghost danger"
+              aria-label={t("Delete {name}", { name })}
+              disabled={disabled}
+              onClick={() => change(e.name, "delete", t("Deleting {name}…", { name }))}
+            >
+              {t("Delete")}
+            </button>
+            <button
+              type="button"
+              className="btn small primary"
+              disabled={disabled}
+              onClick={() => change(e.name, "activate", t("Activating {name}…", { name }))}
+            >
+              {t("Activate")}
+            </button>
+          </span>
+        )}
+      </div>
     </div>
   );
 }
