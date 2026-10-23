@@ -137,7 +137,7 @@ export function AiTools() {
 
       <section aria-labelledby="ai-where" className="card stack">
         <h2 id="ai-where">Open in</h2>
-        <div className="row wrap">
+        <div className="row wrap bottom">
           <div className="field grow">
             <label htmlFor="ai-folder">Site or folder</label>
             <select id="ai-folder" value={chosen} onChange={(e) => choose(e.target.value)}>
@@ -150,7 +150,7 @@ export function AiTools() {
               {chosen && !choices.some((c) => c.path === chosen) && <option value={chosen}>{chosen}</option>}
             </select>
           </div>
-          <button type="button" className="btn small" onClick={() => void pickFolder()}>
+          <button type="button" className="btn" onClick={() => void pickFolder()}>
             Choose folder…
           </button>
         </div>

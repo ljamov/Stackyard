@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { Icon } from "./Icon";
 import { Sash } from "./Sash";
@@ -28,7 +28,7 @@ import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
 import { SCREENS, isTabScreen, useScreenOn, type TabScreen } from "../lib/screens";
-import { closeTab, openTab, PANEL_HEIGHT, setLayout, showScreen, SIDE_BAR_WIDTH, useLayout, type TabId } from "../lib/layout";
+import { closeTab, moveTab, openTab, PANEL_HEIGHT, setLayout, showScreen, SIDE_BAR_WIDTH, useLayout, type TabId } from "../lib/layout";
 import { useViewOptions } from "../lib/viewOptions";
 import { CommandsProvider, useWorkbenchCommands } from "../lib/commands";
 import { dispatchKeys, withKey } from "../lib/keybindings";
@@ -164,6 +164,149 @@ export function Workbench() {
     return () => window.removeEventListener("keydown", key);
   }, []);
 
+  // Dragging a tab along the row moves it there; a short press is still a click.
+  const drag = useRef<{ tab: TabId; x: number; moved: boolean } | null>(null);
+  const dragged = useRef(false);
+  const [dragging, setDragging] = useState<TabId | null>(null);
+  function dragStart(e: PointerEvent<HTMLElement>, tab: TabId) {
+    if (e.button !== 0) return;
+    drag.current = { tab, x: e.clientX, moved: false };
+    dragged.current = false;
+  }
+  function dragMove(e: PointerEvent<HTMLDivElement>) {
+    const d = drag.current;
+    if (!d) return;
+    if (!d.moved) {
+      if (Math.abs(e.clientX - d.x) < 6) return;
+      d.moved = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setDragging(d.tab);
+      openTab(d.tab);
+    }
+    const items = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-tab-item]")];
+    const from = items.findIndex((el) => el.dataset.tabItem === d.tab);
+    items.forEach((el, i) => {
+      const box = el.getBoundingClientRect();
+      const middle = box.left + box.width / 2;
+      // Past the middle of the tab beside it: the two swap places.
+      if ((i > from && e.clientX > middle && e.clientX < box.right) || (i < from && e.clientX < middle && e.clientX > box.left))
+        moveTab(d.tab, el.dataset.tabItem as TabId);
+    });
+    // Near either end of a row that scrolls, it scrolls along.
+    const row = e.currentTarget.getBoundingClientRect();
+    if (e.clientX < row.left + 24) e.currentTarget.scrollLeft -= 12;
+    else if (e.clientX > row.right - 24) e.currentTarget.scrollLeft += 12;
+  }
+  function dragEnd() {
+    dragged.current = drag.current?.moved ?? false;
+    drag.current = null;
+    setDragging(null);
+    // The click that ends a drag doesn't open anything.
+    setTimeout(() => (dragged.current = false));
+  }
+
+  // Problems, Logs and Terminal: under the screen beside the side bar, or across the whole window.
+  const panelPart = panel && (
+    <>
+      <Sash
+        orientation="horizontal"
+        value={layout.panelHeight}
+        {...PANEL_HEIGHT}
+        invert
+        onChange={(panelHeight) => setLayout({ panelHeight })}
+        label={t("Resize the panel")}
+      />
+      <section className="panel" style={{ height: layout.panelHeight }} aria-label={t("Panel")} data-part="panel">
+        <div className="panel-header">
+          <div
+            ref={rovingGroup}
+            className="panel-tabs"
+            role="tablist"
+            aria-label={t("Panel")}
+            onKeyDown={(e) => rovingKeys(e, "horizontal")}
+          >
+            <button
+              type="button"
+              role="tab"
+              id="panel-tab-problems"
+              className="panel-tab"
+              data-roving
+              aria-selected={panelTab === "problems"}
+              aria-controls="panel-body"
+              onClick={() => setLayout({ panelTab: "problems" })}
+            >
+              {t("Problems")}
+              {problems.length > 0 && <span className="count">{problems.length}</span>}
+            </button>
+            {logsOn && (
+              <button
+                type="button"
+                role="tab"
+                id="panel-tab-logs"
+                className="panel-tab"
+                data-roving
+                aria-selected={panelTab === "logs"}
+                aria-controls="panel-body"
+                onClick={() => setLayout({ panelTab: "logs" })}
+              >
+                {t("Logs")}
+              </button>
+            )}
+            {terminalOn && (
+              <button
+                type="button"
+                role="tab"
+                id="panel-tab-terminal"
+                className="panel-tab"
+                data-roving
+                aria-selected={panelTab === "terminal"}
+                aria-controls="panel-body"
+                onClick={() => setLayout({ panelTab: "terminal" })}
+              >
+                {t("Terminal")}
+              </button>
+            )}
+          </div>
+          <div className="panel-actions">
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={layout.panelWide ? t("Panel under the screen only") : t("Panel across the whole window")}
+              title={layout.panelWide ? t("Panel under the screen only") : t("Panel across the whole window")}
+              aria-pressed={layout.panelWide}
+              onClick={() => setLayout((l) => ({ panelWide: !l.panelWide }))}
+            >
+              <Icon name={layout.panelWide ? "panelNarrow" : "panelWide"} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={t("Hide the panel")}
+              title={withKey(t("Hide the panel"), "view.panel")}
+              onClick={togglePanel}
+            >
+              <Icon name="close" />
+            </button>
+          </div>
+        </div>
+        <div
+          id="panel-body"
+          className={panelTab === "terminal" ? "panel-body flush" : "panel-body"}
+          role="tabpanel"
+          aria-labelledby={`panel-tab-${panelTab}`}
+        >
+          {panelTab === "logs" ? (
+            <Logs inPanel />
+          ) : panelTab === "terminal" ? (
+            <TerminalPane sites={sites.data} />
+          ) : (
+            <ProblemsList problems={problems} />
+          )}
+        </div>
+      </section>
+    </>
+  );
+
   return (
     <CommandsProvider value={commands}>
       <div className="workbench-area">
@@ -189,9 +332,20 @@ export function Workbench() {
                   className="tabs"
                   role="tablist"
                   aria-label={t("Open screens")}
+                  data-dragging={dragging ? true : undefined}
+                  onPointerMove={dragMove}
+                  onPointerUp={dragEnd}
+                  onPointerCancel={dragEnd}
                   onKeyDown={(e) => {
-                    rovingKeys(e, "horizontal");
                     const s = (e.target as HTMLElement).dataset.tab as TabId | undefined;
+                    // Ctrl+Shift+Left/Right moves the focused tab.
+                    if (s && e.ctrlKey && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+                      e.preventDefault();
+                      const next = tabs[tabs.indexOf(s) + (e.key === "ArrowLeft" ? -1 : 1)];
+                      if (next) moveTab(s, next);
+                      return;
+                    }
+                    rovingKeys(e, "horizontal");
                     if (s && e.key === "Delete") {
                       e.preventDefault();
                       closeTab(s);
@@ -203,7 +357,13 @@ export function Workbench() {
                   }}
                 >
                   {tabs.map((s) => (
-                    <div key={s} className="tab-item" data-active={s === active || undefined}>
+                    <div
+                      key={s}
+                      className="tab-item"
+                      data-tab-item={s}
+                      data-active={s === active || undefined}
+                      data-dragged={s === dragging || undefined}
+                    >
                       <button
                         type="button"
                         role="tab"
@@ -213,7 +373,8 @@ export function Workbench() {
                         data-tab={s}
                         aria-selected={s === active}
                         aria-controls={s === active ? "editor-content" : undefined}
-                        onClick={() => openTab(s)}
+                        onPointerDown={(e) => dragStart(e, s)}
+                        onClick={() => !dragged.current && openTab(s)}
                         onAuxClick={(e) => e.button === 1 && closeTab(s)}
                       >
                         {tabIcon(s)}
@@ -252,96 +413,10 @@ export function Workbench() {
                 </main>
               )}
             </div>
+            {!layout.panelWide && panelPart}
           </div>
         </div>
-        {panel && (
-          <>
-            <Sash
-              orientation="horizontal"
-              value={layout.panelHeight}
-              {...PANEL_HEIGHT}
-              invert
-              onChange={(panelHeight) => setLayout({ panelHeight })}
-              label={t("Resize the panel")}
-            />
-            <section className="panel" style={{ height: layout.panelHeight }} aria-label={t("Panel")} data-part="panel">
-              <div className="panel-header">
-                <div
-                  ref={rovingGroup}
-                  className="panel-tabs"
-                  role="tablist"
-                  aria-label={t("Panel")}
-                  onKeyDown={(e) => rovingKeys(e, "horizontal")}
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    id="panel-tab-problems"
-                    className="panel-tab"
-                    data-roving
-                    aria-selected={panelTab === "problems"}
-                    aria-controls="panel-body"
-                    onClick={() => setLayout({ panelTab: "problems" })}
-                  >
-                    {t("Problems")}
-                    {problems.length > 0 && <span className="count">{problems.length}</span>}
-                  </button>
-                  {logsOn && (
-                    <button
-                      type="button"
-                      role="tab"
-                      id="panel-tab-logs"
-                      className="panel-tab"
-                      data-roving
-                      aria-selected={panelTab === "logs"}
-                      aria-controls="panel-body"
-                      onClick={() => setLayout({ panelTab: "logs" })}
-                    >
-                      {t("Logs")}
-                    </button>
-                  )}
-                  {terminalOn && (
-                    <button
-                      type="button"
-                      role="tab"
-                      id="panel-tab-terminal"
-                      className="panel-tab"
-                      data-roving
-                      aria-selected={panelTab === "terminal"}
-                      aria-controls="panel-body"
-                      onClick={() => setLayout({ panelTab: "terminal" })}
-                    >
-                      {t("Terminal")}
-                    </button>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label={t("Hide the panel")}
-                  title={withKey(t("Hide the panel"), "view.panel")}
-                  onClick={togglePanel}
-                >
-                  <Icon name="close" />
-                </button>
-              </div>
-              <div
-                id="panel-body"
-                className={panelTab === "terminal" ? "panel-body flush" : "panel-body"}
-                role="tabpanel"
-                aria-labelledby={`panel-tab-${panelTab}`}
-              >
-                {panelTab === "logs" ? (
-                  <Logs inPanel />
-                ) : panelTab === "terminal" ? (
-                  <TerminalPane sites={sites.data} />
-                ) : (
-                  <ProblemsList problems={problems} />
-                )}
-              </div>
-            </section>
-          </>
-        )}
+        {layout.panelWide && panelPart}
       </div>
       {view.statusBar && (
         <StatusBar

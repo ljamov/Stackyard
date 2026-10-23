@@ -31,6 +31,10 @@ const PATHS = {
   play: "M8 5.5v13l10.5-6.5z",
   stop: "M7 7h10v10H7z",
   close: "M7 7l10 10M17 7 7 17",
+  // The panel across the whole window, or only under the screen beside the side bar.
+  panelWide: "M4 5h16v14H4zM4 14h16",
+  panelNarrow: "M4 5h16v14H4zM9.5 5v14M9.5 14H20",
+  chevron: "M9 6l6 6-6 6",
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -61,6 +65,9 @@ const CODICONS: Record<IconName, string> = {
   moon: "color-mode",
   terminal: "terminal",
   external: "link-external",
+  panelWide: "layout-panel-justify",
+  panelNarrow: "layout-panel",
+  chevron: "chevron-right",
 };
 
 export function Icon({ name }: { name: IconName }) {

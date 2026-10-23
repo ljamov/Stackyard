@@ -23,8 +23,13 @@ const SHOTS = {
   dashboard: { screen: "Dashboard" },
   sites: {
     screen: "Sites",
-    // The heading, the New site form and the site list under it.
+    // The heading, the New site form (opened) and the site list under it.
     wait: 1200,
+    prep: async (page) => {
+      const fold = page.getByRole("button", { name: "New site and parked folders" });
+      if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
+      await sleep(300);
+    },
   },
   // A site in its own tab, opened with Manage.
   servers: {
