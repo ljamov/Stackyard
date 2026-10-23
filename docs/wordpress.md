@@ -173,9 +173,51 @@ changed safely** instead of guessing: those values are copied as they are, for y
 
 **Move** takes a snapshot of the other copy first, so **Undo** puts it back.
 
+## Push and pull
+
+A copy cloned from a live server has a **Live site** part in **WordPress › Environments**, to send
+your work up (**Push to live**) or bring the live site's changes down (**Pull from live**). Stackyard
+keeps a record of both sides each time they are in step (after the clone, and after each push or
+pull), so it can tell which side changed what since then.
+
+**Changes since last in step** lists, like a merge: changed files grouped by plugin, theme and so
+on, plugins and theme switched on or off, and settings. Anything both sides changed is marked and
+left unticked for you to decide. Then pick how much:
+
+| Level | Push | Pull |
+|---|---|---|
+| **Code** | The ticked files, and which plugins and theme are on. The live database stays as it is. | The same, the other way. |
+| **Settings** | Code, plus the settings you tick. | The same, the other way. |
+| **Everything** | Code, plus this copy's whole database, with the live addresses put back. The live site's orders, customers, payment settings and users added since are kept. | Code, plus the live site's whole database, with local addresses and payments in test mode, like a clone. |
+
+A push is made safe step by step:
+
+1. It backs up first: the whole live database and every live file the push replaces or removes.
+   The backups are listed under **Backups of the live site**; **Put back on live** restores one,
+   and **Undo** right after a push does the same.
+2. The live site shows WordPress's own maintenance page while it changes.
+3. Files go up, then the database changes. If anything fails, the backup is put back by itself.
+4. After it, Stackyard checks that the home page and the login page still answer, and says so if
+   they don't.
+
+**Everything** on a push asks you to type the site's name, and refuses when posts or comments
+changed on the live site since the copy was last in step (orders and their notes don't count, they
+are kept anyway): pull those first, or move them as single posts. A pull takes a snapshot of the
+copy first, so it can be undone from **Snapshots**.
+
+The live site's database is changed through the same helper a clone uses (over SSH when the server
+has it, else over the site's address), which sends the SQL in resumable pieces and deletes itself
+when the step ends.
+
+**Single posts and pages** works like moving them between copies, in either direction. **Read the
+live site** first copies the live database into a local mirror, so you can search and preview without
+a connection; a push reads it again just before it moves anything, under the maintenance page, so the
+new post numbers it gives out are free. A push of single posts backs up the live database first; a
+pull takes a snapshot of the copy.
+
 ### Snapshots
 
-Before Stackyard changes a copy (merges, pushes and pulls), it takes a snapshot: the whole database
+Before Stackyard changes a copy (merges and pulls), it takes a snapshot: the whole database
 and every file the step is about to change. The Environments tab lists the last 5 snapshots of the
 site you are looking at. **Undo…** puts the database and those files back and removes files the step
 added; a snapshot of how things were just before is taken first, so the undo can itself be undone.

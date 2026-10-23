@@ -393,12 +393,16 @@ const NOT_OFFERED: &str = "'revision','nav_menu_item','attachment','customize_ch
 /// Posts, pages and other content of a copy, newest first, optionally
 /// matching `search` in the title or slug.
 pub fn list(home: &Path, domain: &str, search: &str) -> Result<Vec<PostSummary>> {
-    let wp = open(home, domain)?;
+    list_side(home, &side_of(home, domain)?, search)
+}
+
+/// Like [`list`], for any [`Side`].
+pub fn list_side(home: &Path, side: &Side, search: &str) -> Result<Vec<PostSummary>> {
     let client = Client::open(home)?;
     let db = Db {
         client: &client,
-        name: wp.database()?,
-        prefix: wp.prefix().to_string(),
+        name: side.database.clone(),
+        prefix: side.prefix.clone(),
     };
     let search = search.trim();
     let filter = if search.is_empty() {
@@ -431,6 +435,40 @@ pub fn list(home: &Path, domain: &str, search: &str) -> Result<Vec<PostSummary>>
             modified: rows.get(r, "post_modified").unwrap_or_default().to_string(),
         })
         .collect())
+}
+
+/// One end of a move: a copy's database on this computer, where its
+/// media is, and the address and folder references are changed from or to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Side {
+    /// How messages name it, e.g. its domain.
+    pub label: String,
+    pub database: String,
+    pub prefix: String,
+    pub url: String,
+    /// WordPress's folder, for paths kept in the database.
+    pub root: String,
+    /// Its media folder here; `None` when its media is on a server.
+    pub uploads: Option<PathBuf>,
+    /// The folder a staging that shares media reads it from.
+    pub shared_uploads: Option<PathBuf>,
+}
+
+/// The [`Side`] of a WordPress site in Stackyard.
+pub fn side_of(home: &Path, domain: &str) -> Result<Side> {
+    let wp = open(home, domain)?;
+    Ok(Side {
+        label: domain.to_string(),
+        database: wp.database()?,
+        prefix: wp.prefix().to_string(),
+        url: super::home_url(home, &wp),
+        root: wp.site.path.to_string_lossy().into_owned(),
+        uploads: Some(wp.wp_content().join("uploads")),
+        shared_uploads: env::load(home, domain)
+            .ok()
+            .flatten()
+            .and_then(|e| e.shared_media),
+    })
 }
 
 fn open(home: &Path, domain: &str) -> Result<WpSite> {
@@ -526,6 +564,13 @@ pub struct MovePlan {
     sql: String,
     #[serde(skip)]
     copies: Vec<(PathBuf, PathBuf, String)>,
+}
+
+impl MovePlan {
+    /// The SQL that writes the posts into the target's database.
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -694,31 +739,38 @@ pub fn plan(home: &Path, source: &str, target: &str, choice: &MoveChoice) -> Res
     if source == target {
         return Err(fail("pick another copy to move the posts to"));
     }
+    plan_sides(
+        home,
+        &side_of(home, source)?,
+        &side_of(home, target)?,
+        choice,
+    )
+}
+
+/// Like [`plan`], between any two [`Side`]s.
+pub fn plan_sides(
+    home: &Path,
+    source: &Side,
+    target: &Side,
+    choice: &MoveChoice,
+) -> Result<MovePlan> {
     if choice.ids.is_empty() {
         return Err(fail("pick at least one post or page"));
     }
-    let source_wp = open(home, source)?;
-    let target_wp = open(home, target)?;
     let client = Client::open(home)?;
     let mut p = Planner {
         source: Db {
             client: &client,
-            name: source_wp.database()?,
-            prefix: source_wp.prefix().to_string(),
+            name: source.database.clone(),
+            prefix: source.prefix.clone(),
         },
         target: Db {
             client: &client,
-            name: target_wp.database()?,
-            prefix: target_wp.prefix().to_string(),
+            name: target.database.clone(),
+            prefix: target.prefix.clone(),
         },
-        rules: replace::Rules::site_move(
-            &super::home_url(home, &source_wp),
-            &super::home_url(home, &target_wp),
-        )
-        .and_path(
-            &source_wp.site.path.to_string_lossy(),
-            &target_wp.site.path.to_string_lossy(),
-        ),
+        rules: replace::Rules::site_move(&source.url, &target.url)
+            .and_path(&source.root, &target.root),
         posts: BTreeMap::new(),
         rows: BTreeMap::new(),
         post_columns: Vec::new(),
@@ -737,7 +789,7 @@ pub fn plan(home: &Path, source: &str, target: &str, choice: &MoveChoice) -> Res
         if first {
             for id in &picked {
                 if !found.contains(id) {
-                    return Err(fail(format!("{source} has no post {id}")));
+                    return Err(fail(format!("{} has no post {id}", source.label)));
                 }
             }
             first = false;
@@ -855,8 +907,8 @@ pub fn plan(home: &Path, source: &str, target: &str, choice: &MoveChoice) -> Res
     }
 
     let mut plan = MovePlan {
-        source: source.to_string(),
-        target: target.to_string(),
+        source: source.label.clone(),
+        target: target.label.clone(),
         posts: Vec::new(),
         counts: Counts::default(),
         files: Vec::new(),
@@ -864,7 +916,7 @@ pub fn plan(home: &Path, source: &str, target: &str, choice: &MoveChoice) -> Res
         sql: String::new(),
         copies: Vec::new(),
     };
-    write_sql(&mut p, &mut plan, choice, home, &source_wp, &target_wp)?;
+    write_sql(&mut p, &mut plan, choice, source, target)?;
     plan.posts = p.posts.values().cloned().collect();
     plan.posts.sort_by_key(|x| (!x.picked, x.source_id));
     plan.counts.posts = plan
@@ -872,7 +924,7 @@ pub fn plan(home: &Path, source: &str, target: &str, choice: &MoveChoice) -> Res
         .iter()
         .filter(|x| matches!(x.action, Action::Add | Action::Update))
         .count();
-    plan.counts.files = plan.copies.len();
+    plan.counts.files = plan.files.len();
     plan.warnings = p.warnings;
     Ok(plan)
 }
@@ -883,9 +935,8 @@ fn write_sql(
     p: &mut Planner,
     plan: &mut MovePlan,
     choice: &MoveChoice,
-    home: &Path,
-    source_wp: &WpSite,
-    target_wp: &WpSite,
+    source: &Side,
+    target: &Side,
 ) -> Result<()> {
     let map: BTreeMap<u64, u64> = p
         .posts
@@ -1443,12 +1494,6 @@ fn write_sql(
     plan.sql = sql;
 
     // Media files of the images and files being added.
-    let source_uploads = source_wp.wp_content().join("uploads");
-    let shared = env::load(home, &source_wp.site.domain())
-        .ok()
-        .flatten()
-        .and_then(|e| e.shared_media);
-    let target_uploads = target_wp.wp_content().join("uploads");
     for id in &writes {
         if p.posts[id].post_type != "attachment" {
             continue;
@@ -1457,32 +1502,43 @@ fn write_sql(
             p.meta_value(*id, "_wp_attached_file"),
             p.meta_value(*id, "_wp_attachment_metadata"),
         ) {
-            let from = [
-                Some(source_uploads.join(&rel)),
-                shared.as_ref().map(|s| s.join(&rel)),
-            ]
-            .into_iter()
-            .flatten()
-            .find(|f| f.is_file());
-            let Some(from) = from else {
-                if p.posts[id].picked
-                    || rel == p.meta_value(*id, "_wp_attached_file").unwrap_or_default()
-                {
-                    p.warn(*id, format!("The file {rel} is not in {}; the image's details are moved without it.", source_wp.site.domain()));
+            // Media on a server is fetched or sent by the caller.
+            let from = match &source.uploads {
+                Some(uploads) => {
+                    let found = [
+                        Some(uploads.join(&rel)),
+                        source.shared_uploads.as_ref().map(|s| s.join(&rel)),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .find(|f| f.is_file());
+                    if found.is_none() {
+                        if p.posts[id].picked
+                            || rel == p.meta_value(*id, "_wp_attached_file").unwrap_or_default()
+                        {
+                            p.warn(*id, format!("The file {rel} is not in {}; the image's details are moved without it.", source.label));
+                        }
+                        continue;
+                    }
+                    found
                 }
-                continue;
+                None => None,
             };
-            let to = target_uploads.join(&rel);
-            if to.is_file() {
-                let same = std::fs::metadata(&to).map(|m| m.len()).ok()
-                    == std::fs::metadata(&from).map(|m| m.len()).ok();
+            let to = target.uploads.as_ref().map(|u| u.join(&rel));
+            if let Some(to) = to.as_ref().filter(|t| t.is_file()) {
+                let same = from.as_ref().is_none_or(|from| {
+                    std::fs::metadata(to).map(|m| m.len()).ok()
+                        == std::fs::metadata(from).map(|m| m.len()).ok()
+                });
                 if !same {
                     p.warn(*id, format!("The target already has a different file at {rel}; it is left as it is."));
                 }
                 continue;
             }
             plan.files.push(rel.clone());
-            plan.copies.push((from, to, rel));
+            if let (Some(from), Some(to)) = (from, to) {
+                plan.copies.push((from, to, rel));
+            }
         }
     }
     Ok(())

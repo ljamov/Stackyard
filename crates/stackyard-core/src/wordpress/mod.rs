@@ -20,6 +20,7 @@ pub mod posts;
 pub mod replace;
 pub mod snapshot;
 pub mod staging;
+pub mod sync;
 pub mod woo;
 
 use std::io::{BufReader, Read, Seek, SeekFrom};

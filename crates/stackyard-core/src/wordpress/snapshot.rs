@@ -67,6 +67,10 @@ pub struct Facts {
     pub active_plugins: Vec<String>,
     pub stylesheet: String,
     pub template: String,
+    /// A fingerprint of the posts and comments, orders left out: it
+    /// changes when content is added, changed or removed.
+    #[serde(default)]
+    pub content: String,
 }
 
 /// Reads [`Facts`] from a copy's database.
@@ -125,6 +129,16 @@ pub fn read_facts(client: &Client, database: &str, prefix: &str) -> Result<Facts
         active_plugins: plugin_list(&value("active_plugins")?),
         stylesheet: value("stylesheet")?,
         template: value("template")?,
+        content: client
+            .rows(
+                database,
+                &super::helper::CONTENT_SQL
+                    .replace("{posts}", &t("posts"))
+                    .replace("{comments}", &t("comments")),
+            )
+            .ok()
+            .and_then(|set| set.rows.first().and_then(|r| r.first().cloned().flatten()))
+            .unwrap_or_default(),
     })
 }
 

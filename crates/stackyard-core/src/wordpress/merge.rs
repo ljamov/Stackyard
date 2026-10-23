@@ -148,7 +148,7 @@ pub struct Merged {
 
 /// Files a merge never touches: each copy's own config, Stackyard's plugin
 /// and leftovers.
-fn kept_apart(rel: &str, content: &str) -> bool {
+pub(super) fn kept_apart(rel: &str, content: &str) -> bool {
     matches!(rel, "wp-config.php" | "wp-config.live.php" | ".user.ini")
         || rel == format!("{content}/mu-plugins/stackyard.php")
         || rel == format!("{content}/debug.log")
@@ -198,7 +198,7 @@ pub fn group_of(rel: &str, content: &str) -> String {
 }
 
 /// The same file on both sides: same checksum, or for media the same size.
-fn same(a: Option<&FileEntry>, b: Option<&FileEntry>) -> bool {
+pub(super) fn same(a: Option<&FileEntry>, b: Option<&FileEntry>) -> bool {
     match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => match (&a.hash, &b.hash) {
@@ -255,7 +255,7 @@ pub fn file_changes(
 
 /// Options a merge leaves alone: each copy's address, what Stackyard and
 /// WordPress keep for themselves, caches, and the store's order storage.
-fn option_kept_apart(name: &str) -> bool {
+pub(super) fn option_kept_apart(name: &str) -> bool {
     const NAMES: &[&str] = &[
         "siteurl",
         "home",
@@ -326,7 +326,7 @@ pub fn option_changes(
 }
 
 /// The plugin's slug WP-CLI knows it by, from its file.
-fn plugin_slug(file: &str) -> String {
+pub(super) fn plugin_slug(file: &str) -> String {
     match file.split_once('/') {
         Some((dir, _)) => dir.to_string(),
         None => file.trim_end_matches(".php").to_string(),
@@ -411,7 +411,7 @@ fn sides(home: &Path, source: &str, target: &str) -> Result<Sides> {
 }
 
 /// The content folder relative to the site's folder, e.g. `wp-content`.
-fn content_rel(wp: &WpSite) -> String {
+pub(super) fn content_rel(wp: &WpSite) -> String {
     wp.wp_content()
         .strip_prefix(&wp.site.path)
         .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -755,7 +755,7 @@ fn copy_options(
 
 /// Tables the target keeps in an Everything merge: users and the store's
 /// orders, customers and payment data.
-const PROTECTED: &[&str] = &[
+pub(super) const PROTECTED: &[&str] = &[
     "users",
     "usermeta",
     "wc_orders",
@@ -800,13 +800,36 @@ fn everything(
     base: &Facts,
     rules: &replace::Rules,
 ) -> Result<Vec<String>> {
-    let mut notes = Vec::new();
-    let prefix = sides.target_wp.prefix().to_string();
-    if sides.source_wp.prefix() != prefix {
+    if sides.source_wp.prefix() != sides.target_wp.prefix() {
         return Err(fail(
             "the two copies use different table prefixes; merge at the Code or Settings level",
         ));
     }
+    everything_between(
+        home,
+        client,
+        sides.target_wp.prefix(),
+        source_db,
+        target_db,
+        base.max_user_id,
+        rules,
+    )
+}
+
+/// The work of an Everything merge between two databases on this
+/// computer with the same table prefix: `target_db` ends up with
+/// `source_db`'s content and its own users, orders and customers.
+pub(super) fn everything_between(
+    home: &Path,
+    client: &Client,
+    prefix: &str,
+    source_db: &str,
+    target_db: &str,
+    base_max_user_id: u64,
+    rules: &replace::Rules,
+) -> Result<Vec<String>> {
+    let mut notes = Vec::new();
+    let prefix = prefix.to_string();
     let t = |name: &str| ident(&format!("{prefix}{name}"));
     let scratch = format!("sy_merge_{}_{}", super::env::now(), std::process::id());
     let work = home.join("tmp").join(&scratch);
@@ -980,7 +1003,7 @@ fn everything(
             &format!(
                 "SELECT COUNT(*) FROM {} WHERE ID > {}",
                 t("users"),
-                base.max_user_id
+                base_max_user_id
             ),
         ) > 0
         {

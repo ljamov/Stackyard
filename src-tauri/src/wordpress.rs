@@ -12,8 +12,8 @@ use stackyard_core::remote::{self, Connection, ConnectionInput, RemoteStore, Ses
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::Site;
 use stackyard_core::wordpress::{
-    self, env, live, merge, posts, snapshot, staging, woo, CoreUpdate, DebugSettings, DiskUse,
-    Extension, ExtensionAction, Kind, LogTail, Overview, Replaced, User, WpSite,
+    self, env, live, merge, posts, snapshot, staging, sync, woo, CoreUpdate, DebugSettings,
+    DiskUse, Extension, ExtensionAction, Kind, LogTail, Overview, Replaced, User, WpSite,
 };
 
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -672,6 +672,190 @@ pub async fn wp_posts_move(
         let engine = worker.state::<Arc<Engine>>().inner().clone();
         crate::ensure_database(&engine)?;
         posts::move_posts(&paths::home(), &source, &target, &choice).map_err(err)
+    })
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Push and pull
+
+/// One push, pull or live read at a time; the stop button ends it.
+#[derive(Default)]
+pub struct SyncState {
+    stop: Arc<AtomicBool>,
+    busy: AtomicBool,
+}
+
+#[derive(Clone, Serialize)]
+struct SyncEvent {
+    domain: String,
+    #[serde(flatten)]
+    progress: live::Progress,
+}
+
+/// Runs `work` against the live site of `domain` on a worker thread, with
+/// progress as `wp-sync-progress` events. Clones share the logged-in
+/// sessions, so a password typed once is not asked again.
+async fn with_live<T: Send + 'static>(
+    app: AppHandle,
+    domain: String,
+    work: impl FnOnce(&std::path::Path, &Sessions, &str, live::OnProgress) -> stackyard_core::Result<T>
+        + Send
+        + 'static,
+) -> CmdResult<T> {
+    require_clone()?;
+    {
+        let state = app.state::<SyncState>();
+        if state.busy.swap(true, Ordering::SeqCst) {
+            return Err("another push or pull is running; wait for it or stop it first".into());
+        }
+        state.stop.store(false, Ordering::SeqCst);
+    }
+    let worker = app.clone();
+    let result = blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        let clones = worker.state::<CloneState>();
+        let stop = worker.state::<SyncState>().stop.clone();
+        let emitter = worker.clone();
+        let name = domain.clone();
+        work(&paths::home(), &clones.sessions, &domain, &mut |progress| {
+            let _ = emitter.emit(
+                "wp-sync-progress",
+                SyncEvent {
+                    domain: name.clone(),
+                    progress,
+                },
+            );
+            !stop.load(Ordering::SeqCst)
+        })
+        .map_err(err)
+    })
+    .await;
+    app.state::<SyncState>().busy.store(false, Ordering::SeqCst);
+    result
+}
+
+/// What changed on the side changes come from, since the copy and the live
+/// site were last in step.
+#[tauri::command]
+pub async fn wp_sync_changes(
+    app: AppHandle,
+    domain: String,
+    way: sync::Way,
+) -> CmdResult<sync::SyncChanges> {
+    with_live(app, domain, move |home, sessions, domain, progress| {
+        sync::changes(home, sessions, domain, way, progress)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn wp_push(
+    app: AppHandle,
+    domain: String,
+    choice: merge::Choice,
+    confirm: String,
+) -> CmdResult<sync::Pushed> {
+    with_live(app, domain, move |home, sessions, domain, progress| {
+        sync::push(home, sessions, domain, &choice, &confirm, progress)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn wp_pull(
+    app: AppHandle,
+    domain: String,
+    choice: merge::Choice,
+) -> CmdResult<sync::Pulled> {
+    with_live(app, domain, move |home, sessions, domain, progress| {
+        sync::pull(home, sessions, domain, &choice, progress)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn wp_sync_stop(state: State<'_, SyncState>) {
+    state.stop.store(true, Ordering::SeqCst);
+}
+
+/// Backups of the live site taken before each push, newest first.
+#[tauri::command]
+pub fn wp_live_backups(domain: String) -> CmdResult<Vec<sync::LiveBackup>> {
+    require_clone()?;
+    Ok(sync::backups(&paths::home(), &domain))
+}
+
+#[tauri::command]
+pub async fn wp_live_backup_restore(app: AppHandle, domain: String, id: String) -> CmdResult<()> {
+    with_live(app, domain, move |home, sessions, domain, progress| {
+        sync::restore_backup(home, sessions, domain, &id, progress)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn wp_live_backup_remove(domain: String, id: String) -> CmdResult<()> {
+    require_clone()?;
+    sync::remove_backup(&paths::home(), &domain, &id).map_err(err)
+}
+
+/// Reads the live database into a local mirror, to pick single posts from.
+#[tauri::command]
+pub async fn wp_live_read(app: AppHandle, domain: String) -> CmdResult<u64> {
+    with_live(app, domain, move |home, sessions, domain, progress| {
+        sync::read_live(home, sessions, domain, progress)
+    })
+    .await
+}
+
+/// When the live database was last read, if ever.
+#[tauri::command]
+pub fn wp_live_read_at(domain: String) -> Option<u64> {
+    sync::live_read_at(&paths::home(), &domain)
+}
+
+#[tauri::command]
+pub async fn wp_live_posts(
+    app: AppHandle,
+    domain: String,
+    search: String,
+) -> CmdResult<Vec<posts::PostSummary>> {
+    let worker = app.clone();
+    blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        sync::live_posts(&paths::home(), &domain, &search).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn wp_live_posts_plan(
+    app: AppHandle,
+    domain: String,
+    way: sync::Way,
+    choice: posts::MoveChoice,
+) -> CmdResult<posts::MovePlan> {
+    let worker = app.clone();
+    blocking(move || {
+        let engine = worker.state::<Arc<Engine>>().inner().clone();
+        crate::ensure_database(&engine)?;
+        sync::plan_posts(&paths::home(), &domain, way, &choice).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn wp_live_posts_move(
+    app: AppHandle,
+    domain: String,
+    way: sync::Way,
+    choice: posts::MoveChoice,
+) -> CmdResult<sync::PostsMoved> {
+    with_live(app, domain, move |home, sessions, domain, progress| {
+        sync::move_posts(home, sessions, domain, way, &choice, progress)
     })
     .await
 }

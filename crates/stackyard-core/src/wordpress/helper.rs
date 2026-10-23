@@ -8,9 +8,11 @@
 //! key, and it deletes itself when Stackyard is done or, at the latest,
 //! when its time is up, even if the transfer stopped halfway.
 //!
-//! It only reads: it lists the tables and exports them in chunks, so a
-//! large table goes over in many small requests and a broken connection
-//! costs one chunk, not the whole table.
+//! A helper made for a clone only reads: it lists the tables and exports
+//! them in chunks, so a large table goes over in many small requests and a
+//! broken connection costs one chunk, not the whole table. A helper made
+//! for a push ([`make_writing`]) can also load a `.sql.gz` file Stackyard
+//! uploaded next to it, statement by statement, a few seconds at a time.
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -41,8 +43,27 @@ pub struct Helper {
     pub source: String,
 }
 
-/// Writes a helper that works until `until` (seconds since 1970).
+/// Writes a helper that only reads, working until `until` (seconds since 1970).
 pub fn make(db: &DbSettings, until: u64) -> crate::Result<Helper> {
+    make_with(db, until, false)
+}
+
+/// Writes a helper that can also load SQL files into the database.
+pub fn make_writing(db: &DbSettings, until: u64) -> crate::Result<Helper> {
+    make_with(db, until, true)
+}
+
+/// A name for an SQL file uploaded for the helper to load: random, so it
+/// can't be guessed while it is on the server.
+pub fn sql_file_name() -> crate::Result<String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|e| crate::Error::WordPress(format!("no randomness: {e}")))?;
+    let tail: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    Ok(format!("stackyard-{tail}.sql.gz"))
+}
+
+fn make_with(db: &DbSettings, until: u64, write: bool) -> crate::Result<Helper> {
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes)
         .map_err(|e| crate::Error::WordPress(format!("no randomness: {e}")))?;
@@ -55,12 +76,14 @@ pub fn make(db: &DbSettings, until: u64) -> crate::Result<Helper> {
     let source = SOURCE
         .replace("{KEY_HASH}", &hash)
         .replace("{UNTIL}", &until.to_string())
+        .replace("{WRITE}", if write { "true" } else { "false" })
         .replace("{HOST}", &quote(&db.host))
         .replace("{USER}", &quote(&db.user))
         .replace("{PASSWORD}", &quote(&db.password))
         .replace("{NAME}", &quote(&db.name))
         .replace("{CHARSET}", &quote(&db.charset))
-        .replace("{PREFIX}", &quote(&db.prefix));
+        .replace("{PREFIX}", &quote(&db.prefix))
+        .replace("{CONTENT_SQL}", &quote(CONTENT_SQL));
     Ok(Helper { file, key, source })
 }
 
@@ -89,6 +112,39 @@ pub struct Table {
     pub bytes: u64,
 }
 
+/// What `do=import` answers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct Imported {
+    pub statements: u64,
+    /// Where to continue in the uncompressed file; pass it back as `from`.
+    pub next: u64,
+    pub done: bool,
+}
+
+/// One option as `do=options` answers it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct OptionValue {
+    /// Base64, since option values need not be text.
+    pub value: String,
+    #[serde(default)]
+    pub autoload: String,
+}
+
+/// Post types and comment types that belong to a store's orders, left out
+/// of the content fingerprint (see [`CONTENT_SQL`]).
+pub const ORDER_POST_TYPES: &str =
+    "'shop_order','shop_order_refund','shop_order_placehold','shop_subscription'";
+
+/// The query behind a database's content fingerprint: posts and comments,
+/// orders and their notes left out. `{posts}` and `{comments}` are the
+/// tables. The helper runs the same one on the live side.
+pub const CONTENT_SQL: &str = "SELECT CONCAT_WS(':', \
+    (SELECT COUNT(*) FROM {posts} WHERE post_type NOT IN ('shop_order','shop_order_refund','shop_order_placehold','shop_subscription','revision') AND post_status <> 'auto-draft'), \
+    (SELECT COALESCE(MAX(ID), 0) FROM {posts} WHERE post_type NOT IN ('shop_order','shop_order_refund','shop_order_placehold','shop_subscription','revision') AND post_status <> 'auto-draft'), \
+    (SELECT COALESCE(MAX(post_modified_gmt), '') FROM {posts} WHERE post_type NOT IN ('shop_order','shop_order_refund','shop_order_placehold','shop_subscription','revision') AND post_status <> 'auto-draft'), \
+    (SELECT COUNT(*) FROM {comments} WHERE comment_type NOT IN ('order_note','action_log','webhook_delivery')), \
+    (SELECT COALESCE(MAX(comment_ID), 0) FROM {comments} WHERE comment_type NOT IN ('order_note','action_log','webhook_delivery')))";
+
 /// What a `do=table` chunk says about itself.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct Chunk {
@@ -116,12 +172,13 @@ pub fn meta_from_errors(errors: &str) -> Option<Chunk> {
 const SOURCE: &str = r#"<?php
 /*
  * Stackyard helper. Stackyard put this file here to copy this site's
- * database to a computer. It answers only requests that carry its key,
- * only reads, and deletes itself when Stackyard is done or when its time
- * is up. It is safe to delete by hand.
+ * database to or from a computer. It answers only requests that carry its
+ * key, and deletes itself when Stackyard is done or when its time is up.
+ * It is safe to delete by hand.
  */
 define( 'SY_KEY_HASH', '{KEY_HASH}' );
 define( 'SY_UNTIL', {UNTIL} );
+define( 'SY_WRITE', {WRITE} );
 define( 'SY_PREFIX', {PREFIX} );
 define( 'SY_CHUNK_BYTES', 8 * 1024 * 1024 );
 define( 'SY_CHUNK_ROWS', 20000 );
@@ -286,6 +343,132 @@ if ( 'info' === $sy_do ) {
 			'home'      => isset( $sy_options['home'] ) ? $sy_options['home'] : '',
 			'abspath'   => __DIR__,
 			'tables'    => array_values( sy_tables( $sy_link ) ),
+		)
+	);
+}
+
+if ( 'facts' === $sy_do ) {
+	$sy_o     = sy_name( SY_PREFIX . 'options' );
+	$sy_facts = array(
+		'prefix'         => SY_PREFIX,
+		'options'        => new stdClass(),
+		'active_plugins' => array(),
+		'stylesheet'     => '',
+		'template'       => '',
+	);
+	$sy_hashes = array();
+	$sy_result = $sy_link->query( "SELECT option_name, SHA2(option_value, 256) FROM $sy_o" );
+	while ( $sy_result && $sy_row = $sy_result->fetch_row() ) {
+		$sy_hashes[ $sy_row[0] ] = $sy_row[1];
+	}
+	if ( $sy_hashes ) {
+		$sy_facts['options'] = $sy_hashes;
+	}
+	$sy_result = $sy_link->query( "SELECT option_name, option_value FROM $sy_o WHERE option_name IN ('active_plugins', 'stylesheet', 'template')" );
+	while ( $sy_result && $sy_row = $sy_result->fetch_row() ) {
+		if ( 'active_plugins' === $sy_row[0] ) {
+			$sy_list = PHP_VERSION_ID >= 70000 ? @unserialize( $sy_row[1], array( 'allowed_classes' => false ) ) : @unserialize( $sy_row[1] );
+			$sy_facts['active_plugins'] = is_array( $sy_list ) ? array_values( array_map( 'strval', $sy_list ) ) : array();
+		} else {
+			$sy_facts[ $sy_row[0] ] = $sy_row[1];
+		}
+	}
+	foreach ( array( 'max_post_id' => array( 'posts', 'ID' ), 'max_comment_id' => array( 'comments', 'comment_ID' ), 'max_user_id' => array( 'users', 'ID' ) ) as $sy_key => $sy_tc ) {
+		$sy_result         = $sy_link->query( 'SELECT COALESCE(MAX(' . sy_name( $sy_tc[1] ) . '), 0) FROM ' . sy_name( SY_PREFIX . $sy_tc[0] ) );
+		$sy_row            = $sy_result ? $sy_result->fetch_row() : null;
+		$sy_facts[ $sy_key ] = $sy_row ? (int) $sy_row[0] : 0;
+	}
+	$sy_result           = $sy_link->query( str_replace( array( '{posts}', '{comments}' ), array( sy_name( SY_PREFIX . 'posts' ), sy_name( SY_PREFIX . 'comments' ) ), {CONTENT_SQL} ) );
+	$sy_row              = $sy_result ? $sy_result->fetch_row() : null;
+	$sy_facts['content'] = $sy_row ? (string) $sy_row[0] : '';
+	sy_json( $sy_facts );
+}
+
+if ( 'options' === $sy_do ) {
+	$sy_names = isset( $sy_args['names'] ) ? json_decode( (string) $sy_args['names'], true ) : array();
+	$sy_out   = new stdClass();
+	if ( is_array( $sy_names ) && $sy_names ) {
+		$sy_list = array();
+		foreach ( $sy_names as $sy_name ) {
+			$sy_list[] = "'" . $sy_link->real_escape_string( (string) $sy_name ) . "'";
+		}
+		$sy_result = $sy_link->query( 'SELECT option_name, option_value, autoload FROM ' . sy_name( SY_PREFIX . 'options' ) . ' WHERE option_name IN (' . implode( ',', $sy_list ) . ')' );
+		while ( $sy_result && $sy_row = $sy_result->fetch_row() ) {
+			$sy_out->{$sy_row[0]} = array(
+				'value'    => base64_encode( $sy_row[1] ),
+				'autoload' => $sy_row[2],
+			);
+		}
+	}
+	sy_json( $sy_out );
+}
+
+if ( 'import' === $sy_do ) {
+	if ( ! SY_WRITE ) {
+		sy_fail( 403, 'This helper only reads.' );
+	}
+	$sy_file = isset( $sy_args['file'] ) ? basename( (string) $sy_args['file'] ) : '';
+	if ( ! preg_match( '/^stackyard-[a-f0-9]{24,}\.sql\.gz$/', $sy_file ) || ! is_file( __DIR__ . '/' . $sy_file ) ) {
+		sy_fail( 404, 'No such file.' );
+	}
+	$sy_from  = isset( $sy_args['from'] ) ? max( 0, (int) $sy_args['from'] ) : 0;
+	$sy_whole = ! empty( $sy_args['whole'] );
+	$sy_gz    = gzopen( __DIR__ . '/' . $sy_file, 'rb' );
+	if ( ! $sy_gz ) {
+		sy_fail( 500, 'Could not open the file.' );
+	}
+	if ( $sy_from > 0 && 0 !== gzseek( $sy_gz, $sy_from ) ) {
+		sy_fail( 500, 'Could not continue in the file.' );
+	}
+	$sy_link->query( 'SET FOREIGN_KEY_CHECKS = 0' );
+	$sy_link->query( "SET SESSION sql_mode = 'NO_AUTO_VALUE_ON_ZERO'" );
+	$sy_started   = time();
+	$sy_statement = '';
+	$sy_count     = 0;
+	$sy_pos       = $sy_from;
+	$sy_next      = $sy_from;
+	$sy_done      = false;
+	while ( true ) {
+		// A line, however long: dumps keep each row group on one line.
+		$sy_line = '';
+		while ( false !== ( $sy_part = gzgets( $sy_gz, 1048576 ) ) ) {
+			$sy_line .= $sy_part;
+			if ( "\n" === substr( $sy_part, -1 ) ) {
+				break;
+			}
+		}
+		if ( '' === $sy_line ) {
+			$sy_done = true;
+			break;
+		}
+		$sy_pos += strlen( $sy_line );
+		$sy_trim = rtrim( $sy_line );
+		if ( '' === $sy_statement && ( '' === $sy_trim || 0 === strpos( $sy_trim, '--' ) ) ) {
+			$sy_next = $sy_pos;
+			continue;
+		}
+		$sy_statement .= $sy_line;
+		if ( ';' === substr( $sy_trim, -1 ) ) {
+			if ( ! $sy_link->query( $sy_statement ) ) {
+				sy_fail( 500, 'The database refused a statement: ' . $sy_link->error . ' (' . substr( $sy_statement, 0, 160 ) . ')' );
+			}
+			$sy_statement = '';
+			$sy_next      = $sy_pos;
+			++$sy_count;
+			if ( ! $sy_whole && time() - $sy_started >= 20 ) {
+				break;
+			}
+		}
+	}
+	gzclose( $sy_gz );
+	if ( $sy_done && '' !== trim( $sy_statement ) ) {
+		sy_fail( 500, 'The file ends in the middle of a statement.' );
+	}
+	sy_json(
+		array(
+			'statements' => $sy_count,
+			'next'       => $sy_next,
+			'done'       => $sy_done,
 		)
 	);
 }

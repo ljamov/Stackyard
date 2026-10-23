@@ -6,21 +6,23 @@ import {
   type WpChange,
   type WpChangeList,
   type WpExisting,
+  type WpFileChange,
   type WpMergeLevel,
   type WpMerged,
   type WpMoveChoice,
   type WpMovePlan,
-  type WpMoved,
   type WpPostSummary,
+  type WpSettingChange,
+  type WpSwitch,
 } from "../../lib/wordpress";
 
 type T = ReturnType<typeof useT>;
 
-function when(at: number) {
+export function when(at: number) {
   return new Date(at * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-function changeText(t: T, change: WpChange) {
+export function changeText(t: T, change: WpChange) {
   return change === "added" ? t("added") : change === "removed" ? t("removed") : t("changed");
 }
 
@@ -39,7 +41,11 @@ function groupText(t: T, group: string) {
   );
 }
 
-function Undo({ target, snapshot, onDone }: { target: string; snapshot: string; onDone: () => void }) {
+export function Undo({ target, snapshot, onDone }: { target: string; snapshot: string; onDone: () => void }) {
+  return <UndoWith undo={() => wp.restoreSnapshot(target, snapshot)} onDone={onDone} />;
+}
+
+export function UndoWith({ undo, onDone }: { undo: () => Promise<void>; onDone: () => void }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +59,7 @@ function Undo({ target, snapshot, onDone }: { target: string; snapshot: string; 
           setBusy(true);
           setError(null);
           try {
-            await wp.restoreSnapshot(target, snapshot);
+            await undo();
             onDone();
           } catch (e) {
             setError(errorText(e));
@@ -70,6 +76,91 @@ function Undo({ target, snapshot, onDone }: { target: string; snapshot: string; 
         </p>
       )}
     </>
+  );
+}
+
+export function toggled(set: Set<string>, keys: string[], on: boolean) {
+  const next = new Set(set);
+  for (const k of keys) {
+    if (on) next.add(k);
+    else next.delete(k);
+  }
+  return next;
+}
+
+type Picker<V> = { picked: Set<string>; onChange: (next: Set<string>) => void } & V;
+
+/** Changed files grouped by plugin, theme and so on, each group with a
+ * box that picks all of it. `other` is the side the files go to. */
+export function FileGroups({ files, picked, onChange, other }: Picker<{ files: WpFileChange[]; other: string }>) {
+  const t = useT();
+  const groups = useMemo(() => {
+    const m = new Map<string, WpFileChange[]>();
+    for (const f of files) m.set(f.group, [...(m.get(f.group) ?? []), f]);
+    return [...m.entries()];
+  }, [files]);
+  if (groups.length === 0) return null;
+  return (
+    <div className="stack tight" aria-label={t("Files")}>
+      <h4 className="small">{t("Files")}</h4>
+      {groups.map(([group, items]) => {
+        const all = items.every((f) => picked.has(f.path));
+        return (
+          <details key={group}>
+            <summary className="small">
+              <label className="small" style={{ display: "inline-flex", gap: 8, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" checked={all} onChange={(e) => onChange(toggled(picked, items.map((f) => f.path), e.target.checked))} />
+                {groupText(t, group)} · {items.length === 1 ? t("1 file") : t("{count} files", { count: items.length })}
+                {items.some((f) => f.conflict) && <span className="warn">{t("changed on both")}</span>}
+              </label>
+            </summary>
+            {items.map((f) => (
+              <label key={f.path} className="row small">
+                <input type="checkbox" checked={picked.has(f.path)} onChange={(e) => onChange(toggled(picked, [f.path], e.target.checked))} />
+                <span className="mono">{f.path}</span>
+                <span className="muted">{changeText(t, f.change)}</span>
+                {f.conflict && f.target && <span className="warn">{t("also {change} on {site}", { change: changeText(t, f.target), site: other })}</span>}
+              </label>
+            ))}
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
+export function SwitchList({ switches, picked, onChange }: Picker<{ switches: WpSwitch[] }>) {
+  const t = useT();
+  if (switches.length === 0) return null;
+  return (
+    <div className="stack tight">
+      <h4 className="small">{t("Plugins and theme")}</h4>
+      {switches.map((s) => (
+        <label key={s.id} className="row small">
+          <input type="checkbox" checked={picked.has(s.id)} onChange={(e) => onChange(toggled(picked, [s.id], e.target.checked))} />
+          {s.on ? t("Switch {name} on", { name: s.title }) : t("Switch {name} off", { name: s.title })}
+          {s.conflict && <span className="warn">{t("changed on both")}</span>}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+export function SettingList({ settings, picked, onChange }: Picker<{ settings: WpSettingChange[] }>) {
+  const t = useT();
+  return (
+    <div className="stack tight">
+      <h4 className="small">{t("Settings")}</h4>
+      {settings.length === 0 && <p className="muted small">{t("No settings changed.")}</p>}
+      {settings.map((s) => (
+        <label key={s.name} className="row small">
+          <input type="checkbox" checked={picked.has(s.name)} onChange={(e) => onChange(toggled(picked, [s.name], e.target.checked))} />
+          <span className="mono">{s.name}</span>
+          <span className="muted">{s.change === "removed" ? changeText(t, s.change) : `${s.target ?? "–"} → ${s.staging ?? "–"}`}</span>
+          {s.conflict && <span className="warn">{t("changed on both")}</span>}
+        </label>
+      ))}
+    </div>
   );
 }
 
@@ -108,7 +199,23 @@ export function MergePanel({ source, targets }: { source: string; targets: strin
           </label>
         </div>
       </div>
-      {mode === "merge" ? <MergeChanges key={target} source={source} target={target} /> : <MovePosts key={target} source={source} target={target} />}
+      {mode === "merge" ? (
+        <MergeChanges key={target} source={source} target={target} />
+      ) : (
+        <MovePosts
+          key={target}
+          source={source}
+          target={target}
+          ops={{
+            list: (search) => wp.postsList(source, search),
+            plan: (choice) => wp.postsPlan(source, target, choice),
+            move: async (choice) => {
+              const moved = await wp.postsMove(source, target, choice);
+              return { ...moved, undo: () => wp.restoreSnapshot(target, moved.snapshot) };
+            },
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -143,21 +250,6 @@ function MergeChanges({ source, target }: { source: string; target: string }) {
     } finally {
       setBusy(null);
     }
-  }
-
-  const groups = useMemo(() => {
-    const m = new Map<string, WpChangeList["files"]>();
-    for (const f of list?.files ?? []) m.set(f.group, [...(m.get(f.group) ?? []), f]);
-    return [...m.entries()];
-  }, [list]);
-
-  function toggle(set: Set<string>, update: (s: Set<string>) => void, keys: string[], on: boolean) {
-    const next = new Set(set);
-    for (const k of keys) {
-      if (on) next.add(k);
-      else next.delete(k);
-    }
-    update(next);
   }
 
   const name = target.split(".")[0];
@@ -198,33 +290,7 @@ function MergeChanges({ source, target }: { source: string; target: string }) {
       {list && !nothing && (
         <>
           <p className="muted small">{t("Changes since {date}.", { date: when(list.base_at) })}</p>
-          {groups.length > 0 && (
-            <div className="stack tight" aria-label={t("Files")}>
-              <h4 className="small">{t("Files")}</h4>
-              {groups.map(([group, items]) => {
-                const all = items.every((f) => files.has(f.path));
-                return (
-                  <details key={group}>
-                    <summary className="small">
-                      <label className="small" style={{ display: "inline-flex", gap: 8, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={all} onChange={(e) => toggle(files, setFiles, items.map((f) => f.path), e.target.checked)} />
-                        {groupText(t, group)} · {items.length === 1 ? t("1 file") : t("{count} files", { count: items.length })}
-                        {items.some((f) => f.conflict) && <span className="warn">{t("changed on both")}</span>}
-                      </label>
-                    </summary>
-                    {items.map((f) => (
-                      <label key={f.path} className="row small">
-                        <input type="checkbox" checked={files.has(f.path)} onChange={(e) => toggle(files, setFiles, [f.path], e.target.checked)} />
-                        <span className="mono">{f.path}</span>
-                        <span className="muted">{changeText(t, f.change)}</span>
-                        {f.conflict && f.target && <span className="warn">{t("also {change} on {site}", { change: changeText(t, f.target), site: target })}</span>}
-                      </label>
-                    ))}
-                  </details>
-                );
-              })}
-            </div>
-          )}
+          <FileGroups files={list.files} picked={files} onChange={setFiles} other={target} />
 
           <fieldset className="stack tight">
             <legend className="small">{t("How much to merge")}</legend>
@@ -248,35 +314,9 @@ function MergeChanges({ source, target }: { source: string; target: string }) {
             </label>
           </fieldset>
 
-          {level !== "everything" && list.switches.length > 0 && (
-            <div className="stack tight">
-              <h4 className="small">{t("Plugins and theme")}</h4>
-              {list.switches.map((s) => (
-                <label key={s.id} className="row small">
-                  <input type="checkbox" checked={switches.has(s.id)} onChange={(e) => toggle(switches, setSwitches, [s.id], e.target.checked)} />
-                  {s.on ? t("Switch {name} on", { name: s.title }) : t("Switch {name} off", { name: s.title })}
-                  {s.conflict && <span className="warn">{t("changed on both")}</span>}
-                </label>
-              ))}
-            </div>
-          )}
+          {level !== "everything" && <SwitchList switches={list.switches} picked={switches} onChange={setSwitches} />}
 
-          {level === "settings" && (
-            <div className="stack tight">
-              <h4 className="small">{t("Settings")}</h4>
-              {list.settings.length === 0 && <p className="muted small">{t("No settings changed.")}</p>}
-              {list.settings.map((s) => (
-                <label key={s.name} className="row small">
-                  <input type="checkbox" checked={settings.has(s.name)} onChange={(e) => toggle(settings, setSettings, [s.name], e.target.checked)} />
-                  <span className="mono">{s.name}</span>
-                  <span className="muted">
-                    {s.change === "removed" ? changeText(t, s.change) : `${s.target ?? "–"} → ${s.staging ?? "–"}`}
-                  </span>
-                  {s.conflict && <span className="warn">{t("changed on both")}</span>}
-                </label>
-              ))}
-            </div>
-          )}
+          {level === "settings" && <SettingList settings={list.settings} picked={settings} onChange={setSettings} />}
 
           {level === "everything" && (
             <div className="stack tight">
@@ -351,11 +391,19 @@ function MergeChanges({ source, target }: { source: string; target: string }) {
   );
 }
 
-function typeText(t: T, type: string) {
+export function typeText(t: T, type: string) {
   return { post: t("Post"), page: t("Page"), attachment: t("Image or file"), product: t("Product"), wp_block: t("Pattern") }[type] ?? type;
 }
 
-function MovePosts({ source, target }: { source: string; target: string }) {
+/** Where single posts come from and go to: two local copies, or a copy
+ * and its live site. */
+export type PostOps = {
+  list: (search: string) => Promise<WpPostSummary[]>;
+  plan: (choice: WpMoveChoice) => Promise<WpMovePlan>;
+  move: (choice: WpMoveChoice) => Promise<{ posts: number; files: number; undo: () => Promise<void> }>;
+};
+
+export function MovePosts({ source, target, ops, intro }: { source: string; target: string; ops: PostOps; intro?: string }) {
   const t = useT();
   const [search, setSearch] = useState("");
   const [found, setFound] = useState<WpPostSummary[] | null>(null);
@@ -365,16 +413,17 @@ function MovePosts({ source, target }: { source: string; target: string }) {
   const [plan, setPlan] = useState<WpMovePlan | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [moved, setMoved] = useState<WpMoved | null>(null);
+  const [moved, setMoved] = useState<Awaited<ReturnType<PostOps["move"]>> | null>(null);
   const [undone, setUndone] = useState(false);
 
   useEffect(() => {
     const id = setTimeout(() => {
-      wp.postsList(source, search.trim())
+      ops.list(search.trim())
         .then(setFound)
         .catch((e) => setError(errorText(e)));
     }, 250);
     return () => clearTimeout(id);
+    // ops is made anew each render; the source names what it lists.
   }, [source, search]);
 
   const choice: WpMoveChoice = { ids: [...picked.keys()], existing, comments };
@@ -383,7 +432,7 @@ function MovePosts({ source, target }: { source: string; target: string }) {
     setBusy(t("Working out what moves…"));
     setError(null);
     try {
-      setPlan(await wp.postsPlan(source, target, next));
+      setPlan(await ops.plan(next));
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -395,7 +444,7 @@ function MovePosts({ source, target }: { source: string; target: string }) {
     setBusy(t("Moving…"));
     setError(null);
     try {
-      setMoved(await wp.postsMove(source, target, choice));
+      setMoved(await ops.move(choice));
       setUndone(false);
       setPlan(null);
       setPicked(new Map());
@@ -418,7 +467,8 @@ function MovePosts({ source, target }: { source: string; target: string }) {
   return (
     <div className="stack">
       <p className="muted small">
-        {t("Copies the picked posts and pages to {target} with their images, categories, tags and custom fields. Numbers that point to other posts are changed to match {target}. A snapshot of {target} is taken first.", { target })}
+        {intro ??
+          t("Copies the picked posts and pages to {target} with their images, categories, tags and custom fields. Numbers that point to other posts are changed to match {target}. A snapshot of {target} is taken first.", { target })}
       </p>
       {!plan && (
         <>
@@ -535,7 +585,7 @@ function MovePosts({ source, target }: { source: string; target: string }) {
             {t("Moved {posts} items and {files} media files to {site}.", { posts: moved.posts, files: moved.files, site: target })}
           </p>
           <div className="row">
-            <Undo target={target} snapshot={moved.snapshot} onDone={() => setUndone(true)} />
+            <UndoWith undo={moved.undo} onDone={() => setUndone(true)} />
           </div>
         </div>
       )}

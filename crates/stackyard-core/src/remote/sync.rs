@@ -125,9 +125,9 @@ pub struct Outcome {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FileInfo {
-    size: u64,
-    modified: Option<i64>,
+pub(crate) struct FileInfo {
+    pub size: u64,
+    pub modified: Option<i64>,
 }
 
 pub(crate) struct Sides<'a> {
@@ -371,7 +371,7 @@ fn walk_local(
 }
 
 /// Files under `root/start` on the server, by path relative to `root`.
-fn walk_remote(
+pub(crate) fn walk_remote(
     remote: &mut dyn Remote,
     root: &str,
     start: &str,

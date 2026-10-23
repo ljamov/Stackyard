@@ -12,7 +12,7 @@ pub mod secrets;
 mod sftp;
 pub mod sync;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
@@ -628,6 +628,39 @@ impl Sessions {
                 only,
                 progress,
             )
+        })
+    }
+
+    /// Every file under a server folder (absolute), by path relative to it,
+    /// with its size and, where the server tells, when it last changed.
+    /// Folders matching `skip` are left out.
+    pub fn files(
+        &self,
+        connection: &Connection,
+        root: &str,
+        skip: &[String],
+        progress: &mut dyn FnMut(Progress) -> bool,
+    ) -> Result<BTreeMap<String, (u64, Option<i64>)>> {
+        self.with(connection, |r| {
+            Ok(sync::walk_remote(r, root, "", skip, progress)?
+                .into_iter()
+                .map(|(rel, info)| (rel, (info.size, info.modified)))
+                .collect())
+        })
+    }
+
+    /// Uploads one file, making the folders it goes in first.
+    pub fn upload_into(&self, connection: &Connection, local: &Path, remote: &str) -> Result<()> {
+        self.with(connection, |r| {
+            if let Some((parent, _)) = remote.rsplit_once('/') {
+                let mut so_far = String::new();
+                for part in parent.split('/').filter(|p| !p.is_empty()) {
+                    so_far.push('/');
+                    so_far.push_str(part);
+                    let _ = r.make_dir(&so_far);
+                }
+            }
+            r.upload(local, remote, &mut |_| true)
         })
     }
 

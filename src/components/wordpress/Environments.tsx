@@ -4,12 +4,14 @@ import { useT } from "../../lib/i18n";
 import {
   wp,
   type WpCloneProgress,
+  type WpEnvironment,
   type WpEnvironments,
   type WpSnapshots,
   type WpStagingFrom,
   type WpTrashed,
 } from "../../lib/wordpress";
 import { stageText } from "./CloneSite";
+import { LivePanel } from "./Live";
 import { MergePanel } from "./Merge";
 import { size } from "./WordPressTools";
 
@@ -29,6 +31,7 @@ function madeFromText(t: T, from: string | null) {
 export function EnvironmentsTab({ site }: { site: Site }) {
   const t = useT();
   const [envs, setEnvs] = useState<WpEnvironments | null>(null);
+  const [here, setHere] = useState<WpEnvironment | null>(null);
   const [trash, setTrash] = useState<WpTrashed[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -40,6 +43,9 @@ export function EnvironmentsTab({ site }: { site: Site }) {
     wp.stagings(site.domain)
       .then(setEnvs)
       .catch((e) => setError(errorText(e)));
+    wp.environment(site.domain)
+      .then(setHere)
+      .catch(() => setHere(null));
     wp.trash()
       .then(setTrash)
       .catch(() => setTrash([]));
@@ -136,6 +142,8 @@ export function EnvironmentsTab({ site }: { site: Site }) {
         setNotice(t("{site} is ready.", { site: domain }));
         reload();
       }} />
+
+      {here?.live && <LivePanel domain={site.domain} main={envs.main} live={here.live} />}
 
       {isStaging && <MergePanel source={site.domain} targets={[envs.main, ...envs.stagings.map((s) => s.domain)].filter((d) => d !== site.domain)} />}
 

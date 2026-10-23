@@ -438,6 +438,8 @@ jobs:
             STACKYARD_TEST_LIVE="sftp|127.0.0.1|2222|live|Live-pass-1|http://127.0.0.1:8099|2121" \
               STACKYARD_TEST_BACKUP="$RUNNER_TEMP/live-files.zip|$RUNNER_TEMP/live_blog.sql.gz" \
               cargo test -p stackyard-core -- --ignored clone_from_a_live_server
+            STACKYARD_TEST_LIVE="sftp|127.0.0.1|2222|live|Live-pass-1|http://127.0.0.1:8099|2121" \
+              cargo test -p stackyard-core -- --ignored push_and_pull_with_a_live_server
             stackyard stop
           fi
       - name: Python and Go sites, with the servers Stackyard runs

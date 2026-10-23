@@ -413,6 +413,9 @@ fn copy_site(
     )?;
     let wp = WpSite::open(&site)?;
     muplugin::install(&wp, &muplugin::Options::for_site(home, &wp))?;
+    // Its files and database were the source's: so is where it stands
+    // with the live site.
+    super::sync::copy_base(home, &source.domain(), &site.domain())?;
     Ok(site)
 }
 
