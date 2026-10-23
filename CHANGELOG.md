@@ -4,6 +4,19 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- The **Problems, Logs and Terminal** panel now sits under the open screen only, so the side bar
+  runs the whole height of the window. The new button beside the panel's ✕ stretches it across
+  the whole window again; Stackyard remembers which you picked.
+- The panel's tabs have more room between their underline and what the panel shows.
+- **Tabs can be dragged** along the row to put them in another order, or moved with
+  **Ctrl+Shift+Left/Right**. A tab's ✕ lights up as a small square only under the pointer, and
+  stays dark while a tab is dragged.
+- On **Sites**, the New site and Parked folders forms fold away under one heading, closed at first.
+  Stackyard remembers whether you left it open; **New site** in the side bar and on Home opens it.
+- On **AI tools**, the **Choose folder…** button lines up with the Site or folder list.
+
 ## 0.9.0
 
 - The **Problems, Logs and Terminal** panel now runs along the bottom of the whole window, under

@@ -5,7 +5,7 @@ import { BrandIcon } from "./BrandIcon";
 import type { Site } from "../lib/api";
 import { frameworkBrand } from "../lib/brands";
 import { openPalette } from "../lib/palette";
-import { openTab, showScreen, siteTab, type TabId } from "../lib/layout";
+import { openTab, showNewSite, showScreen, siteTab, type TabId } from "../lib/layout";
 import { useUpdate } from "../lib/updates";
 import { useT } from "../lib/i18n";
 import { withKey } from "../lib/keybindings";
@@ -102,7 +102,7 @@ export function Sidebar({
           className="side-new"
           aria-label={collapsed ? t("New site") : undefined}
           title={collapsed ? t("New site") : undefined}
-          onClick={() => showScreen("Sites")}
+          onClick={showNewSite}
         >
           <span className="side-plus" aria-hidden="true">
             <Icon name="plus" />

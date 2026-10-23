@@ -3,7 +3,8 @@ import { api, errorText, type RuntimeFamily, type Site, type SiteFile } from "..
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { openTerminal } from "../lib/terminal";
-import { openTab, siteTab } from "../lib/layout";
+import { openTab, setLayout, siteTab, useLayout } from "../lib/layout";
+import { Icon } from "../components/Icon";
 import { SiteVersions } from "../components/SiteVersions";
 import { SiteThumb } from "../components/SiteThumb";
 import { SiteDatabaseLine } from "../components/SiteDatabase";
@@ -36,6 +37,8 @@ function siteName(typed: string) {
 
 export function Sites() {
   const t = useT();
+  // The New site and Parked folders forms fold away; open or closed is kept.
+  const { newSiteOpen } = useLayout();
   const sites = useLoad(api.listSites, []);
   const runtimes = useLoad(api.listRuntimes, []);
   const parked = useLoad(api.listParked, []);
@@ -277,157 +280,170 @@ export function Sites() {
         </p>
       )}
 
-      <div className="sites-top">
-        <form className="card stack form new-site" aria-labelledby="new-h" onSubmit={create}>
-          <h2 id="new-h">New site</h2>
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="f-name">Name</label>
-              <div className="input-affix">
-                <input
-                  id="f-name"
-                  className="mono"
-                  value={typedName}
-                  placeholder="hello"
-                  required
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-describedby="f-name-hint"
-                  title={t("Letters, numbers and dashes. Spaces and other characters become dashes.")}
-                  onChange={(e) => setTypedName(e.target.value)}
-                />
-                <span className="mono muted">{tldDraft}</span>
-              </div>
-              <span id="f-name-hint" className="muted small">
-                {typedName && name !== typedName ? (
-                  name ? (
-                    <>
-                      The address will be <span className="mono">{name + tldDraft}</span>
-                    </>
+      <button
+        type="button"
+        className="disclosure"
+        aria-expanded={newSiteOpen}
+        aria-controls="sites-top"
+        onClick={() => setLayout({ newSiteOpen: !newSiteOpen })}
+      >
+        <Icon name="chevron" />
+        {t("New site and parked folders")}
+      </button>
+
+      {newSiteOpen && (
+        <div id="sites-top" className="sites-top">
+          <form className="card stack form new-site" aria-labelledby="new-h" onSubmit={create}>
+            <h2 id="new-h">New site</h2>
+            <div className="form-grid">
+              <div className="field">
+                <label htmlFor="f-name">Name</label>
+                <div className="input-affix">
+                  <input
+                    id="f-name"
+                    className="mono"
+                    value={typedName}
+                    placeholder="hello"
+                    required
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-describedby="f-name-hint"
+                    title={t("Letters, numbers and dashes. Spaces and other characters become dashes.")}
+                    onChange={(e) => setTypedName(e.target.value)}
+                  />
+                  <span className="mono muted">{tldDraft}</span>
+                </div>
+                <span id="f-name-hint" className="muted small">
+                  {typedName && name !== typedName ? (
+                    name ? (
+                      <>
+                        The address will be <span className="mono">{name + tldDraft}</span>
+                      </>
+                    ) : (
+                      <span className="warn">Use letters or numbers</span>
+                    )
                   ) : (
-                    <span className="warn">Use letters or numbers</span>
-                  )
-                ) : (
-                  "Letters, numbers and dashes"
-                )}
-              </span>
-            </div>
-            <div className="field">
-              <label htmlFor="f-folder">Project folder</label>
-              <div className="row folder-input">
-                <input
-                  id="f-folder"
-                  className="mono grow"
-                  value={path}
-                  placeholder={folderFor(name || "hello")}
-                  onChange={(e) => setPath(e.target.value)}
-                />
-                <button type="button" className="btn" onClick={browseProject}>
-                  Browse…
-                </button>
+                    "Letters, numbers and dashes"
+                  )}
+                </span>
               </div>
-            </div>
-            <div className="field">
-              <label htmlFor="f-starter">Start from</label>
-              <select id="f-starter" value={starter} onChange={(e) => setStarter(e.target.value)}>
-                <option value="">Empty or existing folder</option>
-                {starters.data.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {chosenStarter ? (
               <div className="field">
-                <span className="label">What you get</span>
-                <span className="muted small">{chosenStarter.description}</span>
+                <label htmlFor="f-folder">Project folder</label>
+                <div className="row folder-input">
+                  <input
+                    id="f-folder"
+                    className="mono grow"
+                    value={path}
+                    placeholder={folderFor(name || "hello")}
+                    onChange={(e) => setPath(e.target.value)}
+                  />
+                  <button type="button" className="btn" onClick={browseProject}>
+                    Browse…
+                  </button>
+                </div>
               </div>
-            ) : (
               <div className="field">
-                <label htmlFor="f-rt">Runtime</label>
-                <select id="f-rt" value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
-                  {options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
+                <label htmlFor="f-starter">Start from</label>
+                <select id="f-starter" value={starter} onChange={(e) => setStarter(e.target.value)}>
+                  <option value="">Empty or existing folder</option>
+                  {starters.data.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
                     </option>
                   ))}
                 </select>
               </div>
+              {chosenStarter ? (
+                <div className="field">
+                  <span className="label">What you get</span>
+                  <span className="muted small">{chosenStarter.description}</span>
+                </div>
+              ) : (
+                <div className="field">
+                  <label htmlFor="f-rt">Runtime</label>
+                  <select id="f-rt" value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
+                    {options.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="field">
+                <label htmlFor="f-tld">Domain ending</label>
+                <input
+                  id="f-tld"
+                  className="mono"
+                  value={tldDraft}
+                  onChange={(e) => setTldDraft(e.target.value)}
+                  onBlur={saveTld}
+                />
+                {tldInfo.data.warning && <span className="warn small">{tldInfo.data.warning}</span>}
+              </div>
+            </div>
+            <span className="muted small">
+              Leave the folder empty to create <span className="mono">{folderFor(name || "hello")}</span>. The domain
+              ending applies to new sites.
+              {chosenStarter && " A starter needs a new or empty folder."}
+            </span>
+            {making && (
+              <p className="muted small" role="status">
+                {making}
+              </p>
             )}
-            <div className="field">
-              <label htmlFor="f-tld">Domain ending</label>
-              <input
-                id="f-tld"
-                className="mono"
-                value={tldDraft}
-                onChange={(e) => setTldDraft(e.target.value)}
-                onBlur={saveTld}
-              />
-              {tldInfo.data.warning && <span className="warn small">{tldInfo.data.warning}</span>}
+            <div className="row between centered">
+              <label className="check">
+                <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
+                Secure with local HTTPS (SSL) certificate
+              </label>
+              <button type="submit" className="btn primary" disabled={making !== null || !name}>
+                {making ? "Creating…" : chosenStarter ? `Create ${chosenStarter.name} site` : "Create site"}
+              </button>
             </div>
-          </div>
-          <span className="muted small">
-            Leave the folder empty to create <span className="mono">{folderFor(name || "hello")}</span>. The domain
-            ending applies to new sites.
-            {chosenStarter && " A starter needs a new or empty folder."}
-          </span>
-          {making && (
-            <p className="muted small" role="status">
-              {making}
-            </p>
-          )}
-          <div className="row between centered">
-            <label className="check">
-              <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
-              Secure with local HTTPS (SSL) certificate
-            </label>
-            <button type="submit" className="btn primary" disabled={making !== null || !name}>
-              {making ? "Creating…" : chosenStarter ? `Create ${chosenStarter.name} site` : "Create site"}
-            </button>
-          </div>
-        </form>
+          </form>
 
-        <form className="card stack form parked" aria-labelledby="park-h" onSubmit={park}>
-          <h2 id="park-h">Parked folders</h2>
-          <p className="muted small">
-            Every folder inside a parked folder is a site, named after the folder. New folders show up within a few
-            seconds.
-          </p>
-          {parked.data.map((folder) => (
-            <div key={folder} className="list-row">
-              <span className="mono small">{folder}</span>
-              <button
-                type="button"
-                className="btn ghost small"
-                aria-label={`Unpark ${folder}`}
-                onClick={() => unpark(folder)}
-              >
-                Unpark
-              </button>
+          <form className="card stack form parked" aria-labelledby="park-h" onSubmit={park}>
+            <h2 id="park-h">Parked folders</h2>
+            <p className="muted small">
+              Every folder inside a parked folder is a site, named after the folder. New folders show up within a few
+              seconds.
+            </p>
+            {parked.data.map((folder) => (
+              <div key={folder} className="list-row">
+                <span className="mono small">{folder}</span>
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  aria-label={`Unpark ${folder}`}
+                  onClick={() => unpark(folder)}
+                >
+                  Unpark
+                </button>
+              </div>
+            ))}
+            <div className="field">
+              <label htmlFor="f-park">Folder</label>
+              <div className="row folder-input">
+                <input
+                  id="f-park"
+                  className="mono grow"
+                  value={parkDraft}
+                  placeholder={sitesFolder.data || "~/Code"}
+                  required
+                  onChange={(e) => setParkDraft(e.target.value)}
+                />
+                <button type="button" className="btn" onClick={browsePark}>
+                  Browse…
+                </button>
+              </div>
             </div>
-          ))}
-          <div className="field">
-            <label htmlFor="f-park">Folder</label>
-            <div className="row folder-input">
-              <input
-                id="f-park"
-                className="mono grow"
-                value={parkDraft}
-                placeholder={sitesFolder.data || "~/Code"}
-                required
-                onChange={(e) => setParkDraft(e.target.value)}
-              />
-              <button type="button" className="btn" onClick={browsePark}>
-                Browse…
-              </button>
-            </div>
-          </div>
-          <button type="submit" className="btn">
-            Park folder
-          </button>
-        </form>
-      </div>
+            <button type="submit" className="btn">
+              Park folder
+            </button>
+          </form>
+        </div>
+      )}
 
       <section aria-label={t("Site list")} className="card table-wrap">
         <table>
