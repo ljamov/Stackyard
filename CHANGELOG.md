@@ -4,6 +4,26 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Site pictures that show something.** A site's picture on Sites is now the site's home page, or,
+  until there is one, its logo: the framework's (WordPress, Laravel, Astro…) or else the runtime's
+  (PHP, Node.js, Python…), not a plain white box. A page that comes out blank is tried again with
+  more time to load and otherwise dropped, and blank pictures kept by earlier versions are thrown
+  away. A camera button over each picture takes a new one and, when it can't, says why (the web
+  server isn't running, the site's database is stopped, or there is no Edge or Chrome to take it).
+- **Fixed: a removed site stayed in the side bar** under Your sites (and its tab stayed open).
+  Adding, removing or changing a site now updates every list of sites in the window at once.
+- **Site buttons are square icons** (Terminal, Open folder, Open in your code editor, Manage, Remove),
+  each named in a tooltip when you point at it.
+- **A site's tab has the same buttons** next to Open in browser, and shows the site's picture with a
+  button to take a new one.
+- **A site's sections are real tabs**: WordPress, Settings, Backups, Public link and Servers & Git sit
+  in a row of tabs with icons above the section, so they no longer look like the buttons inside it.
+- **Create site shows what is happening**: a progress bar with each step (downloading WordPress with
+  how far it has got, unpacking, making the database), then a note that the site is ready with
+  Open and Manage.
+
 ## 0.11.0
 
 - **Fixed: after making a new site, every site in Sites showed its `.localhost` address**, though

@@ -3,10 +3,12 @@ import { api, errorText, siteAddress, type Site } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { useT } from "../lib/i18n";
-import { frameworkBrand } from "../lib/brands";
-import { openTerminal } from "../lib/terminal";
+import { siteBrand } from "../lib/brands";
 import { closeTab, setLayout, siteTab, type TabId } from "../lib/layout";
 import { BrandIcon } from "../components/BrandIcon";
+import { Icon } from "../components/Icon";
+import { SiteActions } from "../components/SiteActions";
+import { SiteThumb } from "../components/SiteThumb";
 import { SiteTools } from "../components/SiteTools";
 import { SiteVersions } from "../components/SiteVersions";
 
@@ -36,6 +38,15 @@ export function SitePage({ domain }: { domain: string }) {
   if (!site) return <p className="muted">{t("This site isn't in Stackyard any more.")}</p>;
   const address = siteAddress(site, system.data);
 
+  async function run(open: () => Promise<unknown>) {
+    setError(null);
+    try {
+      await open();
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   async function remove() {
     setError(null);
     try {
@@ -48,32 +59,27 @@ export function SitePage({ domain }: { domain: string }) {
 
   return (
     <>
-      <header className="page-header">
-        <div className="page-title">
-          <BrandIcon id={frameworkBrand(site.framework) ?? ""} fallback="sites" />
-          <div>
-            <h1>{site.domain}</h1>
-            <p className="muted">
-              {site.framework ? `${site.framework} · ` : ""}
-              {site.runtime}
-              {site.parked && ` · ${t("parked")}`}
-            </p>
+      <header className="site-hero">
+        <SiteThumb site={site} large />
+        <div className="site-hero-main">
+          <div className="page-title">
+            <BrandIcon id={siteBrand(site) ?? ""} fallback="sites" />
+            <div>
+              <h1>{site.domain}</h1>
+              <p className="muted">
+                {site.framework ? `${site.framework} · ` : ""}
+                {site.runtime}
+                {site.parked && ` · ${t("parked")}`}
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="row-actions">
-          {!site.parked && (
-            <button type="button" className="btn ghost" onClick={remove}>
-              {t("Remove")}
+          <div className="site-hero-buttons">
+            <button type="button" className="btn primary" onClick={() => void api.openLocalPage(address)}>
+              <Icon name="external" />
+              {t("Open in browser")}
             </button>
-          )}
-          {isOn("terminal") && (
-            <button type="button" className="btn" onClick={() => openTerminal(site.path, site.domain)}>
-              {t("Terminal")}
-            </button>
-          )}
-          <button type="button" className="btn primary" onClick={() => void api.openLocalPage(site.url)}>
-            {t("Open in browser")}
-          </button>
+            <SiteActions site={site} onRun={(open) => void run(open)} onRemove={remove} />
+          </div>
         </div>
       </header>
 
@@ -109,7 +115,6 @@ export function SitePage({ domain }: { domain: string }) {
       </section>
 
       {hasTools && (
-        <section className="card site-page-tools" aria-label={t("Site tools")}>
           <SiteTools
             site={site}
             onChanged={(renamed) => {
@@ -123,7 +128,6 @@ export function SitePage({ domain }: { domain: string }) {
               sites.reload();
             }}
           />
-        </section>
       )}
     </>
   );

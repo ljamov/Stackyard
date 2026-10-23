@@ -3,20 +3,74 @@
 
 /* A site's picture: small in the site list, large on top of the WordPress view. */
 .site-thumb {
-  position: relative; flex: none; width: 64px; height: 40px; border-radius: 6px; overflow: hidden;
+  position: relative; flex: none; width: 80px; height: 50px; border-radius: 6px; overflow: hidden;
   background: var(--surface-2); border: 1px solid var(--border); display: grid; place-items: center;
 }
 .site-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
 .site-thumb-empty { display: grid; place-items: center; }
-.site-thumb.large { width: 240px; height: 150px; border-radius: 10px; }
-.site-thumb.large .brand-icon { width: 44px; height: 44px; border-radius: 10px; }
+.site-thumb[data-empty] .brand-icon { width: 34px; height: 34px; border-radius: 8px; }
+.site-thumb[data-empty] .brand-icon svg { width: 20px; height: 20px; }
+.site-thumb[data-empty] .brand-icon.wide svg { width: 30px; height: 30px; }
+.site-thumb.large { width: 240px; height: 150px; border-radius: 10px; overflow: visible; }
+.site-thumb.large img { border-radius: 9px; }
+.site-thumb.large .brand-icon { width: 56px; height: 56px; border-radius: 12px; }
+.site-thumb.large .brand-icon svg { width: 32px; height: 32px; }
+.site-thumb.large .brand-icon.wide svg { width: 46px; height: 46px; }
+/* Small pictures: a camera button over the picture while the pointer is on it. */
+.site-thumb-take {
+  position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transition: opacity 120ms;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.site-thumb:hover .site-thumb-take, .site-thumb-take:focus-within, .site-thumb-take[data-busy], .site-thumb-take[data-failed] { opacity: 1; }
+.site-thumb-take[data-failed] .icon-action { color: var(--warn); border-color: var(--warn); }
+.site-thumb-take .icon-action { width: 28px; height: 28px; }
 .site-thumb-retake {
-  position: absolute; right: 8px; bottom: 8px; height: 24px; padding: 0 9px; border-radius: 999px; cursor: pointer;
+  position: absolute; right: 8px; bottom: 8px; height: 26px; padding: 0 10px; border-radius: 999px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
   border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2); font-size: 11px; font-weight: 500;
   opacity: 0; transition: opacity 120ms;
 }
-.site-thumb:hover .site-thumb-retake, .site-thumb-retake:focus-visible, .site-thumb-retake:disabled { opacity: 1; }
+.site-thumb-retake svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.site-thumb:hover .site-thumb-retake, .site-thumb-retake:focus-visible, .site-thumb-retake:disabled,
+.site-thumb[data-empty] .site-thumb-retake { opacity: 1; }
+.site-thumb-retake:hover:not(:disabled) { color: var(--text-strong); border-color: var(--text-2); }
 .site-thumb-retake:disabled { cursor: progress; }
+.site-thumb-failed { position: absolute; left: 0; right: 0; top: calc(100% + 6px); font-size: 12px; color: var(--warn); line-height: 1.4; }
+
+/* A site's tab: its picture and buttons in the header, then its sections as tabs. */
+.site-hero { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+.site-hero .site-thumb.large { margin-bottom: 4px; }
+.site-hero-main { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.site-hero-main h1 { margin: 0; overflow-wrap: anywhere; }
+.site-hero-main p { margin: 0; }
+.site-hero-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.site-hero-buttons .icon-actions { gap: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
+.site-hero:has(.site-thumb-failed) { padding-bottom: 28px; }
+
+.site-sections {
+  display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border-strong); scrollbar-width: none;
+  margin-bottom: -2px;
+}
+.site-sections::-webkit-scrollbar { display: none; }
+.site-section-tab {
+  flex: none; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 0;
+  border-radius: 6px 6px 0 0; background: none; color: var(--text-2); cursor: pointer; font-size: 13.5px; font-weight: 500;
+  box-shadow: inset 0 -2px 0 transparent;
+}
+.site-section-tab svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.site-section-tab svg.filled { fill: currentColor; stroke: none; }
+.site-section-tab .codicon[class*="codicon-"] { font-size: 16px; }
+.site-section-tab:hover { color: var(--text-strong); background: color-mix(in srgb, var(--text) 5%, transparent); }
+.site-section-tab[aria-selected="true"] { color: var(--text-strong); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.site-section-tab[aria-selected="true"] svg:not(.filled) { stroke: var(--accent-ink); }
+.site-section-tab[aria-selected="true"] svg.filled { fill: var(--accent-ink); }
+.site-section-tab:focus-visible { outline-offset: -2px; }
+.site-section-panel { min-width: 0; }
+
+/* Making a new site: what is happening, under the form. */
+.new-site-progress { padding: 12px 14px; border-radius: 8px; background: var(--surface-2); display: flex; flex-direction: column; gap: 6px; }
+.new-site-progress strong { font-weight: 600; color: var(--text-strong); }
+.new-site-progress .progress { width: 100%; background: var(--border-strong); }
 
 /* The database server a site needs is not running. */
 .site-db-notice {

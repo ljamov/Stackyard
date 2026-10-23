@@ -1799,6 +1799,8 @@ pub(crate) fn ensure_web(engine: &Engine) -> CmdResult<()> {
 }
 
 pub(crate) fn sites_changed(app: &AppHandle) {
+    // Every list of sites in the window (the side bar, tabs, Home) reloads.
+    let _ = app.emit("sites-changed", ());
     let engine = app.state::<Arc<Engine>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         if let Err(e) = engine.sites_changed() {

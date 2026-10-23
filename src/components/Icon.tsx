@@ -35,6 +35,15 @@ const PATHS = {
   panelWide: "M4 5h16v14H4zM4 14h16",
   panelNarrow: "M4 5h16v14H4zM9.5 5v14M9.5 14H20",
   chevron: "M9 6l6 6-6 6",
+  // Site actions and the sections of a site's tab.
+  folder: "M3.5 6.5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z",
+  code: "M8.5 7 3.5 12l5 5M15.5 7l5 5-5 5",
+  trash: "M4.5 6.5h15M9.5 6.5V4.5h5v2M6.5 6.5l1 13h9l1-13M10 10v6M14 10v6",
+  camera: "M3.5 7.5h4l1.5-2h6l1.5 2h4v11h-17zM12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  manage: "M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4",
+  archive: "M3.5 4.5h17v4h-17zM5 8.5v11h14v-11M10 12h4",
+  link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
+  git: "M7 4v11M7 15a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM17 4a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM17 9c0 4-4 4-9 6.5",
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -68,6 +77,14 @@ const CODICONS: Record<IconName, string> = {
   panelWide: "layout-panel-justify",
   panelNarrow: "layout-panel",
   chevron: "chevron-right",
+  folder: "folder-opened",
+  code: "code",
+  trash: "trash",
+  camera: "device-camera",
+  manage: "settings",
+  archive: "archive",
+  link: "link",
+  git: "source-control",
 };
 
 export function Icon({ name }: { name: IconName }) {

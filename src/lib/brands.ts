@@ -89,3 +89,14 @@ export function frameworkBrand(framework: string | null): string | null {
   const id = ALIASES[key] ?? key;
   return Object.hasOwn(BRAND_PATHS, id) ? id : null;
 }
+
+/**
+ * The logo a site shows when there is no picture of it: its framework's, else
+ * its runtime's ("PHP 8.4" → "php"), else none (a plain globe).
+ */
+export function siteBrand(site: { framework: string | null; runtime: string }): string | null {
+  const framework = frameworkBrand(site.framework);
+  if (framework) return framework;
+  const runtime = site.runtime.split(/\s/)[0].toLowerCase();
+  return Object.hasOwn(BRAND_PATHS, runtime) ? runtime : null;
+}

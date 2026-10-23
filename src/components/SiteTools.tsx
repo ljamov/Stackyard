@@ -14,6 +14,9 @@ import { useModules } from "../lib/modules";
 import { useT } from "../lib/i18n";
 import { Progress, packState, shareState } from "./Progress";
 import { SiteRemote } from "./SiteRemote";
+import { Icon, type IconName } from "./Icon";
+import { BRAND_PATHS } from "../lib/brands";
+import { rovingGroup, rovingKeys } from "../lib/focus";
 import { WordPressTools } from "./wordpress/WordPressTools";
 
 function size(bytes: number) {
@@ -51,38 +54,69 @@ function joinLines(pairs: Record<string, string> | undefined, separator: string)
 /** What a site's tools tab panel needs to know after a change. */
 type Changed = (domain?: string) => void;
 
-/** The tools under a site's row on the Sites screen: its settings, backups, public link, servers and Git. */
+type Section = { id: string; label: string; icon: IconName | "wordpress" };
+
+/**
+ * A site's sections in its own tab (WordPress, Settings, Backups, Public link,
+ * Servers & Git) as a row of tabs over one card, so picking a section reads
+ * differently from the buttons inside it. The arrow keys move between them.
+ */
 export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed }) {
+  const t = useT();
   const { isOn } = useModules();
   const wordpress = site.framework === "WordPress" || site.framework === "WooCommerce";
-  const tabs = [
-    wordpress && isOn("wordpress") && "WordPress",
-    isOn("sitesettings") && "Settings",
-    (isOn("sitebackups") || isOn("sitetransfer")) && "Backups",
-    isOn("share") && "Public link",
-    (isOn("remote") || isOn("git")) && "Servers & Git",
-  ].filter(Boolean) as string[];
-  const [tab, setTab] = useState(tabs[0] ?? "Settings");
-  if (tabs.length === 0) {
+  const sections = [
+    wordpress && isOn("wordpress") && { id: "WordPress", label: "WordPress", icon: "wordpress" },
+    isOn("sitesettings") && { id: "Settings", label: t("Settings"), icon: "manage" },
+    (isOn("sitebackups") || isOn("sitetransfer")) && { id: "Backups", label: t("Backups"), icon: "archive" },
+    isOn("share") && { id: "Public link", label: t("Public link"), icon: "link" },
+    (isOn("remote") || isOn("git")) && { id: "Servers & Git", label: t("Servers & Git"), icon: "git" },
+  ].filter(Boolean) as Section[];
+  const [tab, setTab] = useState(sections[0]?.id ?? "Settings");
+  if (sections.length === 0) {
     return <p className="muted small">Turn on site tools in Settings › Modules.</p>;
   }
-  const shown = tabs.includes(tab) ? tab : tabs[0];
+  const shown = sections.some((x) => x.id === tab) ? tab : sections[0].id;
+  const tabId = (id: string) => `site-section-${id.replace(/\W+/g, "-").toLowerCase()}`;
   return (
     <div className="stack remote-panel">
-      {tabs.length > 1 && (
-        <div className="row wrap" role="group" aria-label={`Tools for ${site.domain}`}>
-          {tabs.map((t) => (
-            <button key={t} type="button" className="tab" aria-pressed={shown === t} onClick={() => setTab(t)}>
-              {t}
-            </button>
-          ))}
-        </div>
-      )}
-      {shown === "WordPress" && <WordPressTools site={site} />}
-      {shown === "Settings" && <SettingsTab site={site} onChanged={onChanged} />}
-      {shown === "Backups" && <BackupsTab site={site} onChanged={onChanged} />}
-      {shown === "Public link" && <ShareTab site={site} />}
-      {shown === "Servers & Git" && <SiteRemote site={site} />}
+      <div
+        ref={rovingGroup}
+        className="site-sections"
+        role="tablist"
+        aria-label={t("Sections for {site}", { site: site.domain })}
+        onKeyDown={(e) => rovingKeys(e, "horizontal")}
+      >
+        {sections.map((x) => (
+          <button
+            key={x.id}
+            id={tabId(x.id)}
+            type="button"
+            role="tab"
+            data-roving
+            className="site-section-tab"
+            aria-selected={shown === x.id}
+            aria-controls="site-section-panel"
+            onClick={() => setTab(x.id)}
+          >
+            {x.icon === "wordpress" ? (
+              <svg viewBox="0 0 24 24" className="filled" aria-hidden="true">
+                <path d={BRAND_PATHS.wordpress} />
+              </svg>
+            ) : (
+              <Icon name={x.icon} />
+            )}
+            {x.label}
+          </button>
+        ))}
+      </div>
+      <section id="site-section-panel" role="tabpanel" aria-labelledby={tabId(shown)} className="card stack site-section-panel">
+        {shown === "WordPress" && <WordPressTools site={site} />}
+        {shown === "Settings" && <SettingsTab site={site} onChanged={onChanged} />}
+        {shown === "Backups" && <BackupsTab site={site} onChanged={onChanged} />}
+        {shown === "Public link" && <ShareTab site={site} />}
+        {shown === "Servers & Git" && <SiteRemote site={site} />}
+      </section>
     </div>
   );
 }

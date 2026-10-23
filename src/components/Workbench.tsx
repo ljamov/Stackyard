@@ -20,7 +20,7 @@ import { KeyboardShortcuts } from "../screens/KeyboardShortcuts";
 import { ServicePage } from "../screens/ServicePage";
 import { SitePage } from "../screens/SitePage";
 import { BrandIcon } from "./BrandIcon";
-import { frameworkBrand } from "../lib/brands";
+import { siteBrand } from "../lib/brands";
 import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 import { api } from "../lib/api";
@@ -110,7 +110,7 @@ export function Workbench() {
     if (id.startsWith("service:")) return <BrandIcon id={id.slice("service:".length)} />;
     if (!id.startsWith("site:")) return null;
     const site = sites.data.find((x) => `site:${x.domain}` === id);
-    return <BrandIcon id={frameworkBrand(site?.framework ?? null) ?? ""} fallback="sites" />;
+    return <BrandIcon id={(site && siteBrand(site)) ?? ""} fallback="sites" />;
   };
   const active = layout.active && tabs.includes(layout.active) ? layout.active : (tabs[0] ?? null);
   const panel = layout.panel;
