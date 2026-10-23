@@ -8,7 +8,7 @@ import { Logo } from "../components/Logo";
 import { useModules } from "../lib/modules";
 import { frameworkBrand } from "../lib/brands";
 import { openPalette } from "../lib/palette";
-import { openTab, siteTab } from "../lib/layout";
+import { openTab, showNewSite, siteTab } from "../lib/layout";
 import { keyLabel, keysFor, useKeyChanges } from "../lib/keybindings";
 import type { Screen } from "../lib/screens";
 import { useT, type Translate } from "../lib/i18n";
@@ -99,7 +99,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
           {sites.data.length === 0 && (
             <div className="item">
               <span className="grow muted">{t("No sites yet.")}</span>
-              <button type="button" className="btn primary small" onClick={() => onNavigate("Sites")}>
+              <button type="button" className="btn primary small" onClick={showNewSite}>
                 {t("New site")}
               </button>
             </div>

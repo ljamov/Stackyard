@@ -22,10 +22,14 @@ export type Layout = {
   sideBarWidth: number;
   panel: boolean;
   panelHeight: number;
+  /** The panel across the whole window; false keeps it under the screen, beside the side bar. */
+  panelWide: boolean;
   /** What the bottom panel shows. */
   panelTab: PanelTab;
   tabs: TabId[];
   active: TabId | null;
+  /** The New site and Parked folders forms on the Sites screen are open. */
+  newSiteOpen: boolean;
 };
 
 export type PanelTab = "problems" | "logs" | "terminal";
@@ -39,9 +43,11 @@ const DEFAULT: Layout = {
   sideBarWidth: 240,
   panel: false,
   panelHeight: 260,
+  panelWide: false,
   panelTab: "logs",
   tabs: ["Dashboard"],
   active: "Dashboard",
+  newSiteOpen: false,
 };
 
 const clamp = (n: unknown, { min, max }: { min: number; max: number }, fallback: number) =>
@@ -56,9 +62,11 @@ function loadLayout(): Layout {
       sideBarWidth: clamp(saved.sideBarWidth, SIDE_BAR_WIDTH, DEFAULT.sideBarWidth),
       panel: typeof saved.panel === "boolean" ? saved.panel : DEFAULT.panel,
       panelHeight: clamp(saved.panelHeight, PANEL_HEIGHT, DEFAULT.panelHeight),
+      panelWide: typeof saved.panelWide === "boolean" ? saved.panelWide : DEFAULT.panelWide,
       panelTab: saved.panelTab === "problems" || saved.panelTab === "terminal" ? saved.panelTab : DEFAULT.panelTab,
       tabs,
       active: isTabId(saved.active) && tabs.includes(saved.active) ? saved.active : (tabs[0] ?? null),
+      newSiteOpen: typeof saved.newSiteOpen === "boolean" ? saved.newSiteOpen : DEFAULT.newSiteOpen,
     };
   } catch {
     return DEFAULT;
@@ -114,12 +122,32 @@ export function showScreen(screen: TabId) {
   });
 }
 
+/** Shows the Sites screen with the New site form open, its name box focused. */
+export function showNewSite() {
+  setLayout({ newSiteOpen: true });
+  showScreen("Sites");
+  requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("f-name")?.focus()));
+}
+
 /** Closes a tab; the one beside it is shown if it was the shown one. */
 export function closeTab(screen: TabId) {
   setLayout(({ tabs, active }) => {
     const at = tabs.indexOf(screen);
     const rest = tabs.filter((s) => s !== screen);
     return { tabs: rest, active: active === screen ? (rest[Math.min(at, rest.length - 1)] ?? null) : active };
+  });
+}
+
+/**
+ * Moves a tab to where another one is: after it when it comes from the left,
+ * before it when it comes from the right, the way dragging a tab across does.
+ */
+export function moveTab(tab: TabId, to: TabId) {
+  setLayout(({ tabs }) => {
+    const at = tabs.indexOf(to);
+    if (tab === to || at < 0 || !tabs.includes(tab)) return {};
+    const rest = tabs.filter((s) => s !== tab);
+    return { tabs: [...rest.slice(0, at), tab, ...rest.slice(at)] };
   });
 }
 

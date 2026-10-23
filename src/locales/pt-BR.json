@@ -756,5 +756,8 @@
   "This service isn't in Stackyard any more.": "Este serviço não está mais no Stackyard.",
   "This site isn't in Stackyard any more.": "Este site não está mais no Stackyard.",
   "Version": "Versão",
-  "parked": "estacionado"
+  "parked": "estacionado",
+  "Panel under the screen only": "Painel só embaixo da tela",
+  "Panel across the whole window": "Painel na largura da janela toda",
+  "New site and parked folders": "Novo site e pastas estacionadas"
 }
