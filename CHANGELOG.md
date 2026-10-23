@@ -6,6 +6,11 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Fixed: after making a new site, every site in Sites showed its `.localhost` address**, though
+  clicking still opened the `.stack` one. On Windows a new site has to be added to the hosts file
+  first, and until then the app showed `.localhost` for all sites. Now each site is checked on its
+  own: sites whose `.stack` name already works keep showing it, and only the new site shows
+  `.localhost` until you run setup.
 - **Sites rows have Open folder and Open in VS Code.** Open folder shows the site's folder in the
   file manager; Open in … opens it in your code editor.
 - **Settings has a Code editor choice**: VS Code, Cursor, Windsurf, PhpStorm, WebStorm, Sublime Text,

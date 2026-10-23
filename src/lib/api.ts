@@ -201,9 +201,11 @@ export type Site = {
 };
 
 /** The one address to show for a site: its own (`https://blog.stack`)
- * once local domains are set up, else the `.localhost` one that works
- * already. */
-export const siteAddress = (site: Site, domainsReady: boolean) => (domainsReady ? site.url : site.local_url);
+ * once its name works, else the `.localhost` one that works already.
+ * Each site is checked on its own, so a new site waiting for setup
+ * leaves the others on their own names. */
+export const siteAddress = (site: Site, system: SystemStatus | null) =>
+  !system || system.ready_domains.includes(site.domain.toLowerCase()) ? site.url : site.local_url;
 
 /** The database a site uses and the server that holds it. */
 export type SiteDb = {
@@ -238,6 +240,8 @@ export type SystemStatus = {
   waiting_for_certificate: boolean;
   resolver: "mac-resolver" | "systemd-resolved" | "hosts-file";
   dns_running: boolean;
+  /** Sites whose own name already works (a new one can still wait for setup). */
+  ready_domains: string[];
 };
 
 export type TerminalStatus = {
@@ -1249,6 +1253,7 @@ function browserApi(): Api {
     waiting_for_certificate: false,
     resolver: "mac-resolver",
     dns_running: true,
+    ready_domains: [],
   };
   let terminal: TerminalStatus = {
     available: true,
@@ -1642,7 +1647,7 @@ function browserApi(): Api {
     systemStatus: async () => system,
     runSystemSetup: async () => {
       await new Promise((r) => setTimeout(r, 400));
-      system = { ...system, needed: [] };
+      system = { ...system, needed: [], ready_domains: sites.map((s) => s.domain) };
       return system;
     },
     terminalStatus: async () => terminal,

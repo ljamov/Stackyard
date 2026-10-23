@@ -83,6 +83,9 @@ pub struct Status {
     pub needed: Vec<String>,
     /// True until the web server has made its certificate.
     pub waiting_for_certificate: bool,
+    /// Sites whose own name already works, so the app can show that name
+    /// for them. A new site can wait for setup while the others work.
+    pub ready_domains: Vec<String>,
 }
 
 pub fn applied_file(home: &Path) -> PathBuf {
@@ -127,7 +130,8 @@ impl Wanted {
 
     pub fn status(&self, applied: &Applied) -> Status {
         let mut needed = Vec::new();
-        let names_ok = applied.resolver == Some(self.resolver)
+        let same_resolver = applied.resolver == Some(self.resolver);
+        let names_ok = same_resolver
             && match self.resolver {
                 Resolver::HostsFile => self.domains.iter().all(|d| applied.domains.contains(d)),
                 _ => self.endings.iter().all(|e| applied.endings.contains(e)),
@@ -138,17 +142,32 @@ impl Wanted {
                 _ => format!("Send {} names to Stackyard", self.endings.join(", ")),
             });
         }
+        let mut trusted = true;
         if let Some(pem) = &self.certificate {
             if applied.certificate.as_deref() != Some(&sha256(pem)) {
                 needed.push("Trust Stackyard's local HTTPS certificate".into());
+                trusted = false;
             }
         }
+        let ready_domains = if same_resolver && trusted {
+            self.domains
+                .iter()
+                .filter(|d| match self.resolver {
+                    Resolver::HostsFile => applied.domains.contains(d),
+                    _ => applied.endings.iter().any(|e| d.ends_with(e.as_str())),
+                })
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         if self.os == Os::Linux && !applied.ports {
             needed.push("Let the web server use ports 80 and 443".into());
         }
         Status {
             needed,
             waiting_for_certificate: self.certificate.is_none(),
+            ready_domains,
         }
     }
 
@@ -564,6 +583,21 @@ mod tests {
         more.domains.push("c.stack".into());
         assert_eq!(more.status(&hosts.applied()).needed.len(), 1);
         assert!(hosts.status(&hosts.applied()).needed.is_empty());
+        // ...but the sites already in the hosts file keep working.
+        assert_eq!(
+            more.status(&hosts.applied()).ready_domains,
+            ["a.stack", "b.stack"]
+        );
+        assert!(more.status(&Applied::default()).ready_domains.is_empty());
+
+        // With resolver files every site under a set-up ending works.
+        let mut more = w.clone();
+        more.domains.push("c.stack".into());
+        more.domains.push("d.dev".into());
+        assert_eq!(
+            more.status(&w.applied()).ready_domains,
+            ["a.stack", "b.stack", "c.stack"]
+        );
     }
 
     #[test]
