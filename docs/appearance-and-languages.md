@@ -91,6 +91,8 @@ outside `theme.ts`.
 
 ## The window
 
+<img src="images/terminal.png" alt="The Home screen with the Terminal tab open in the panel below it, in a site's folder" width="900">
+
 | Part | What it does |
 | --- | --- |
 | Side bar | The search button, **New site**, every screen by name, your first few sites (click one to open it in the browser) and **Settings** at the bottom. Click a screen to show it in place of the one shown; Ctrl+click or middle-click opens it as a tab beside it. |

@@ -89,6 +89,8 @@ A staging is a full copy of a site, next to it, for trying a change before it go
 site: a new checkout, a plugin update, a redesign. Open the site's **WordPress** tab, then
 **Environments**.
 
+<img src="images/wordpress.png" alt="The Environments tab of a WordPress site: one staging, the New staging form and the live site's push and pull choices" width="900">
+
 1. Type a name, e.g. `checkout`. The staging's address is that name in front of the main site's:
    `checkout.shop.stack`.
 2. Pick what it is a copy of: the main site, one of its stagings, or (for a site cloned from a live

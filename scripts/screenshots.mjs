@@ -23,10 +23,8 @@ const SHOTS = {
   dashboard: { screen: "Dashboard" },
   sites: {
     screen: "Sites",
-    // The site list, with the end of the New site form above it.
-    prep: async (page) => {
-      await page.locator(".content table").evaluate((t) => t.scrollIntoView({ block: "end" }));
-    },
+    // The heading, the New site form and the site list under it.
+    wait: 1200,
   },
   servers: {
     screen: "Sites",
@@ -37,6 +35,23 @@ const SHOTS = {
       await page.getByRole("button", { name: "Servers & Git", exact: true }).click();
       await sleep(600);
       await manage.evaluate((b) => b.scrollIntoView({ block: "start" }));
+    },
+  },
+  // A WordPress site's copies: the main site, its stagings and the live site.
+  wordpress: {
+    screen: "Sites",
+    prep: async (page) => {
+      const manage = page.getByRole("button", { name: "Manage legacy.stack" });
+      await manage.click();
+      await sleep(300);
+      await page.getByRole("button", { name: "WordPress", exact: true }).click();
+      await sleep(600);
+      await page.getByRole("button", { name: "Environments", exact: true }).click();
+      await sleep(800);
+      await manage.evaluate((b) => b.scrollIntoView({ block: "start" }));
+    },
+    after: async (page) => {
+      await page.getByRole("button", { name: "Close", exact: true }).first().click().catch(() => {});
     },
   },
   services: { screen: "Services" },
@@ -51,6 +66,28 @@ const SHOTS = {
     // Closes the panel again for the shots after it.
     after: async (page) => {
       await page.locator(".statusbar").getByRole("button", { name: "Logs" }).click();
+    },
+  },
+  // The Terminal tab in the panel, made taller, in a site's folder.
+  terminal: {
+    screen: "Dashboard",
+    wait: 800,
+    prep: async (page) => {
+      await page.locator(".statusbar").getByRole("button", { name: "Terminal" }).click();
+      await sleep(1200);
+      await dragPanel(page, -170);
+      await page.locator("#terminal-folder").selectOption({ label: "blog.stack" });
+      await sleep(800);
+      await page.locator(".terminal-box").click();
+      for (const line of ["stackyard status", "php -v", "node -v"]) {
+        await page.keyboard.type(line, { delay: 15 });
+        await page.keyboard.press("Enter");
+        await sleep(300);
+      }
+    },
+    after: async (page) => {
+      await dragPanel(page, 170);
+      await page.locator(".statusbar").getByRole("button", { name: "Terminal" }).click();
     },
   },
   databases: {
@@ -159,6 +196,18 @@ async function prepare(page) {
     await sleep(200);
   }
   await sleep(800);
+}
+
+// Drags the edge above the bottom panel up (negative) or down.
+async function dragPanel(page, by) {
+  const box = await page.locator(".sash.horizontal").boundingBox();
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + by, { steps: 8 });
+  await page.mouse.up();
+  await sleep(300);
 }
 
 async function open(page, screen) {

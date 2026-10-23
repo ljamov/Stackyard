@@ -171,7 +171,7 @@ stackyard use php 8.3                  # pin a version for the current project
 </tr>
 <tr>
 <td><img src="docs/images/databases.png" alt="Databases screen listing a database's tables, with Query and Backups tabs"></td>
-<td><img src="docs/images/logs.png" alt="Logs screen with warnings and errors highlighted"></td>
+<td><img src="docs/images/logs.png" alt="The Logs panel under the Dashboard, with warnings and errors highlighted"></td>
 </tr>
 <tr>
 <td><img src="docs/images/images.png" alt="Image optimizer making WebP and AVIF copies of images"></td>
@@ -180,6 +180,14 @@ stackyard use php 8.3                  # pin a version for the current project
 <tr>
 <td><img src="docs/images/ai-tools.png" alt="AI tools screen: Claude Code and Codex installed, Gemini CLI and others ready to install, each opening in a chosen site's folder"></td>
 <td><img src="docs/images/settings.png" alt="Settings screen with updates, theme, accent color, language and modules you can switch off"></td>
+</tr>
+<tr>
+<td><img src="docs/images/wordpress.png" alt="A WordPress site's Environments tab: a staging copy, a form for a new staging, and push to or pull from the live site"></td>
+<td><img src="docs/images/terminal.png" alt="The Terminal tab in the bottom panel, opened in a site's folder, running stackyard status, php -v and node -v"></td>
+</tr>
+<tr>
+<td><img src="docs/images/light.png" alt="The Dashboard in the light theme"></td>
+<td></td>
 </tr>
 </table>
 
