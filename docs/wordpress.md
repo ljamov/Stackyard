@@ -223,6 +223,20 @@ site you are looking at. **Undo…** puts the database and those files back and 
 added; a snapshot of how things were just before is taken first, so the undo can itself be undone.
 Files the step never touched are left alone.
 
+## Terminal and AI tools
+
+Everything above works from a terminal too, with `stackyard wp`: `clone`, `staging new|list|merge|destroy`,
+`push`, `pull` and `snapshots`. Merges, pushes and pulls only list the changes until you add
+`--yes`; `--level code|settings|everything` picks how much, `--all` also takes what both sides
+changed, `--posts 12,40` moves just those posts and pages, and `--level everything` needs
+`--confirm <site name>`. Any other command goes to WP-CLI, in the site of the folder you are in, or
+in another with `--site=shop.stack`, for example `stackyard wp plugin list`. See
+[the terminal guide](cli.md).
+
+AI coding tools connected to Stackyard's [MCP server](mcp.md) can list the environments, and once
+you allow each one, make a staging, run WP-CLI in a local site, merge a staging and destroy one.
+Pushing to or pulling from the live site is never offered to them.
+
 ## Overview
 
 The WordPress, PHP and database versions, WooCommerce's version, the environment

@@ -66,6 +66,24 @@ pg_dump shop > shop.sql
 redis-cli ping                        # Redis (`stackyard start redis`)
 ```
 
+## WordPress
+
+```sh
+stackyard wp plugin list                          # any WP-CLI command, in this folder's site
+stackyard wp option get home --site=shop.stack    # or in another site
+stackyard wp clone shop --host example.com --user me   # clone a live site (password asked, or STACKYARD_LIVE_PASSWORD)
+stackyard wp clone shop --files backup.tar.gz     # or from a hosting panel backup
+stackyard wp staging new checkout --site shop.stack   # checkout.shop.stack; --from live, --no-media
+stackyard wp staging list shop.stack
+stackyard wp staging merge checkout.shop.stack    # what changed; add --level settings and --yes to merge
+stackyard wp staging merge checkout.shop.stack --posts 12,40 --yes   # just these posts and pages
+stackyard wp staging destroy checkout.shop.stack --yes   # to the trash for 7 days
+stackyard wp push shop.stack                      # what changed since the last sync; --yes pushes it
+stackyard wp pull shop.stack --level settings --yes
+stackyard wp push shop.stack --level everything --confirm shop --yes
+stackyard wp snapshots shop.stack                 # --undo <id> puts the site back
+```
+
 ## Scheduled tasks
 
 ```sh

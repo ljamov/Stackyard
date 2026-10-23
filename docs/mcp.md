@@ -24,6 +24,7 @@ These are always allowed, because they only look:
 | `list_runtimes` | Installed PHP and Node.js versions and the defaults |
 | `list_databases` | MySQL or MariaDB databases with sizes, or one database's tables (names only, never the data) |
 | `read_logs` | The last lines of a service's, a PHP version's or a scheduled task's log |
+| `list_wordpress_environments` | WordPress sites with their stagings and the live site each was cloned from |
 
 These are off until you allow them, in **Settings › AI tools**, on the **MCP server** screen, or
 with `stackyard mcp allow <tool>` (`stackyard mcp allow all` for every one, `deny` to turn off):
@@ -35,6 +36,13 @@ with `stackyard mcp allow <tool>` (`stackyard mcp allow all` for every one, `den
 | `set_site_runtime` | Switch the PHP or Node.js version a site runs on |
 | `query_database` | Run one `SELECT`, `SHOW`, `DESCRIBE` or `EXPLAIN` statement and return the rows |
 | `change_database` | Run SQL that changes data or tables (`INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`...) |
+| `create_wordpress_staging` | Make a staging of a WordPress site, from the main site, another staging or the live site |
+| `run_wp_cli` | Run a WP-CLI command in a local WordPress site |
+| `merge_wordpress_staging` | List a staging's changes, or merge them into the main site or another staging |
+| `destroy_wordpress_staging` | Move a staging to the trash, where it stays 7 days |
+
+The WordPress tools appear only while the *WordPress tools* module is on. Pushing to or pulling
+from a live site is never offered to AI tools: you do that yourself in the app.
 
 An AI tool that is already connected sees tools appear and disappear as you switch them, without
 reconnecting.

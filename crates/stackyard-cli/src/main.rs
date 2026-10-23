@@ -31,6 +31,8 @@ use stackyard_core::system::{self, Elevate};
 use stackyard_core::web::{self, Backend, Ports};
 use stackyard_core::{ai, images, paths, platform, sitepack, starters, Error};
 
+mod wp;
+
 #[derive(Parser)]
 #[command(name = "stackyard", version, about = "Local development stack manager")]
 struct Cli {
@@ -140,6 +142,14 @@ enum Command {
     Tasks {
         #[command(subcommand)]
         action: Option<TasksAction>,
+    },
+    /// WordPress: clone live sites, stagings, merge, push and pull, or any WP-CLI command
+    #[command(
+        after_help = "Any other command goes to WP-CLI in this folder's site, e.g. `stackyard wp plugin list`; add --site=shop.stack for another site."
+    )]
+    Wp {
+        #[command(subcommand)]
+        action: wp::WpCommand,
     },
     /// Serve AI coding tools over MCP on stdin and stdout; `mcp setup` shows how to add it
     Mcp {
@@ -565,32 +575,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                 return Err(Error::SiteExists(domain));
             }
             if starter.needs_database() {
-                // Started by the running Stackyard, so it keeps running.
-                let client = running_stackyard()?;
-                let services = match client.send(Request::Status)? {
-                    Response::Services { services } => services,
-                    _ => Vec::new(),
-                };
-                let running = |id: &str| {
-                    services
-                        .iter()
-                        .any(|s| s.id == id && matches!(s.state, ProcessState::Running { .. }))
-                };
-                if !running("mysql") && !running("mariadb") {
-                    let services = ServiceManager::open();
-                    let id = ["mysql", "mariadb"]
-                        .into_iter()
-                        .find(|id| services.get(id).is_some())
-                        .ok_or_else(|| {
-                            Error::Shell(format!(
-                                "{} needs MySQL or MariaDB; install one with `stackyard services install mysql`",
-                                starter.name()
-                            ))
-                        })?;
-                    client.send(Request::Start {
-                        ids: vec![id.to_string()],
-                    })?;
-                }
+                ensure_database(starter.name())?;
             }
             let existed = folder.exists();
             let mut last = String::new();
@@ -1050,6 +1035,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         Command::Images(args) => optimize_images(args)?,
         Command::Tasks { action } => tasks(action)?,
         Command::Mcp { action } => mcp(action)?,
+        Command::Wp { action } => wp::run(action)?,
         Command::Ai { action } => ai_tools(action)?,
         Command::Tld { value: None } => println!("{}", Settings::load()?.tld),
         Command::Tld { value: Some(value) } => {
@@ -1606,6 +1592,36 @@ fn serve_control(
 /// The process running services, starting `stackyard daemon` if there is none.
 fn running_stackyard() -> stackyard_core::Result<control::Client> {
     control::start_background(&paths::home(), &own_program()?)
+}
+
+/// Starts MySQL or MariaDB through the running Stackyard, so it keeps
+/// running, unless one already runs. `what` names what needs it.
+fn ensure_database(what: &str) -> stackyard_core::Result<()> {
+    let client = running_stackyard()?;
+    let services = match client.send(Request::Status)? {
+        Response::Services { services } => services,
+        _ => Vec::new(),
+    };
+    let running = |id: &str| {
+        services
+            .iter()
+            .any(|s| s.id == id && matches!(s.state, ProcessState::Running { .. }))
+    };
+    if !running("mysql") && !running("mariadb") {
+        let services = ServiceManager::open();
+        let id = ["mysql", "mariadb"]
+            .into_iter()
+            .find(|id| services.get(id).is_some())
+            .ok_or_else(|| {
+                Error::Shell(format!(
+                    "{what} needs MySQL or MariaDB; install one with `stackyard services install mysql`"
+                ))
+            })?;
+        client.send(Request::Start {
+            ids: vec![id.to_string()],
+        })?;
+    }
+    Ok(())
 }
 
 /// Tells the process running services that something changed, if one runs.

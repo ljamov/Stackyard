@@ -1,14 +1,14 @@
 //! The tools AI coding tools can call. Tools that only read are always on;
 //! each action tool, and reading what is inside databases, is off until
 //! the user allows it. Nothing here can delete a site, a whole database or
-//! a file.
+//! a file for good: a destroyed WordPress staging waits in the trash.
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use serde_json::{json, Map, Value};
 
-use super::sql;
+use super::{sql, wordpress};
 
 use crate::catalog::{self, RuntimeKind, RUNTIMES, SERVICES};
 use crate::control::{self, Request, Response};
@@ -123,6 +123,40 @@ pub const TOOLS: &[ToolInfo] = &[
         "Query a database",
         "Runs one SELECT, SHOW, DESCRIBE or EXPLAIN statement on MySQL or MariaDB and returns the rows. It runs read-only, so it cannot change anything.",
     ),
+    read(
+        "list_wordpress_environments",
+        "List WordPress environments",
+        "Lists the WordPress sites with their environments: each main site, its stagings (such as checkout.shop.stack) and what each was made from, and the live site a copy was cloned from, with when they were last in step.",
+    ),
+    action(
+        "create_wordpress_staging",
+        "Create a WordPress staging",
+        "Makes a staging of a WordPress site: a full copy with its own files and database at <name>.<site>, e.g. checkout.shop.stack, made from the main site, another staging or the live site. Mail goes to Mailpit and payments stay in test mode. Use it to try changes before they reach the main site.",
+    ),
+    ToolInfo {
+        destructive: true,
+        ..action(
+            "run_wp_cli",
+            "Run WP-CLI",
+            "Runs a WP-CLI command in a local WordPress site (never the live site) with the site's PHP, e.g. [\"plugin\", \"list\"] or [\"option\", \"get\", \"home\"], and returns what it printed. Prefer a staging for changes.",
+        )
+    },
+    ToolInfo {
+        destructive: true,
+        ..action(
+            "merge_wordpress_staging",
+            "Merge a WordPress staging",
+            "Lists what changed on a staging since it was made, or with apply set, merges it into the main site or another staging: code (files, plugins and theme switched on or off), settings (code plus changed settings) or everything (code plus the staging's whole database; the target's users, orders and customers are kept). Changes the target also made are left out. A snapshot is taken first so the user can undo it in Stackyard.",
+        )
+    },
+    ToolInfo {
+        destructive: true,
+        ..action(
+            "destroy_wordpress_staging",
+            "Destroy a WordPress staging",
+            "Moves a staging (never a main site) to Stackyard's trash, with its files and database; the user can bring it back for 7 days.",
+        )
+    },
     ToolInfo {
         destructive: true,
         ..action(
@@ -132,6 +166,11 @@ pub const TOOLS: &[ToolInfo] = &[
         )
     },
 ];
+
+/// Tools that need the WordPress module.
+pub fn wordpress_tool(name: &str) -> bool {
+    name.contains("wordpress") || name == "run_wp_cli"
+}
 
 pub fn find(name: &str) -> Option<&'static ToolInfo> {
     TOOLS.iter().find(|t| t.name == name)
@@ -254,6 +293,83 @@ pub fn input_schema(name: &str) -> Value {
             }),
             &["site", "version"],
         ),
+        "list_wordpress_environments" => (
+            json!({
+                "site": {
+                    "type": "string",
+                    "description": "One site's environments, by domain (shop.stack) or name; every WordPress site when left out",
+                },
+            }),
+            &[],
+        ),
+        "create_wordpress_staging" => (
+            json!({
+                "site": {
+                    "type": "string",
+                    "description": "The main site, e.g. shop.stack",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Lowercase letters, digits and hyphens, e.g. checkout for checkout.shop.stack",
+                },
+                "from": {
+                    "type": "string",
+                    "description": "live, or the domain of the main site or a staging to copy; the main site when left out",
+                },
+                "copy_media": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Copy wp-content/uploads now; when false, each file is copied the first time a page asks for it",
+                },
+            }),
+            &["site", "name"],
+        ),
+        "run_wp_cli" => (
+            json!({
+                "site": {
+                    "type": "string",
+                    "description": "The local site, e.g. checkout.shop.stack",
+                },
+                "args": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "WP-CLI's arguments without `wp`, e.g. [\"plugin\", \"list\", \"--format=json\"]",
+                },
+            }),
+            &["site", "args"],
+        ),
+        "merge_wordpress_staging" => (
+            json!({
+                "staging": {
+                    "type": "string",
+                    "description": "The staging, e.g. checkout.shop.stack",
+                },
+                "into": {
+                    "type": "string",
+                    "description": "The copy to merge into; the main site when left out",
+                },
+                "level": {
+                    "type": "string",
+                    "enum": ["code", "settings", "everything"],
+                    "default": "code",
+                },
+                "apply": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Merge; when false only lists the changes",
+                },
+            }),
+            &["staging"],
+        ),
+        "destroy_wordpress_staging" => (
+            json!({
+                "staging": {
+                    "type": "string",
+                    "description": "The staging, e.g. checkout.shop.stack",
+                },
+            }),
+            &["staging"],
+        ),
         _ => (json!({}), &[]),
     };
     json!({
@@ -284,7 +400,7 @@ pub(super) struct Outcome {
     pub result: Result<Value, String>,
 }
 
-type Args = Map<String, Value>;
+pub(super) type Args = Map<String, Value>;
 
 pub(super) fn call(ctx: &Ctx, tool: &ToolInfo, args: &Args) -> Outcome {
     let summary = summarize(tool.name, args);
@@ -301,6 +417,11 @@ pub(super) fn call(ctx: &Ctx, tool: &ToolInfo, args: &Args) -> Outcome {
         "change_database" => run_sql(ctx, args, true),
         "create_site" => create_site(ctx, args),
         "set_site_runtime" => set_site_runtime(ctx, args),
+        "list_wordpress_environments" => wordpress::environments(ctx, args),
+        "create_wordpress_staging" => wordpress::create_staging(ctx, args),
+        "run_wp_cli" => wordpress::run_cli(ctx, args),
+        "merge_wordpress_staging" => wordpress::merge_staging(ctx, args),
+        "destroy_wordpress_staging" => wordpress::destroy_staging(ctx, args),
         other => Err(format!("unknown tool {other}")),
     };
     Outcome { summary, result }
@@ -320,6 +441,37 @@ pub(super) fn summarize(tool: &str, args: &Args) -> String {
         "query_database" | "change_database" => format!("{}: {}", text("database"), text("sql")),
         "create_site" => format!("{} in {}", text("name"), text("folder")),
         "set_site_runtime" => format!("{} → {}", text("site"), text("version")),
+        "list_wordpress_environments" => args
+            .get("site")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        "create_wordpress_staging" => format!("{} of {}", text("name"), text("site")),
+        "run_wp_cli" => format!(
+            "{}: wp {}",
+            text("site"),
+            args.get("args")
+                .and_then(Value::as_array)
+                .map(|a| a
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" "))
+                .unwrap_or_default()
+        ),
+        "merge_wordpress_staging" => format!(
+            "{} → {}{}",
+            text("staging"),
+            args.get("into")
+                .and_then(Value::as_str)
+                .unwrap_or("main site"),
+            if args.get("apply").and_then(Value::as_bool) == Some(true) {
+                ""
+            } else {
+                " (list only)"
+            }
+        ),
+        "destroy_wordpress_staging" => text("staging").to_string(),
         _ => String::new(),
     }
     .chars()
@@ -327,15 +479,15 @@ pub(super) fn summarize(tool: &str, args: &Args) -> String {
     .collect()
 }
 
-fn fail(e: Error) -> String {
+pub(super) fn fail(e: Error) -> String {
     e.to_string()
 }
 
-fn settings(ctx: &Ctx) -> Result<Settings, String> {
+pub(super) fn settings(ctx: &Ctx) -> Result<Settings, String> {
     Settings::load_from(&ctx.home.join("settings.toml")).map_err(fail)
 }
 
-fn text<'a>(args: &'a Args, key: &str) -> Result<Option<&'a str>, String> {
+pub(super) fn text<'a>(args: &'a Args, key: &str) -> Result<Option<&'a str>, String> {
     match args.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(s)) => Ok(Some(s.trim())),
@@ -343,7 +495,7 @@ fn text<'a>(args: &'a Args, key: &str) -> Result<Option<&'a str>, String> {
     }
 }
 
-fn required<'a>(args: &'a Args, key: &str) -> Result<&'a str, String> {
+pub(super) fn required<'a>(args: &'a Args, key: &str) -> Result<&'a str, String> {
     text(args, key)?
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("{key} is required"))
@@ -359,7 +511,7 @@ fn number(args: &Args, key: &str) -> Result<Option<u64>, String> {
     }
 }
 
-fn flag(args: &Args, key: &str) -> Result<Option<bool>, String> {
+pub(super) fn flag(args: &Args, key: &str) -> Result<Option<bool>, String> {
     match args.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(b)) => Ok(Some(*b)),
@@ -397,7 +549,7 @@ fn web_running(ctx: &Ctx) -> bool {
 }
 
 /// Tells the running Stackyard that sites changed, if one runs.
-fn sites_changed(ctx: &Ctx) -> Option<String> {
+pub(super) fn sites_changed(ctx: &Ctx) -> Option<String> {
     let client = control::find(ctx.home)?;
     client
         .send(Request::SitesChanged)
@@ -628,7 +780,7 @@ fn restart_service(ctx: &Ctx, args: &Args) -> Result<Value, String> {
     start_service(ctx, args)
 }
 
-fn database_client(ctx: &Ctx) -> Result<databases::Client, String> {
+pub(super) fn database_client(ctx: &Ctx) -> Result<databases::Client, String> {
     databases::Client::open(ctx.home).map_err(|e| {
         format!("{e}. Database tools work with MySQL or MariaDB; the user can install one in Stackyard › Services")
     })
