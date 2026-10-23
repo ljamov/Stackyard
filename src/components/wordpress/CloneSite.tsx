@@ -32,7 +32,7 @@ function routeText(t: T, route: WpRoute | null) {
   return t("Backup files from this computer");
 }
 
-function stageText(t: T, stage: WpCloneProgress["stage"]) {
+export function stageText(t: T, stage: WpCloneProgress["stage"]) {
   return {
     connecting: t("Connecting"),
     files: t("Files"),

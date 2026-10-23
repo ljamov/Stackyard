@@ -16,6 +16,7 @@ import {
   type WpReplaced,
   type WpUser,
 } from "../../lib/wordpress";
+import { EnvironmentsTab } from "./Environments";
 
 export function size(bytes: number) {
   if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -67,12 +68,13 @@ function useAction() {
   return { busy, run, status, setError };
 }
 
-const TABS = ["Overview", "Plugins", "Themes", "Users", "Debug", "Search and replace", "Database", "WooCommerce"] as const;
+const TABS = ["Overview", "Environments", "Plugins", "Themes", "Users", "Debug", "Search and replace", "Database", "WooCommerce"] as const;
 type Tab = (typeof TABS)[number];
 
 function tabLabel(t: T, tab: Tab) {
   return {
     Overview: t("Overview"),
+    Environments: t("Environments"),
     Plugins: t("Plugins"),
     Themes: t("Themes"),
     Users: t("Users"),
@@ -117,6 +119,7 @@ export function WordPressTools({ site }: { site: Site }) {
         ))}
       </div>
       {tab === "Overview" && <OverviewTab site={site} overview={overview} />}
+      {tab === "Environments" && <EnvironmentsTab site={site} />}
       {tab === "Plugins" && <ExtensionsTab site={site} kind="plugin" />}
       {tab === "Themes" && <ExtensionsTab site={site} kind="theme" />}
       {tab === "Users" && <UsersTab site={site} />}

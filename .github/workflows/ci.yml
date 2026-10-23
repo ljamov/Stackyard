@@ -407,6 +407,8 @@ jobs:
             stackyard db | grep -q "blog"
             echo "== the WordPress tab's tools on it, with WooCommerce"
             STACKYARD_TEST_WP="$made/blog" cargo test -p stackyard-core -- --ignored wordpress_tools_on_a_real_site
+            echo "== stagings of it: made from it and from each other, snapshots, trash"
+            STACKYARD_TEST_STAGING=blog.stack cargo test -p stackyard-core -- --ignored stagings_of_a_real_site
             echo "== clone it back from a stand-in live server: SSH, FTP and the site over HTTP"
             sudo apt-get install -y --no-install-recommends openssh-server vsftpd >/dev/null
             sudo useradd -m -s /bin/bash live

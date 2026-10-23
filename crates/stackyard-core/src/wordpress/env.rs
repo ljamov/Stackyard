@@ -70,6 +70,19 @@ pub struct Environment {
     /// (see the must-use plugin).
     #[serde(default)]
     pub safe: bool,
+    /// A staging's main local site, e.g. `shop.stack` for `checkout.shop.stack`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// What a staging was made from: a site's domain, or `live`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made_from: Option<String>,
+    /// When the staging was made, in seconds since 1970.
+    #[serde(default)]
+    pub created_at: u64,
+    /// The uploads folder a staging made without its own media copies
+    /// missing media from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_media: Option<PathBuf>,
 }
 
 pub fn file(home: &Path, domain: &str) -> PathBuf {
@@ -120,6 +133,7 @@ mod tests {
                 synced_at: 1_800_000_000,
             }),
             safe: true,
+            ..Environment::default()
         };
         save(&home, "shop.stack", &env).unwrap();
         assert_eq!(load(&home, "shop.stack").unwrap(), Some(env));

@@ -103,6 +103,20 @@ export type WpEnvironment = {
   live: { url: string; connection: string | null; path: string; route: WpRoute; media: WpMedia; synced_at: number } | null;
 };
 
+export type WpStaging = {
+  domain: string;
+  url: string;
+  made_from: string | null;
+  created_at: number;
+  shared_media: boolean;
+};
+export type WpEnvironments = { main: string; stagings: WpStaging[]; from_live: boolean };
+export type WpStagingFrom = { kind: "site"; domain: string } | { kind: "live" };
+export type WpNewStaging = { parent: string; name: string; from: WpStagingFrom; copy_media: boolean };
+export type WpTrashed = { id: string; site: { name: string; tld: string; path: string }; database: string; trashed_at: number };
+export type WpSnapshot = { id: string; domain: string; reason: string; created_at: number; saved: string[]; added: string[]; bytes: number };
+export type WpSnapshots = { list: WpSnapshot[]; base: number | null };
+
 export interface WpApi {
   overview(domain: string): Promise<WpOverview>;
   diskUse(domain: string): Promise<WpDiskUse>;
@@ -137,6 +151,16 @@ export interface WpApi {
   cloneUnfinished(name: string): Promise<boolean>;
   onCloneProgress(handler: (p: WpCloneProgress) => void): Promise<() => void>;
   environment(domain: string): Promise<WpEnvironment | null>;
+  stagings(domain: string): Promise<WpEnvironments>;
+  createStaging(staging: WpNewStaging): Promise<{ name: string; tld: string }>;
+  onStagingProgress(handler: (p: WpCloneProgress) => void): Promise<() => void>;
+  destroyStaging(domain: string): Promise<WpTrashed>;
+  trash(): Promise<WpTrashed[]>;
+  restoreTrashed(id: string): Promise<void>;
+  deleteTrashed(id: string): Promise<void>;
+  snapshots(domain: string): Promise<WpSnapshots>;
+  restoreSnapshot(domain: string, id: string): Promise<void>;
+  removeSnapshot(domain: string, id: string): Promise<void>;
 }
 
 const tauriWp: WpApi = {
@@ -172,6 +196,16 @@ const tauriWp: WpApi = {
   cloneUnfinished: (name) => invoke("wp_clone_unfinished", { name }),
   onCloneProgress: (handler) => listen<WpCloneProgress>("wp-clone-progress", (e) => handler(e.payload)),
   environment: (domain) => invoke("wp_environment", { domain }),
+  stagings: (domain) => invoke("wp_stagings", { domain }),
+  createStaging: (staging) => invoke("wp_staging_create", { new: staging }),
+  onStagingProgress: (handler) => listen<WpCloneProgress>("wp-staging-progress", (e) => handler(e.payload)),
+  destroyStaging: (domain) => invoke("wp_staging_destroy", { domain }),
+  trash: () => invoke("wp_trash"),
+  restoreTrashed: (id) => invoke("wp_trash_restore", { id }),
+  deleteTrashed: (id) => invoke("wp_trash_delete", { id }),
+  snapshots: (domain) => invoke("wp_snapshots", { domain }),
+  restoreSnapshot: (domain, id) => invoke("wp_snapshot_restore", { domain, id }),
+  removeSnapshot: (domain, id) => invoke("wp_snapshot_remove", { domain, id }),
 };
 
 function mockWp(): WpApi {
@@ -351,8 +385,67 @@ function mockWp(): WpApi {
             },
           }
         : null,
+    stagings: async (domain) => {
+      const main = domain.split(".").slice(-2).join(".");
+      return { main, from_live: main.startsWith("legacy"), stagings: stagings.filter((s) => s.domain.endsWith(`.${main}`)) };
+    },
+    createStaging: async (n) => {
+      const steps: [WpCloneStage, string][] = [
+        ["files", "Copying the files…"],
+        ["database", "Copying the database…"],
+        ["loading", "Loading the database…"],
+        ["finishing", "Taking the base snapshot…"],
+      ];
+      for (const [i, [stage, message]] of steps.entries()) {
+        for (const h of stagingHandlers) h({ name: n.name, stage, message, done: i + 1, total: steps.length });
+        await wait(500);
+      }
+      const domain = `${n.name}.${n.parent}`;
+      stagings.push({
+        domain,
+        url: `https://${domain}`,
+        made_from: n.from.kind === "live" ? "live" : n.from.domain,
+        created_at: Date.now() / 1000,
+        shared_media: !n.copy_media,
+      });
+      return { name: n.name, tld: `.${n.parent}` };
+    },
+    onStagingProgress: async (handler) => {
+      stagingHandlers.push(handler);
+      return () => stagingHandlers.splice(stagingHandlers.indexOf(handler), 1);
+    },
+    destroyStaging: async (domain) => {
+      const i = stagings.findIndex((s) => s.domain === domain);
+      const [name, ...rest] = domain.split(".");
+      stagings.splice(i, 1);
+      const t = { id: `${domain}-1`, site: { name, tld: `.${rest.join(".")}`, path: `~/Code/x@${name}` }, database: `x_${name}`, trashed_at: Date.now() / 1000 };
+      trashed.push(t);
+      return t;
+    },
+    trash: async () => trashed.slice(),
+    restoreTrashed: async (id) => {
+      const t = trashed.splice(trashed.findIndex((x) => x.id === id), 1)[0];
+      const domain = `${t.site.name}${t.site.tld}`;
+      stagings.push({ domain, url: `https://${domain}`, made_from: null, created_at: t.trashed_at, shared_media: false });
+    },
+    deleteTrashed: async (id) => void trashed.splice(trashed.findIndex((x) => x.id === id), 1),
+    snapshots: async (domain) => ({
+      base: domain.split(".").length > 2 ? Date.now() / 1000 - 7200 : null,
+      list: snapshots.filter((s) => s.domain === domain),
+    }),
+    restoreSnapshot: async () => wait(800),
+    removeSnapshot: async (_d, id) => void snapshots.splice(snapshots.findIndex((s) => s.id === id), 1),
   };
 }
+
+const stagings: WpStaging[] = [
+  { domain: "checkout.legacy.stack", url: "https://checkout.legacy.stack", made_from: "legacy.stack", created_at: Date.now() / 1000 - 7200, shared_media: true },
+];
+const trashed: WpTrashed[] = [];
+const snapshots: WpSnapshot[] = [
+  { id: "1792700000000", domain: "legacy.stack", reason: "Merge from checkout.legacy.stack", created_at: Date.now() / 1000 - 3600, saved: ["wp-content/themes/shop/style.css"], added: [], bytes: 4.1e7 },
+];
+const stagingHandlers: ((p: WpCloneProgress) => void)[] = [];
 
 let cloneStopped = false;
 const cloneHandlers: ((p: WpCloneProgress) => void)[] = [];

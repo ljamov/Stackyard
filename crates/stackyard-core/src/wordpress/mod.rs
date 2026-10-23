@@ -9,12 +9,15 @@
 
 pub mod cli;
 pub mod config;
+pub mod copy;
 pub mod env;
 pub mod helper;
 pub mod live;
 pub mod muplugin;
 pub mod php;
 pub mod replace;
+pub mod snapshot;
+pub mod staging;
 pub mod woo;
 
 use std::io::{BufReader, Read, Seek, SeekFrom};
