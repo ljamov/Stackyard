@@ -74,8 +74,6 @@ out.
 - **Zoom**: 80% to 150% for the whole window. **Ctrl+=** zooms in, **Ctrl+-** out and **Ctrl+0**
   goes back to 100%.
 - **Side bar position**: the side bar on the **Left** or the **Right**.
-- **Panel position**: the Logs and Problems panel at the **Bottom** or on the **Right**, beside the
-  screen. On the right, drag the line beside it to change its width.
 - **Show the status bar**: switch the bar along the bottom of the window off or on.
 
 The palette has a command for each of these, for example **View: Move the side bar to the right**.
@@ -97,11 +95,12 @@ outside `theme.ts`.
 | --- | --- |
 | Side bar | The search button, **New site**, every screen by name, your first few sites (click one to open it in the browser) and **Settings** at the bottom. Click a screen to show it in place of the one shown; Ctrl+click or middle-click opens it as a tab beside it. |
 | Side bar button | Top left of the window (or **Ctrl+B**): narrows the side bar to just its icons, and back. Each icon names its screen when you point at it. |
+| Theme button | Top right of the window, beside the window buttons: the sun or moon switches between the light and dark themes. |
 | Home | A greeting, a box that runs any command (it opens the command palette), then your services with their start and stop buttons, your sites and your runtimes. Services and runtimes show their own logos, and sites the logo of their framework (WordPress, WooCommerce, Laravel, Astro and others; a globe for the rest). |
 | Tabs | Screens opened with Ctrl+click stay open as tabs until you close them. Middle-click a tab to close it. The row of tabs only shows while more than one screen is open. |
-| Panel | **Problems**, **Logs** and **Terminal** along the bottom, under whichever screen is open. |
+| Panel | **Problems**, **Logs** and **Terminal** along the bottom of the window, across its whole width. |
 | Terminal | A shell in the panel (PowerShell on Windows, your own shell on macOS and Linux). Open it with **Ctrl+`**, the **Terminal** button in the status bar, a site's **Terminal** button on the Sites screen, or **Open a terminal in …** in the palette; pick another folder from its **Folder** list. It starts in the site's folder with Stackyard's `php`, `node`, `composer` and other commands first on its PATH, so they run the versions that site uses. The shell keeps running while the panel is closed. Most keys go to the shell; **Ctrl+Shift+P**, **Ctrl+`**, **Ctrl+J**, **F6** and zoom still work. Switch it off with the **Terminal** module in Settings. |
-| Status bar | How many services are running and how many sites you have; click either to open its screen. When an update is out, it says so there too. On the right, **Logs** opens the panel and the sun or moon switches between the light and dark themes. Hide the whole bar with `statusBar = false` in settings.toml or **View: Show or hide the status bar** in the palette. |
+| Status bar | How many services are running and how many sites you have; click either to open its screen. When an update is out, it says so there too. On the right, **Logs** and **Terminal** open the panel. Hide the whole bar with `statusBar = false` in settings.toml or **View: Show or hide the status bar** in the palette. |
 
 Drag the line beside the side bar or above the panel to resize it (it lights up in your accent color
 under the pointer), or focus the line with Tab and use the arrow keys. Which parts show, their sizes
@@ -182,12 +181,11 @@ iconTheme = "codicons"     # "stackyard" or "codicons"
 density = "compact"        # "compact", "default" or "comfortable"
 zoom = 110                 # 80 to 150, in steps of 10
 sideBarPosition = "right"  # "left" or "right"
-panelPosition = "right"    # "bottom" or "right"
 statusBar = false          # true or false
 ```
 
 A setting left out uses its default (dark, amber, English, Stackyard icons, Default density, 100%,
-left, bottom, status bar shown). An added theme is named by its file in the `themes` folder without `.json`: `theme =
+left, status bar shown). An added theme is named by its file in the `themes` folder without `.json`: `theme =
 "one-dark-pro"` for `themes/one-dark-pro.json`.
 
 **`keybindings.toml`** holds the shortcuts you changed, by command. Each line replaces that command's

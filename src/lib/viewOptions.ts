@@ -1,6 +1,6 @@
 // How the window is laid out and sized: the icon set, how dense lists and
-// buttons are, the zoom, which side the side bar and the panel sit on, and
-// whether the status bar shows.
+// buttons are, the zoom, which side the side bar sits on, and whether the
+// status bar shows. The panel always runs along the bottom of the window.
 // Saved in settings.toml (see useUserFiles.ts) and also kept in the window's
 // own storage, read before the first paint.
 
@@ -11,7 +11,6 @@ import { isTauri } from "@tauri-apps/api/core";
 export type IconTheme = "stackyard" | "codicons";
 export type Density = "compact" | "default" | "comfortable";
 export type SideBarPosition = "left" | "right";
-export type PanelPosition = "bottom" | "right";
 
 export type ViewOptions = {
   iconTheme: IconTheme;
@@ -19,7 +18,6 @@ export type ViewOptions = {
   /** Percent, from ZOOM.min to ZOOM.max in ZOOM.step steps. */
   zoom: number;
   sideBarPosition: SideBarPosition;
-  panelPosition: PanelPosition;
   /** The bar along the bottom of the window. */
   statusBar: boolean;
 };
@@ -40,11 +38,6 @@ export const SIDE_BAR_POSITIONS: { id: SideBarPosition; label: string }[] = [
   { id: "right", label: "Right" },
 ];
 
-export const PANEL_POSITIONS: { id: PanelPosition; label: string }[] = [
-  { id: "bottom", label: "Bottom" },
-  { id: "right", label: "Right" },
-];
-
 export const ZOOM = { min: 80, max: 150, step: 10 };
 export const ZOOM_LEVELS = Array.from({ length: (ZOOM.max - ZOOM.min) / ZOOM.step + 1 }, (_, i) => ZOOM.min + i * ZOOM.step);
 
@@ -53,7 +46,6 @@ export const DEFAULT_VIEW: ViewOptions = {
   density: "default",
   zoom: 100,
   sideBarPosition: "left",
-  panelPosition: "bottom",
   statusBar: true,
 };
 
@@ -76,7 +68,6 @@ function load(): ViewOptions {
       density: oneOf(DENSITIES, saved.density, DEFAULT_VIEW.density),
       zoom: clampZoom(saved.zoom) ?? DEFAULT_VIEW.zoom,
       sideBarPosition: oneOf(SIDE_BAR_POSITIONS, saved.sideBarPosition, DEFAULT_VIEW.sideBarPosition),
-      panelPosition: oneOf(PANEL_POSITIONS, saved.panelPosition, DEFAULT_VIEW.panelPosition),
       statusBar: typeof saved.statusBar === "boolean" ? saved.statusBar : DEFAULT_VIEW.statusBar,
     };
   } catch {

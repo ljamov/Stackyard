@@ -1,7 +1,7 @@
 // Keeps the window in step with the two files people may edit by hand:
 //
 //   settings.toml     [interface]  theme, accent, language, iconTheme, density,
-//                                  zoom, sideBarPosition, panelPosition, statusBar
+//                                  zoom, sideBarPosition, statusBar
 //   keybindings.toml  [keys]       "command.id" = ["ctrl+shift+e"]
 //
 // and reads the themes folder, where added color themes live.
@@ -31,7 +31,6 @@ import {
   DENSITIES,
   ICON_THEMES,
   onViewOptionsChange,
-  PANEL_POSITIONS,
   setViewOptions,
   SIDE_BAR_POSITIONS,
   ZOOM,
@@ -57,14 +56,16 @@ export const INTERFACE_SETTINGS = {
   density: DENSITIES.map((x) => x.id),
   zoom: null, // a percentage, ZOOM.min to ZOOM.max in steps of ZOOM.step
   sideBarPosition: SIDE_BAR_POSITIONS.map((x) => x.id),
-  panelPosition: PANEL_POSITIONS.map((x) => x.id),
   statusBar: null, // true or false
 } as const;
 
 /** The view options as they are written in settings.toml, with their defaults. */
-const VIEW_KEYS = ["iconTheme", "density", "zoom", "sideBarPosition", "panelPosition", "statusBar"] as const;
+const VIEW_KEYS = ["iconTheme", "density", "zoom", "sideBarPosition", "statusBar"] as const;
 
-const known = new Set(Object.keys(INTERFACE_SETTINGS));
+/** Settings older versions wrote and this one no longer uses; skipped without a problem. */
+const RETIRED = ["panelPosition"];
+
+const known = new Set([...Object.keys(INTERFACE_SETTINGS), ...RETIRED]);
 const list = (xs: readonly string[]) => xs.map((x) => `"${x}"`).join(", ");
 
 function readSettings(file: InterfaceFile, languages: string[], themeIds: string[]) {
@@ -108,7 +109,6 @@ function readSettings(file: InterfaceFile, languages: string[], themeIds: string
     density: pick("density", INTERFACE_SETTINGS.density, DEFAULT_VIEW.density),
     zoom: DEFAULT_VIEW.zoom,
     sideBarPosition: pick("sideBarPosition", INTERFACE_SETTINGS.sideBarPosition, DEFAULT_VIEW.sideBarPosition),
-    panelPosition: pick("panelPosition", INTERFACE_SETTINGS.panelPosition, DEFAULT_VIEW.panelPosition),
     statusBar: DEFAULT_VIEW.statusBar,
   };
   if ("statusBar" in v) {

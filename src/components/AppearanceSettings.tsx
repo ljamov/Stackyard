@@ -5,7 +5,6 @@ import { importThemeFromFile, removeAddedTheme, useThemeImport } from "../lib/th
 import {
   DENSITIES,
   ICON_THEMES,
-  PANEL_POSITIONS,
   setViewOptions,
   SIDE_BAR_POSITIONS,
   useViewOptions,
@@ -247,15 +246,6 @@ export function AppearanceSettings() {
         options={SIDE_BAR_POSITIONS}
         value={view.sideBarPosition}
         onPick={(sideBarPosition) => setViewOptions({ sideBarPosition })}
-        translate={t}
-      />
-
-      <Choices
-        id="panel-l"
-        label={t("Panel position")}
-        options={PANEL_POSITIONS}
-        value={view.panelPosition}
-        onPick={(panelPosition) => setViewOptions({ panelPosition })}
         translate={t}
       />
 

@@ -532,6 +532,7 @@ function SiteRow({
       </td>
       <td className="mono muted small">{site.root}</td>
       <td className="right nowrap">
+        <div className="row-actions">
         {isOn("terminal") && (
           <button
             type="button"
@@ -564,6 +565,7 @@ function SiteRow({
             Remove
           </button>
         )}
+        </div>
       </td>
     </tr>
   );

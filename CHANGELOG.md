@@ -4,6 +4,20 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- The **Problems, Logs and Terminal** panel now runs along the bottom of the whole window, under
+  the side bar too. The setting that put it on the right is gone; a `panelPosition` line in
+  settings.toml is skipped.
+- The **light and dark switch** (sun or moon) moved from the status bar to the top right of the
+  window.
+- Every text box, list, check box, radio button and slider has the same look in every screen, in
+  the theme's colors, and buttons light up under the pointer. Lists draw their own arrow.
+- **Scroll bars** are slim and rounded, like the system's own, and brighten under the pointer.
+- The **Terminal, Manage and Remove** buttons on the Sites screen have room between them.
+- A tab's **close button** sits a little apart from the tab's name and lights up as a round button
+  when you point at it, instead of a cramped square against the tab's edge.
+
 ## 0.8.0
 
 - A **WordPress** tab in the tools of every WordPress site (Sites › Manage): an overview with disk

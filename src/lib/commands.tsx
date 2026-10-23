@@ -146,12 +146,6 @@ export function useWorkbenchCommands({
         title: options.sideBarPosition === "left" ? t("Move the side bar to the right") : t("Move the side bar to the left"),
         run: () => setViewOptions({ sideBarPosition: options.sideBarPosition === "left" ? "right" : "left" }),
       },
-      {
-        id: "view.panelPosition",
-        category: view,
-        title: options.panelPosition === "bottom" ? t("Move the panel to the right") : t("Move the panel to the bottom"),
-        run: () => setViewOptions({ panelPosition: options.panelPosition === "bottom" ? "right" : "bottom" }),
-      },
       ...DENSITIES.map((d) => ({ id: `density.${d.id}`, category: t("Density"), title: t(d.label), run: () => setViewOptions({ density: d.id }) })),
       ...ICON_THEMES.map((i) => ({ id: `icons.${i.id}`, category: t("Icons"), title: t(i.label), run: () => setViewOptions({ iconTheme: i.id }) })),
       ...ACCENTS.map((a) => ({ id: `accent.${a.id}`, category: t("Accent color"), title: t(a.label), run: () => setAppearance({ accent: a.id }) })),
