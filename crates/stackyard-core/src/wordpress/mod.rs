@@ -501,18 +501,51 @@ pub fn clear_log(wp: &WpSite) -> Result<()> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Extension {
     /// The folder name, e.g. `woocommerce`.
+    #[serde(deserialize_with = "loose_string")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "loose_string")]
     pub title: String,
     /// `active`, `inactive`, `must-use`, `dropin`, `parent` …
+    #[serde(deserialize_with = "loose_string")]
     pub status: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "loose_string")]
     pub version: String,
     /// `available`, `none` or `version higher than expected`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "loose_update")]
     pub update: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "loose_option")]
     pub update_version: Option<String>,
+}
+
+/// WP-CLI fills a field it has no value for with `false` (a drop-in has
+/// no version, a plugin with `--skip-update-check` has no update), and a
+/// version can come back as a number. Any of these reads as text here.
+fn loose_value(value: serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(s) => Some(s),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(true) => Some("true".into()),
+        _ => None,
+    }
+}
+
+fn loose_string<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<String, D::Error> {
+    Ok(loose_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
+}
+
+fn loose_option<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    Ok(loose_value(serde_json::Value::deserialize(d)?).filter(|s| !s.is_empty()))
+}
+
+/// `update` as `true`/`false` means available/none.
+fn loose_update<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<String, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Bool(true) => "available".into(),
+        serde_json::Value::Bool(false) | serde_json::Value::Null => "none".into(),
+        other => loose_value(other).unwrap_or_default(),
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -932,6 +965,122 @@ pub fn import_database(home: &Path, wp: &WpSite, file: &Path) -> Result<String> 
     Ok(backup)
 }
 
+/// Checks a table prefix the way WordPress does: letters, digits and
+/// underscores only.
+pub fn check_prefix(prefix: &str) -> Result<()> {
+    if prefix.is_empty() {
+        return Err(fail("The table prefix can't be empty"));
+    }
+    if prefix.len() > 20 {
+        return Err(fail("Keep the table prefix to 20 characters or fewer"));
+    }
+    if !prefix
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return Err(fail(
+            "The table prefix can only have letters, digits and underscores",
+        ));
+    }
+    Ok(())
+}
+
+/// The blog part of a prefixed table, `` for `wp_options` and `2_` for
+/// `wp_2_options` on a multisite.
+fn blog_part(rest: &str) -> Option<&str> {
+    let mid = rest.strip_suffix("options")?;
+    let digits = mid.strip_suffix('_').unwrap_or(mid);
+    (mid.is_empty() || (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())))
+        .then_some(mid)
+}
+
+/// Gives the site's tables a new prefix, e.g. `wp_` to `shop_`: renames
+/// every table, the `user_roles` option of each blog and the user
+/// settings WordPress keys by prefix, then `$table_prefix` in
+/// wp-config.php. A backup is taken first; returns its file name.
+pub fn change_prefix(home: &Path, wp: &WpSite, prefix: &str) -> Result<String> {
+    check_prefix(prefix)?;
+    let old = wp.prefix().to_string();
+    if prefix == old {
+        return Err(fail(format!("The tables already start with {old}")));
+    }
+    let database = wp.database()?;
+    let client = Client::open(home)?;
+    let all: Vec<String> = client
+        .tables(&database)?
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+    let ours: Vec<&String> = all.iter().filter(|t| t.starts_with(&old)).collect();
+    if !ours.iter().any(|t| t.as_str() == wp.table("options")) {
+        return Err(fail(format!(
+            "No table {} in {database}; is this the right database?",
+            wp.table("options")
+        )));
+    }
+    // Another WordPress in the same database whose prefix starts with
+    // ours (wp_ and wp_shop_) would have its tables renamed too.
+    if let Some(other) = ours
+        .iter()
+        .find(|t| t.ends_with("options") && blog_part(&t[old.len()..]).is_none())
+    {
+        return Err(fail(format!(
+            "{other} looks like another WordPress in {database}; change the prefix in phpMyAdmin instead"
+        )));
+    }
+    let renames: Vec<(String, String)> = ours
+        .iter()
+        .map(|t| ((*t).clone(), format!("{prefix}{}", &t[old.len()..])))
+        .collect();
+    if let Some((_, taken)) = renames.iter().find(|(_, to)| all.contains(to)) {
+        return Err(fail(format!(
+            "{database} already has a table {taken}; pick another prefix"
+        )));
+    }
+
+    let backup = client.backup(&database)?.file;
+    let pairs: Vec<String> = renames
+        .iter()
+        .map(|(from, to)| format!("{} TO {}", databases::ident(from), databases::ident(to)))
+        .collect();
+    let mut sql = format!("RENAME TABLE {};", pairs.join(", "));
+    for (_, to) in &renames {
+        let Some(mid) = blog_part(&to[prefix.len()..]) else {
+            continue;
+        };
+        sql.push_str(&format!(
+            " UPDATE {} SET option_name = {} WHERE option_name = {};",
+            databases::ident(to),
+            databases::literal(&format!("{prefix}{mid}user_roles")),
+            databases::literal(&format!("{old}{mid}user_roles")),
+        ));
+    }
+    // update_user_option() keys user settings by blog prefix:
+    // wp_capabilities, wp_user_level, wp_2_capabilities …
+    sql.push_str(&format!(
+        " UPDATE {usermeta} SET meta_key = CONCAT({new}, SUBSTRING(meta_key, {from})) \
+         WHERE LEFT(meta_key, {len}) = BINARY {old};",
+        usermeta = databases::ident(&format!("{prefix}usermeta")),
+        new = databases::literal(prefix),
+        from = old.len() + 1,
+        len = old.len(),
+        old = databases::literal(&old),
+    ));
+    client.query(Some(&database), &sql).map_err(|e| {
+        fail(format!(
+            "Changing the prefix stopped part way ({e}). The database as it was is backed up as {backup} (Databases screen)"
+        ))
+    })?;
+    let text = read_text(&wp.config_file)?;
+    wp.write_config(&config::set_table_prefix(&text, prefix))
+        .map_err(|e| {
+            fail(format!(
+                "The tables now start with {prefix}, but wp-config.php couldn't be saved ({e}); set $table_prefix = '{prefix}'; in it by hand"
+            ))
+        })?;
+    Ok(backup)
+}
+
 /// Optimizes every table of the site; returns how many there were.
 pub fn optimize_database(home: &Path, wp: &WpSite) -> Result<usize> {
     let database = wp.database()?;
@@ -973,6 +1122,22 @@ pub fn clear_transients(home: &Path, wp: &WpSite) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extension_list_takes_false_and_numbers() {
+        let json = r#"[
+            {"name":"akismet","title":"Akismet","status":"active","version":"5.3","update":"available","update_version":"5.4"},
+            {"name":"advanced-cache.php","title":false,"status":"dropin","version":false,"update":false,"update_version":false},
+            {"name":"hello","title":"Hello","status":"inactive","version":1.7,"update":"none","update_version":null}
+        ]"#;
+        let list: Vec<Extension> = serde_json::from_str(json).unwrap();
+        assert_eq!(list[0].update_version.as_deref(), Some("5.4"));
+        assert_eq!(list[1].title, "");
+        assert_eq!(list[1].version, "");
+        assert_eq!(list[1].update, "none");
+        assert_eq!(list[1].update_version, None);
+        assert_eq!(list[2].version, "1.7");
+    }
 
     pub(crate) fn fake_wordpress(dir: &Path) {
         std::fs::create_dir_all(dir.join("wp-includes")).unwrap();
@@ -1054,6 +1219,18 @@ mod tests {
         clear_log(&wp).unwrap();
         assert_eq!(read_log(&wp, 100).unwrap().size, 0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prefix_rules() {
+        assert!(check_prefix("shop_").is_ok());
+        assert!(check_prefix("").is_err());
+        assert!(check_prefix("wp-").is_err());
+        assert!(check_prefix("x'; DROP").is_err());
+        assert_eq!(blog_part("options"), Some(""));
+        assert_eq!(blog_part("12_options"), Some("12_"));
+        assert_eq!(blog_part("shop_options"), None);
+        assert_eq!(blog_part("posts"), None);
     }
 
     #[test]
@@ -1188,6 +1365,25 @@ mod site_tests {
         import_database(&home, &wp, &dump).unwrap();
         assert!(optimize_database(&home, &wp).unwrap() > 5);
         clear_transients(&home, &wp).unwrap();
+
+        let first = wp.prefix().to_string();
+        assert!(change_prefix(&home, &wp, &first).is_err());
+        assert!(change_prefix(&home, &wp, "bad-prefix").is_err());
+        change_prefix(&home, &wp, "sy_").unwrap();
+        let moved = WpSite::open(&site).unwrap();
+        assert_eq!(moved.prefix(), "sy_");
+        assert!(moved.option(&home, "sy_user_roles").unwrap().is_some());
+        assert!(users(&home, &moved)
+            .unwrap()
+            .iter()
+            .any(|u| u.roles.contains("administrator")));
+        change_prefix(&home, &moved, &first).unwrap();
+        let wp = WpSite::open(&site).unwrap();
+        assert_eq!(wp.prefix(), first);
+        assert!(wp
+            .option(&home, &format!("{first}user_roles"))
+            .unwrap()
+            .is_some());
 
         if wp.plugin_version("woocommerce").is_some() {
             let status = woo::status(&home, &wp).unwrap();

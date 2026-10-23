@@ -208,6 +208,8 @@ export interface WpApi {
   importDatabase(domain: string, path: string): Promise<string>;
   optimizeDatabase(domain: string): Promise<number>;
   clearTransients(domain: string): Promise<number>;
+  /** Renames the tables to a new prefix; returns the backup taken first. */
+  changePrefix(domain: string, prefix: string): Promise<{ overview: WpOverview; backup: string }>;
   openPhpMyAdmin(domain: string): Promise<void>;
   woo(domain: string): Promise<WooView>;
   wooRunActions(domain: string): Promise<string>;
@@ -274,6 +276,7 @@ const tauriWp: WpApi = {
   importDatabase: (domain, path) => invoke("wp_import_database", { domain, path }),
   optimizeDatabase: (domain) => invoke("wp_optimize_database", { domain }),
   clearTransients: (domain) => invoke("wp_clear_transients", { domain }),
+  changePrefix: (domain, prefix) => invoke("wp_change_prefix", { domain, prefix }),
   openPhpMyAdmin: (domain) => invoke("wp_open_phpmyadmin", { domain }),
   woo: (domain) => invoke("wp_woo", { domain }),
   wooRunActions: (domain) => invoke("wp_woo_run_actions", { domain }),
@@ -337,11 +340,12 @@ function mockWp(): WpApi {
     { id: "stripe", title: "Credit card (Stripe)", enabled: true, test_mode: true },
     { id: "bacs", title: "Direct bank transfer", enabled: false, test_mode: null },
   ];
+  let prefix = "wp_";
   const overview = (): WpOverview => ({
     wordpress: "6.8.3",
     php: "8.3",
     database: "legacy",
-    prefix: "wp_",
+    prefix,
     database_server: "MySQL 8.4",
     debug,
     woocommerce: "10.2.1",
@@ -415,6 +419,12 @@ function mockWp(): WpApi {
     importDatabase: async () => "legacy-20261022-101500.sql.gz",
     optimizeDatabase: async () => 24,
     clearTransients: async () => 118,
+    changePrefix: async (_d, next) => {
+      await wait(800);
+      if (!/^[A-Za-z0-9_]+$/.test(next)) throw new Error("The table prefix can only have letters, digits and underscores");
+      prefix = next;
+      return { overview: overview(), backup: "legacy-20261023-124500.sql.gz" };
+    },
     openPhpMyAdmin: async () => {},
     woo: async () => ({
       status: { version: "10.2.1", hpos: true, orders: 1204, products: 86, customers: 640, due_actions: 3, failed_actions: 0, currency: "EUR" },

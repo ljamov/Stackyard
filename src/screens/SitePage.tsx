@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, errorText, type Site } from "../lib/api";
+import { api, errorText, siteAddress, type Site } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { useT } from "../lib/i18n";
@@ -15,6 +15,7 @@ export function SitePage({ domain }: { domain: string }) {
   const t = useT();
   const sites = useLoad(api.listSites, null as Site[] | null);
   const runtimes = useLoad(api.listRuntimes, []);
+  const system = useLoad(api.systemStatus, null);
   const { isOn } = useModules();
   const [error, setError] = useState<string | null>(null);
   const hasTools = ["sitesettings", "sitebackups", "sitetransfer", "share", "remote", "git", "wordpress"].some(isOn);
@@ -33,6 +34,7 @@ export function SitePage({ domain }: { domain: string }) {
   if (!sites.data) return null;
   const site = sites.data.find((s) => s.domain === domain);
   if (!site) return <p className="muted">{t("This site isn't in Stackyard any more.")}</p>;
+  const address = siteAddress(site, !system.data || system.data.needed.length === 0);
 
   async function remove() {
     setError(null);
@@ -86,11 +88,8 @@ export function SitePage({ domain }: { domain: string }) {
         <dl className="facts-grid">
           <dt>{t("Address")}</dt>
           <dd>
-            <button type="button" className="link mono" onClick={() => api.openLocalPage(site.url)}>
-              {site.url}
-            </button>{" "}
-            <button type="button" className="link mono small" onClick={() => api.openLocalPage(site.local_url)}>
-              {site.local_url.replace(/^https?:\/\//, "")}
+            <button type="button" className="link mono" onClick={() => api.openLocalPage(address)}>
+              {address}
             </button>
           </dd>
           <dt>{t("Folder")}</dt>

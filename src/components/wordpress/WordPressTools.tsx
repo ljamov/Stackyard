@@ -189,7 +189,7 @@ export function WordPressTools({ site }: { site: Site }) {
             {shown === "Users" && <UsersTab site={site} />}
             {shown === "Debug" && <DebugTab site={site} overview={overview} onChanged={setOverview} />}
             {shown === "Search and replace" && <ReplaceTab site={site} />}
-            {shown === "Database" && <DatabaseTab site={site} overview={overview} />}
+            {shown === "Database" && <DatabaseTab site={site} overview={overview} onChanged={setOverview} />}
             {shown === "WooCommerce" && <WooTab site={site} />}
           </>
         )}
@@ -693,20 +693,20 @@ function ThemeCard({
           <span className="row">
             <button
               type="button"
+              className="btn small primary"
+              disabled={disabled}
+              onClick={() => change(e.name, "activate", t("Activating {name}…", { name }))}
+            >
+              {t("Activate")}
+            </button>
+            <button
+              type="button"
               className="btn small ghost danger"
               aria-label={t("Delete {name}", { name })}
               disabled={disabled}
               onClick={() => change(e.name, "delete", t("Deleting {name}…", { name }))}
             >
               {t("Delete")}
-            </button>
-            <button
-              type="button"
-              className="btn small primary"
-              disabled={disabled}
-              onClick={() => change(e.name, "activate", t("Activating {name}…", { name }))}
-            >
-              {t("Activate")}
             </button>
           </span>
         )}
@@ -992,17 +992,81 @@ export function ReplaceReport({ replaced, t }: { replaced: WpReplaced; t: T }) {
   );
 }
 
-function DatabaseTab({ site, overview }: { site: Site; overview: WpOverview }) {
+function DatabaseTab({
+  site,
+  overview,
+  onChanged,
+}: {
+  site: Site;
+  overview: WpOverview;
+  onChanged: (o: WpOverview) => void;
+}) {
   const t = useT();
   const { isOn } = useModules();
   const action = useAction();
   const [confirmImport, setConfirmImport] = useState<string | null>(null);
+  const [prefix, setPrefix] = useState<string | null>(null);
+  const prefixValid = prefix !== null && /^[A-Za-z0-9_]{1,20}$/.test(prefix) && prefix !== overview.prefix;
 
   return (
     <div className="stack">
-      <p className="muted small">
-        {t("The database {name}, tables starting with {prefix}.", { name: overview.database ?? "?", prefix: overview.prefix })}
-      </p>
+      <div className="row centered wrap">
+        <span className="muted small">
+          {t("The database {name}, tables starting with {prefix}.", { name: overview.database ?? "?", prefix: overview.prefix })}
+        </span>
+        {prefix === null && (
+          <button
+            type="button"
+            className="btn small ghost"
+            disabled={action.busy !== null || !overview.database}
+            onClick={() => setPrefix(overview.prefix)}
+          >
+            {t("Change prefix…")}
+          </button>
+        )}
+      </div>
+      {prefix !== null && (
+        <form
+          className="stack tight"
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            if (!prefixValid) return;
+            const next = prefix;
+            setPrefix(null);
+            action.run(t("Renaming the tables to {prefix}…", { prefix: next }), () => wp.changePrefix(site.domain, next), (r) => {
+              onChanged(r.overview);
+              return t("The tables now start with {prefix}. The database as it was is backed up as {file} (Databases screen).", {
+                prefix: next,
+                file: r.backup,
+              });
+            });
+          }}
+        >
+          <div className="row centered wrap">
+            <label className="row centered small">
+              {t("New prefix")}
+              <input
+                className="mono"
+                value={prefix}
+                autoFocus
+                spellCheck={false}
+                maxLength={20}
+                aria-invalid={!prefixValid || undefined}
+                onChange={(ev) => setPrefix(ev.target.value)}
+              />
+            </label>
+            <button type="submit" className="btn small primary" disabled={!prefixValid}>
+              {t("Change prefix")}
+            </button>
+            <button type="button" className="btn small ghost" onClick={() => setPrefix(null)}>
+              {t("Cancel")}
+            </button>
+          </div>
+          <span className="muted small">
+            {t("Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.")}
+          </span>
+        </form>
+      )}
       <div className="row wrap">
         <button
           type="button"

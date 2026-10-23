@@ -196,6 +196,25 @@ pub async fn wp_import_database(domain: String, path: PathBuf) -> CmdResult<Stri
     .await
 }
 
+#[derive(Serialize)]
+pub struct PrefixChanged {
+    overview: Overview,
+    backup: String,
+}
+
+/// Renames the tables to a new prefix; returns the backup taken first.
+#[tauri::command]
+pub async fn wp_change_prefix(domain: String, prefix: String) -> CmdResult<PrefixChanged> {
+    let backup = with_site(domain.clone(), move |home, wp| {
+        wordpress::change_prefix(home, wp, &prefix)
+    })
+    .await?;
+    Ok(PrefixChanged {
+        overview: wp_overview(domain).await?,
+        backup,
+    })
+}
+
 #[tauri::command]
 pub async fn wp_optimize_database(domain: String) -> CmdResult<usize> {
     with_site(domain, wordpress::optimize_database).await

@@ -2009,6 +2009,7 @@ pub fn run() {
             wordpress::wp_import_database,
             wordpress::wp_optimize_database,
             wordpress::wp_clear_transients,
+            wordpress::wp_change_prefix,
             wordpress::wp_open_phpmyadmin,
             wordpress::wp_woo,
             wordpress::wp_woo_run_actions,

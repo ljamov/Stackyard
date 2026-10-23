@@ -759,5 +759,11 @@
   "parked": "паркиран",
   "Panel under the screen only": "Панел само под екранот",
   "Panel across the whole window": "Панел преку целиот прозорец",
-  "New site and parked folders": "Нов сајт и паркирани папки"
+  "New site and parked folders": "Нов сајт и паркирани папки",
+  "Change prefix…": "Промени префикс…",
+  "Change prefix": "Промени префикс",
+  "New prefix": "Нов префикс",
+  "Renaming the tables to {prefix}…": "Табелите се преименуваат во {prefix}…",
+  "The tables now start with {prefix}. The database as it was is backed up as {file} (Databases screen).": "Табелите сега почнуваат со {prefix}. Базата каква што беше е зачувана како {file} (екран Бази на податоци).",
+  "Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.": "Букви, бројки и долни црти, на пр. shop_. Секоја табела се преименува, заедно со корисничките улоги и поставки што го носат префиксот, и wp-config.php се ажурира. Претходно се прави резервна копија."
 }

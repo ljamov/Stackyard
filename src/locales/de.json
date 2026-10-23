@@ -759,5 +759,11 @@
   "parked": "geparkt",
   "Panel under the screen only": "Bereich nur unter dem Bildschirm",
   "Panel across the whole window": "Bereich über das ganze Fenster",
-  "New site and parked folders": "Neue Website und geparkte Ordner"
+  "New site and parked folders": "Neue Website und geparkte Ordner",
+  "Change prefix…": "Präfix ändern…",
+  "Change prefix": "Präfix ändern",
+  "New prefix": "Neues Präfix",
+  "Renaming the tables to {prefix}…": "Tabellen werden in {prefix} umbenannt…",
+  "The tables now start with {prefix}. The database as it was is backed up as {file} (Databases screen).": "Die Tabellen beginnen jetzt mit {prefix}. Die Datenbank im vorherigen Zustand ist als {file} gesichert (Bildschirm Datenbanken).",
+  "Letters, digits and underscores, e.g. shop_. Every table is renamed, with the user roles and user settings that carry the prefix, and wp-config.php is updated. A backup is taken first.": "Buchstaben, Ziffern und Unterstriche, z. B. shop_. Jede Tabelle wird umbenannt, ebenso die Benutzerrollen und Benutzereinstellungen mit dem Präfix, und wp-config.php wird angepasst. Vorher wird eine Sicherung erstellt."
 }

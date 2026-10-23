@@ -25,6 +25,14 @@ Update button, and the app shows its own version's section after it updates.
 - **Turned-off services show on the Services screen** as dashed **Disabled** cards with what they
   do and a **Turn on** button, so you can see everything Stackyard offers. They still download
   nothing and run nothing until turned on.
+- WordPress **Plugins** no longer stop with "WP-CLI answered in a way Stackyard doesn't understand"
+  when a plugin or drop-in has no version or update (WP-CLI sends `false` for those).
+- WordPress **Themes**: **Activate** now comes before **Delete** under each theme.
+- WordPress **Database**: **Change prefix…** gives the site's tables a new prefix, e.g. `wp_` to
+  `shop_`. It backs up the database, renames every table, the user roles and user settings that
+  carry the prefix, and sets `$table_prefix` in wp-config.php.
+- A site shows **one address**: its own (`https://blog.stack`) once local domains are set up, and
+  its `.localhost` address only until then.
 
 ## 0.9.0
 

@@ -190,6 +190,11 @@ export type Site = {
   versions: SiteVersion[];
 };
 
+/** The one address to show for a site: its own (`https://blog.stack`)
+ * once local domains are set up, else the `.localhost` one that works
+ * already. */
+export const siteAddress = (site: Site, domainsReady: boolean) => (domainsReady ? site.url : site.local_url);
+
 /** The database a site uses and the server that holds it. */
 export type SiteDb = {
   database: string;
