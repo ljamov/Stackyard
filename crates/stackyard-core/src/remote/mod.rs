@@ -613,7 +613,7 @@ impl Sessions {
         only: Option<&[String]>,
         progress: &mut dyn FnMut(Progress) -> bool,
     ) -> Result<Plan> {
-        self.with(connection, |r| {
+        let mut plan = self.with(connection, |r| {
             let root = remote_root(connection, r)?;
             sync::plan(
                 r,
@@ -628,7 +628,20 @@ impl Sessions {
                 only,
                 progress,
             )
-        })
+        })?;
+        if let Some(kept) = crate::wordpress::KeptApart::of(local_root) {
+            let (apart, files): (Vec<_>, Vec<_>) =
+                plan.files.into_iter().partition(|f| kept.keeps(&f.path));
+            plan.files = files;
+            plan.bytes = plan
+                .files
+                .iter()
+                .filter(|f| matches!(f.action, Action::Upload | Action::Download))
+                .map(|f| f.size)
+                .sum();
+            plan.kept_apart = apart.into_iter().map(|f| f.path).collect();
+        }
+        Ok(plan)
     }
 
     /// Every file under a server folder (absolute), by path relative to it,
@@ -672,9 +685,21 @@ impl Sessions {
         files: &[PlannedFile],
         progress: &mut dyn FnMut(Progress) -> bool,
     ) -> Result<Outcome> {
+        // A plan from before the site held WordPress, or made elsewhere,
+        // still never carries one side's own files to the other.
+        let kept = crate::wordpress::KeptApart::of(local_root);
+        let files: Vec<PlannedFile> = files
+            .iter()
+            .filter(|f| {
+                !kept
+                    .as_ref()
+                    .is_some_and(|k| k.keeps(f.path.trim_matches('/')))
+            })
+            .cloned()
+            .collect();
         self.with(connection, |r| {
             let root = remote_root(connection, r)?;
-            sync::run(r, local_root, &root, files, progress)
+            sync::run(r, local_root, &root, &files, progress)
         })
     }
 }

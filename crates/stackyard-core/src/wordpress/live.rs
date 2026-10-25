@@ -2160,6 +2160,15 @@ pub fn local_config(
     for name in ["COOKIE_DOMAIN", "WP_REDIS_HOST", "WP_REDIS_PASSWORD"] {
         text = config::remove_define(&text, name);
     }
+    // Redis object caches (Object Cache Pro, Redis Object Cache) step
+    // aside when this is set, should their drop-in come back.
+    if config
+        .defines
+        .keys()
+        .any(|name| name.starts_with("WP_REDIS_"))
+    {
+        text = config::set_define(&text, "WP_REDIS_DISABLED", "true");
+    }
     if config.flag("WP_CACHE") {
         text = config::set_define(&text, "WP_CACHE", "false");
         notes.push("The page cache (WP_CACHE) is switched off on this copy.".into());
@@ -2350,6 +2359,16 @@ mod tests {
         assert!(!text.contains("COOKIE_DOMAIN"));
         assert!(!text.contains("secret"));
         assert_eq!(notes.len(), 1);
+        assert_eq!(config.get("WP_REDIS_DISABLED"), None);
+    }
+
+    #[test]
+    fn switches_off_a_live_redis_cache() {
+        let live = "<?php\ndefine('DB_NAME', 'live_db');\ndefine( 'WP_REDIS_CONFIG', [\n   'host' => '127.0.0.1',\n   'port' => 6379,\n   ] );\ndefine( 'WP_REDIS_DISABLED', false );\n/* That's all, stop editing! Happy blogging. */\n";
+        let (text, _) = local_config(live, "shop", 3306, "https://shop.stack");
+        let config = WpConfig::read(&text);
+        assert!(config.flag("WP_REDIS_DISABLED"));
+        assert_eq!(text.matches("WP_REDIS_DISABLED").count(), 1);
     }
 
     #[test]

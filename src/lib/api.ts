@@ -449,7 +449,14 @@ export type PlannedFile = {
   size: number;
 };
 
-export type TransferPlan = { direction: TransferDirection; files: PlannedFile[]; bytes: number; unchanged: number };
+export type TransferPlan = {
+  direction: TransferDirection;
+  files: PlannedFile[];
+  bytes: number;
+  unchanged: number;
+  /** Files that differ but stay as they are on each side, such as a WordPress site's own wp-config.php. */
+  kept_apart: string[];
+};
 export type TransferOutcome = { done: number; bytes: number; failed: { path: string; error: string }[]; stopped: boolean };
 
 export type RemoteProgress = { id: string } & (
@@ -1971,7 +1978,7 @@ function browserApi(): Api {
               ? [{ path: "old-page.html", action: direction === "upload" ? "delete-remote" : "delete-local", reason: "extra", size: 900 } as PlannedFile]
               : []),
           ];
-      return { direction, files, bytes: files.reduce((n, f) => n + (f.action.startsWith("delete") ? 0 : f.size), 0), unchanged: 1_204 };
+      return { direction, files, bytes: files.reduce((n, f) => n + (f.action.startsWith("delete") ? 0 : f.size), 0), unchanged: 1_204, kept_apart: [] };
     },
     remoteRun: async (id, files) => {
       for (const [index, f] of files.entries()) {

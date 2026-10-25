@@ -91,6 +91,10 @@ pub struct Plan {
     pub bytes: u64,
     /// Files that are the same on both sides.
     pub unchanged: usize,
+    /// Files that differ but stay as they are on each side: a WordPress
+    /// site's own `wp-config.php` and the like (see
+    /// [`crate::wordpress::KeptApart`]).
+    pub kept_apart: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -222,6 +226,7 @@ pub(crate) fn plan(
         files,
         bytes,
         unchanged,
+        kept_apart: Vec::new(),
     })
 }
 
