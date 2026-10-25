@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import {
@@ -17,6 +17,10 @@ import { FileGroups, MovePosts, SettingList, SwitchList, Undo, UndoWith, when } 
 import { size } from "./WordPressTools";
 
 type Live = NonNullable<WpEnvironment["live"]>;
+
+/** A request from the WordPress view's Pull and Push buttons to open the
+ * live panel one way; `at` tells two presses apart. */
+export type LiveAsk = { way: WpWay; at: number };
 
 /** Progress of the push, pull or live read running for this copy. */
 function useSyncProgress(domain: string) {
@@ -67,9 +71,13 @@ function Progress({ progress, onStop }: { progress: WpSyncProgress | null; onSto
 
 /** Push to and pull from the live site this copy was cloned from: changes
  * since they were last in step, or single posts and pages. */
-export function LivePanel({ domain, main, live }: { domain: string; main: string; live: Live }) {
+export function LivePanel({ domain, main, live, ask }: { domain: string; main: string; live: Live; ask?: LiveAsk }) {
   const t = useT();
-  const [way, setWay] = useState<WpWay>("push");
+  const [way, setWay] = useState<WpWay>(ask?.way ?? "pull");
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (ask) panel.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [ask]);
   const [mode, setMode] = useState<"changes" | "posts">("changes");
   const [backupsShown, setBackupsShown] = useState(false);
   if (live.route === "files") {
@@ -81,7 +89,7 @@ export function LivePanel({ domain, main, live }: { domain: string; main: string
     );
   }
   return (
-    <section className="stack" aria-label={t("Live site")}>
+    <section className="stack" aria-label={t("Live site")} ref={panel}>
       <h3 className="small">{t("Live site")}</h3>
       <p className="muted small">
         <span className="mono">{live.url}</span> · {live.synced_at ? t("last in step {date}", { date: when(live.synced_at) }) : t("never in step yet")}
@@ -89,12 +97,12 @@ export function LivePanel({ domain, main, live }: { domain: string; main: string
       <div className="stack tight">
         <div className="row" role="radiogroup" aria-label={t("Which way")}>
           <label className="row small">
-            <input type="radio" checked={way === "push"} onChange={() => setWay("push")} />
-            {t("Push to live")}
-          </label>
-          <label className="row small">
             <input type="radio" checked={way === "pull"} onChange={() => setWay("pull")} />
             {t("Pull from live")}
+          </label>
+          <label className="row small">
+            <input type="radio" checked={way === "push"} onChange={() => setWay("push")} />
+            {t("Push to live")}
           </label>
         </div>
         <div className="row" role="radiogroup" aria-label={t("What to take")}>
@@ -158,6 +166,9 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
     setFiles(new Set(l.files.filter((f) => !f.conflict).map((f) => f.path)));
     setSwitches(new Set(l.switches.filter((s) => !s.conflict).map((s) => s.id)));
     setSettings(new Set(l.settings.filter((s) => !s.conflict).map((s) => s.name)));
+    // Posts and pages are in the database: when only the live side changed
+    // them, a pull brings the live database too, as nothing here is lost.
+    if (!push && l.live_content_changed && !l.local_content_changed) setLevel("everything");
   }
 
   async function run() {
@@ -213,6 +224,11 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
             </p>
           ))}
           {nothing && level !== "everything" && <p className="muted small">{t("No files, plugins or settings changed.")}</p>}
+          {!push && level !== "everything" && list.live_content_changed && (
+            <p className="warn small">
+              {t("Posts, pages or comments changed on the live site. They are in its database: pick Everything to bring them, or Single posts and pages above to take only some.")}
+            </p>
+          )}
           <FileGroups files={list.files} picked={files} onChange={setFiles} other={other} />
 
           <fieldset className="stack tight">

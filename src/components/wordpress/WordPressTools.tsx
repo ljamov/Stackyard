@@ -17,6 +17,7 @@ import {
   type WpUser,
 } from "../../lib/wordpress";
 import { EnvironmentsTab } from "./Environments";
+import type { LiveAsk } from "./Live";
 import { Icon } from "../Icon";
 import { AutostartCheck, SiteDatabaseNotice, useSiteDatabase } from "../SiteDatabase";
 import "../site-views.css";
@@ -102,6 +103,8 @@ export function WordPressTools({ site }: { site: Site }) {
   const [env, setEnv] = useState<WpEnvironment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTabState] = useState<Tab>(() => lastTab.get(site.domain) ?? "Overview");
+  // Set by the hero's Pull and Push buttons: opens the live panel that way.
+  const [liveAsk, setLiveAsk] = useState<LiveAsk | null>(null);
   const database = useSiteDatabase(site.domain);
   const setTab = (x: Tab) => {
     lastTab.set(site.domain, x);
@@ -160,6 +163,32 @@ export function WordPressTools({ site }: { site: Site }) {
             <button type="button" className="btn" onClick={() => api.openLocalPage(`${site.url}/wp-admin/`)}>
               {t("WP Admin")}
             </button>
+            {env?.live && env.live.route !== "files" && (
+              <>
+                <button
+                  type="button"
+                  className="btn"
+                  title={t("Bring the live site's changes here: files, plugins, settings and, if you pick it, its database")}
+                  onClick={() => {
+                    setLiveAsk({ way: "pull", at: Date.now() });
+                    setTab("Environments");
+                  }}
+                >
+                  {t("Pull from live")}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  title={t("Send this copy's changes to the live site")}
+                  onClick={() => {
+                    setLiveAsk({ way: "push", at: Date.now() });
+                    setTab("Environments");
+                  }}
+                >
+                  {t("Push to live")}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -182,7 +211,7 @@ export function WordPressTools({ site }: { site: Site }) {
         ) : (
           <>
             {shown === "Overview" && <OverviewTab site={site} overview={overview} env={env} database={database} onTab={setTab} />}
-            {shown === "Environments" && <EnvironmentsTab site={site} />}
+            {shown === "Environments" && <EnvironmentsTab site={site} liveAsk={liveAsk} />}
             {shown === "Plugins" && <ExtensionsTab site={site} kind="plugin" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />}
             {shown === "Themes" && <ExtensionsTab site={site} kind="theme" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />}
             {shown === "Users" && <UsersTab site={site} />}

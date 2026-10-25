@@ -788,5 +788,8 @@
   "Take picture": "Направи слика",
   "VS Code is used unless you pick another one.": "Се користи VS Code, освен ако не изберете друг.",
   "{name} (not installed)": "{name} (не е инсталиран)",
-  "{name} isn't installed on this computer.": "{name} не е инсталиран на овој компјутер."
+  "{name} isn't installed on this computer.": "{name} не е инсталиран на овој компјутер.",
+  "Bring the live site's changes here: files, plugins, settings and, if you pick it, its database": "Донеси ги промените од живиот сајт овде: датотеки, приклучоци, поставки и, ако избереш, неговата база",
+  "Posts, pages or comments changed on the live site. They are in its database: pick Everything to bring them, or Single posts and pages above to take only some.": "На живиот сајт се сменети објави, страници или коментари. Тие се во неговата база: избери Сè за да ги донесеш, или Поединечни објави и страници погоре за да земеш само некои.",
+  "Send this copy's changes to the live site": "Испрати ги промените од оваа копија на живиот сајт"
 }

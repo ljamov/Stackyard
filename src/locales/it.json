@@ -788,5 +788,8 @@
   "Take picture": "Scatta immagine",
   "VS Code is used unless you pick another one.": "Viene usato VS Code, a meno che tu non ne scelga un altro.",
   "{name} (not installed)": "{name} (non installato)",
-  "{name} isn't installed on this computer.": "{name} non è installato su questo computer."
+  "{name} isn't installed on this computer.": "{name} non è installato su questo computer.",
+  "Bring the live site's changes here: files, plugins, settings and, if you pick it, its database": "Porta qui le modifiche del sito live: file, plugin, impostazioni e, se lo scegli, il suo database",
+  "Posts, pages or comments changed on the live site. They are in its database: pick Everything to bring them, or Single posts and pages above to take only some.": "Articoli, pagine o commenti sono cambiati sul sito live. Sono nel suo database: scegli Tutto per portarli qui, oppure Singoli articoli e pagine qui sopra per prenderne solo alcuni.",
+  "Send this copy's changes to the live site": "Invia le modifiche di questa copia al sito live"
 }

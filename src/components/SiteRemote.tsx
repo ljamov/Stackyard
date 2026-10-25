@@ -60,6 +60,12 @@ export function SiteRemote({ site }: { site: Site }) {
           ))}
         </div>
       )}
+      {shown === "Servers" && (site.framework === "WordPress" || site.framework === "WooCommerce") && (
+        <p className="muted small">
+          Upload and Download copy files only, and leave each side's wp-config.php alone. Posts, pages and settings are in the
+          database: to bring them from a live site this copy was cloned from, use WordPress › Pull from live.
+        </p>
+      )}
       {shown === "Servers" ? <Servers site={site} /> : <Git site={site} />}
     </div>
   );
