@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.13.0
 
 - **Fixed: downloading a WordPress site's files from its server broke the site** with "Error
   establishing a database connection". Download copied the live `wp-config.php` over the copy's
