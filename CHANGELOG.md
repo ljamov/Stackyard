@@ -4,6 +4,16 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Local domains stay set up.** On Windows, new sites (and clones and stagings) used to bring back
+  "Finish setting up local domains" with a password prompt each time. Setup now lets Stackyard keep
+  its own lines in the hosts file up to date, so it is asked for once. Click **Set up** one more
+  time after this update, and new sites get their address by themselves from then on.
+- **Clones go on after an update.** A clone from a live server that was running when Stackyard
+  updated or quit starts again by itself and continues where it stopped. Stopped or failed clones
+  are shown again too, with their Try again button. The update notice says so while a clone runs.
+
 ## 0.15.0
 
 - **Clone several live sites at once.** Clone from a live server no longer waits for the clone

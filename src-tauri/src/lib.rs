@@ -1862,8 +1862,7 @@ struct SystemView {
 
 fn system_view(app: &AppHandle) -> CmdResult<SystemView> {
     let manager = ServiceManager::open();
-    let wanted = manager.system_wanted().map_err(err)?;
-    let status = wanted.status(&system::applied(manager.home()));
+    let (wanted, status) = manager.system_status().map_err(err)?;
     Ok(SystemView {
         needed: status.needed,
         waiting_for_certificate: status.waiting_for_certificate,
@@ -2043,6 +2042,7 @@ pub fn run() {
             wordpress::wp_clone_stop,
             wordpress::wp_clone_forget,
             wordpress::wp_clone_unfinished,
+            wordpress::wp_clones_saved,
             wordpress::wp_environment,
             wordpress::wp_stagings,
             wordpress::wp_staging_create,
@@ -2248,6 +2248,7 @@ pub fn run() {
         RunEvent::Reopen { .. } => show_window(handle),
         // Never leave services running after Stackyard quits.
         RunEvent::Exit => {
+            wordpress::set_quitting(true);
             handle.state::<Control>().0.lock().unwrap().take();
             handle.state::<Arc<Engine>>().shutdown();
         }

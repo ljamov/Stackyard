@@ -809,5 +809,6 @@
   "Trying again continues where it stopped; files already downloaded are kept.": "Ein neuer Versuch macht dort weiter, wo er stoppte; bereits geladene Dateien bleiben erhalten.",
   "{count} clones ready": "{count} Klone fertig",
   "{count} clones stopped": "{count} Klone angehalten",
-  "{domain} was not cloned": "{domain} wurde nicht geklont"
+  "{domain} was not cloned": "{domain} wurde nicht geklont",
+  "Clones from a live server pause for the update and go on after it.": "Klone von einem Live-Server pausieren für das Update und laufen danach weiter."
 }
