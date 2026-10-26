@@ -517,6 +517,7 @@
   "Stackyard has no record of when this copy was last in step, so every difference is marked; you decide.": "Stackyard нема запис кога оваа копија последен пат била усогласена, па секоја разлика е означена; вие одлучувате.",
   "Stackyard is updated to {version}": "Stackyard е ажуриран на {version}",
   "Stackyard looks for WordPress in it and the folders below.": "Stackyard бара WordPress во неа и во папките под неа.",
+  "The new site keeps this login under Manage › Servers & Git as Live, for live pull and push; change it there any time. Cloning again from the same server updates it instead of adding another.": "Новата страница го чува ова најавување под Управувај › Сервери и Git како Live, за повлекување и туркање од живата страница; можеш да го смениш таму кога сакаш. Повторното клонирање од истиот сервер го ажурира наместо да додаде уште едно.",
   "Stackyard updated": "Stackyard е ажуриран",
   "Stackyard {version} is available": "Достапен е Stackyard {version}",
   "Staging": "Тест-копија",

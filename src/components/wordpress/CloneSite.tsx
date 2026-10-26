@@ -269,54 +269,63 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
         )}
 
         {from === "new" && (
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="cl-protocol">{t("Connect with")}</label>
-              <select id="cl-protocol" value={protocol} onChange={(e) => setProtocol(e.target.value as WpProtocol)}>
-                <option value="sftp">{t("SFTP (SSH)")}</option>
-                <option value="ftps">FTPS</option>
-                <option value="ftp">FTP</option>
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="cl-host">{t("Server address")}</label>
-              <input id="cl-host" className="mono" value={host} placeholder="203.0.113.10" onChange={(e) => setHost(e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="cl-port">{t("Port")}</label>
-              <input
-                id="cl-port"
-                className="mono"
-                inputMode="numeric"
-                value={port}
-                placeholder={protocol === "sftp" ? "22" : "21"}
-                onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="cl-user">{t("User name")}</label>
-              <input id="cl-user" className="mono" value={user} onChange={(e) => setUser(e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="cl-password">{keyFile ? t("Key passphrase") : t("Password")}</label>
-              <input id="cl-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </div>
-            {protocol === "sftp" && (
+          <div className="server-grid">
+            <div className="row-wide">
               <div className="field">
-                <label htmlFor="cl-key">{t("Private key (optional)")}</label>
-                <div className="row folder-input">
-                  <input id="cl-key" className="mono grow" value={keyFile} onChange={(e) => setKeyFile(e.target.value)} />
-                  <button type="button" className="btn" onClick={pickKey}>
-                    {t("Browse…")}
-                  </button>
-                </div>
+                <label htmlFor="cl-protocol">{t("Connect with")}</label>
+                <select id="cl-protocol" value={protocol} onChange={(e) => setProtocol(e.target.value as WpProtocol)}>
+                  <option value="sftp">{t("SFTP (SSH)")}</option>
+                  <option value="ftps">FTPS</option>
+                  <option value="ftp">FTP</option>
+                </select>
               </div>
-            )}
-            <div className="field">
-              <label htmlFor="cl-dir">{t("Folder on the server (optional)")}</label>
-              <input id="cl-dir" className="mono" value={remoteDir} placeholder="/home/user/public_html" onChange={(e) => setRemoteDir(e.target.value)} />
-              <span className="muted small">{t("Stackyard looks for WordPress in it and the folders below.")}</span>
+              <div className="field">
+                <label htmlFor="cl-host">{t("Server address")}</label>
+                <input id="cl-host" className="mono" value={host} placeholder="203.0.113.10" onChange={(e) => setHost(e.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="cl-port">{t("Port")}</label>
+                <input
+                  id="cl-port"
+                  className="mono"
+                  inputMode="numeric"
+                  value={port}
+                  placeholder={protocol === "sftp" ? "22" : "21"}
+                  onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
+                />
+              </div>
             </div>
+            <div className="row-half">
+              <div className="field">
+                <label htmlFor="cl-user">{t("User name")}</label>
+                <input id="cl-user" className="mono" value={user} onChange={(e) => setUser(e.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="cl-password">{keyFile ? t("Key passphrase") : t("Password")}</label>
+                <input id="cl-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </div>
+            </div>
+            <div className="row-half">
+              <div className="field">
+                <label htmlFor="cl-dir">{t("Folder on the server (optional)")}</label>
+                <input id="cl-dir" className="mono" value={remoteDir} placeholder="/home/user/public_html" onChange={(e) => setRemoteDir(e.target.value)} />
+                <span className="muted small">{t("Stackyard looks for WordPress in it and the folders below.")}</span>
+              </div>
+              {protocol === "sftp" && (
+                <div className="field">
+                  <label htmlFor="cl-key">{t("Private key (optional)")}</label>
+                  <div className="row folder-input">
+                    <input id="cl-key" className="mono grow" value={keyFile} onChange={(e) => setKeyFile(e.target.value)} />
+                    <button type="button" className="btn" onClick={pickKey}>
+                      {t("Browse…")}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <p className="muted small">
+              {t("The new site keeps this login under Manage › Servers & Git as Live, for live pull and push; change it there any time. Cloning again from the same server updates it instead of adding another.")}
+            </p>
           </div>
         )}
 
