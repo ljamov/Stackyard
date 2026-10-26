@@ -43,14 +43,16 @@ pub struct Helper {
     pub source: String,
 }
 
-/// Writes a helper that only reads, working until `until` (seconds since 1970).
-pub fn make(db: &DbSettings, until: u64) -> crate::Result<Helper> {
-    make_with(db, until, false)
+/// Writes a helper that only reads, working for `lifetime` seconds after
+/// it lands on the server. The server's own clock counts them, so a
+/// computer whose clock is off can't make it expire at once.
+pub fn make(db: &DbSettings, lifetime: u64) -> crate::Result<Helper> {
+    make_with(db, lifetime, false)
 }
 
 /// Writes a helper that can also load SQL files into the database.
-pub fn make_writing(db: &DbSettings, until: u64) -> crate::Result<Helper> {
-    make_with(db, until, true)
+pub fn make_writing(db: &DbSettings, lifetime: u64) -> crate::Result<Helper> {
+    make_with(db, lifetime, true)
 }
 
 /// A name for an SQL file uploaded for the helper to load: random, so it
@@ -63,7 +65,7 @@ pub fn sql_file_name() -> crate::Result<String> {
     Ok(format!("stackyard-{tail}.sql.gz"))
 }
 
-fn make_with(db: &DbSettings, until: u64, write: bool) -> crate::Result<Helper> {
+fn make_with(db: &DbSettings, lifetime: u64, write: bool) -> crate::Result<Helper> {
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes)
         .map_err(|e| crate::Error::WordPress(format!("no randomness: {e}")))?;
@@ -75,7 +77,7 @@ fn make_with(db: &DbSettings, until: u64, write: bool) -> crate::Result<Helper> 
         .collect();
     let source = SOURCE
         .replace("{KEY_HASH}", &hash)
-        .replace("{UNTIL}", &until.to_string())
+        .replace("{LIFETIME}", &lifetime.to_string())
         .replace("{WRITE}", if write { "true" } else { "false" })
         .replace("{HOST}", &quote(&db.host))
         .replace("{USER}", &quote(&db.user))
@@ -177,7 +179,7 @@ const SOURCE: &str = r#"<?php
  * It is safe to delete by hand.
  */
 define( 'SY_KEY_HASH', '{KEY_HASH}' );
-define( 'SY_UNTIL', {UNTIL} );
+define( 'SY_LIFETIME', {LIFETIME} );
 define( 'SY_WRITE', {WRITE} );
 define( 'SY_PREFIX', {PREFIX} );
 define( 'SY_CHUNK_BYTES', 8 * 1024 * 1024 );
@@ -228,7 +230,11 @@ function sy_json( $data ) {
 	exit;
 }
 
-if ( time() > SY_UNTIL ) {
+// Counted from when the file landed here (its inode change time, which
+// an upload can't set), by this server's clock.
+clearstatcache();
+$sy_born = @filectime( __FILE__ );
+if ( ! $sy_born || time() > $sy_born + SY_LIFETIME ) {
 	@unlink( __FILE__ );
 	sy_fail( 410, 'This Stackyard helper has expired and removed itself.' );
 }
@@ -609,15 +615,15 @@ mod tests {
 
     #[test]
     fn writes_settings_and_only_the_key_hash() {
-        let helper = make(&db(), 1_800_000_000).unwrap();
+        let helper = make(&db(), 1800).unwrap();
         assert!(helper.file.starts_with("stackyard-") && helper.file.ends_with(".php"));
         assert_eq!(helper.key.len(), 48);
         assert!(!helper.source.contains(&helper.key));
-        assert!(helper.source.contains("define( 'SY_UNTIL', 1800000000 );"));
+        assert!(helper.source.contains("define( 'SY_LIFETIME', 1800 );"));
         assert!(helper.source.contains(r"'password' => 'it\'s secret',"));
         assert!(helper.source.contains("define( 'SY_PREFIX', 'wp_' );"));
         assert!(!helper.source.contains("{HOST}"));
-        let other = make(&db(), 1_800_000_000).unwrap();
+        let other = make(&db(), 1800).unwrap();
         assert_ne!(helper.key, other.key);
     }
 
@@ -631,11 +637,49 @@ mod tests {
         assert_eq!(meta_from_errors("nothing"), None);
     }
 
+    /// The helper's time counts from when it lands on the server, not from
+    /// the computer's clock: an upload that keeps an old modification time
+    /// (a computer whose clock is behind) doesn't make it expire.
+    #[test]
+    fn expires_by_the_servers_clock() {
+        let dir = crate::testutil::tempdir();
+        let run = |lifetime: u64| {
+            let helper = make(&db(), lifetime).unwrap();
+            let file = dir.join(&helper.file);
+            std::fs::write(&file, &helper.source).unwrap();
+            let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+            std::fs::File::options()
+                .write(true)
+                .open(&file)
+                .unwrap()
+                .set_modified(hour_ago)
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+            let out = std::process::Command::new("php")
+                .arg(&file)
+                .arg("do=info")
+                .output()
+                .ok()?;
+            Some((
+                String::from_utf8_lossy(&out.stderr).into_owned(),
+                file.exists(),
+            ))
+        };
+        let Some((said, kept)) = run(1800) else {
+            return; // no PHP here
+        };
+        assert!(!said.contains("expired"), "{said}");
+        assert!(kept);
+        let (said, kept) = run(0).unwrap();
+        assert!(said.contains("expired"), "{said}");
+        assert!(!kept);
+    }
+
     /// Runs the helper with the PHP on this computer, when there is one,
     /// to catch syntax errors.
     #[test]
     fn is_valid_php() {
-        let helper = make(&db(), 1_800_000_000).unwrap();
+        let helper = make(&db(), 1800).unwrap();
         let dir = crate::testutil::tempdir();
         let file = dir.join(&helper.file);
         std::fs::write(&file, &helper.source).unwrap();

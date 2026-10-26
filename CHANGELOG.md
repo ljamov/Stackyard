@@ -6,6 +6,10 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Fixed: Pull from live and Push to live stopped with "This Stackyard helper has expired and
+  removed itself."** The helper Stackyard puts on the live server counted its 30 minutes from this
+  computer's clock, so a clock running behind the server's made it expire before it started. It now
+  counts from when it lands on the server, by the server's own clock.
 - **Remote servers: Upload changes and Download changes show how far the compare is.** Instead of
   only "… files so far", you now see which side is being listed, files so far of about how many,
   a filled progress bar, the time left at the pace so far, and the folder being looked at. The
