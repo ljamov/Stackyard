@@ -95,13 +95,36 @@ pub struct Plan {
     /// site's own `wp-config.php` and the like (see
     /// [`crate::wordpress::KeptApart`]).
     pub kept_apart: Vec<String>,
+    /// How many files each side held, for the next compare's estimate.
+    #[serde(skip)]
+    pub(crate) counted: Counts,
+}
+
+/// Files found on each side by a whole-folder compare.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct Counts {
+    pub local: Option<usize>,
+    pub server: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Local,
+    Server,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "step", rename_all = "lowercase")]
 pub enum Progress {
-    /// Looking through folders; `found` files so far.
-    Scanning { folder: String, found: usize },
+    /// Looking through folders on one side; `found` files so far, of about
+    /// `expected` when an earlier count gives a guess.
+    Scanning {
+        side: Side,
+        folder: String,
+        found: usize,
+        expected: Option<usize>,
+    },
     /// Copying file `index` (from 0) of `total`; `done` of its `size` bytes so far.
     Transfer {
         index: usize,
@@ -138,6 +161,8 @@ pub(crate) struct Sides<'a> {
     pub local: &'a Path,
     pub remote: &'a str,
     pub skip: &'a [String],
+    /// Counts from the last compare of these folders, if any.
+    pub before: Counts,
 }
 
 fn stopped() -> Error {
@@ -155,6 +180,7 @@ pub(crate) fn plan(
 ) -> Result<Plan> {
     let mut files = Vec::new();
     let mut unchanged = 0;
+    let mut counted = Counts::default();
     if let Some(picked) = only {
         for rel in picked {
             let rel = rel.trim_matches('/');
@@ -164,9 +190,9 @@ pub(crate) fn plan(
                 )));
             }
             let found = match direction {
-                Direction::Upload => walk_local(sides.local, rel, sides.skip, progress)?,
+                Direction::Upload => walk_local(sides.local, rel, sides.skip, None, progress)?,
                 Direction::Download => {
-                    walk_remote(remote, sides.remote, rel, sides.skip, progress)?
+                    walk_remote(remote, sides.remote, rel, sides.skip, None, progress)?
                 }
             };
             let action = match direction {
@@ -181,8 +207,15 @@ pub(crate) fn plan(
             }));
         }
     } else {
-        let local = walk_local(sides.local, "", sides.skip, progress)?;
-        let server = walk_remote(remote, sides.remote, "", sides.skip, progress)?;
+        let local = walk_local(sides.local, "", sides.skip, sides.before.local, progress)?;
+        // The site folder is mostly a copy of the server's, so its count is
+        // a fair guess the first time.
+        let guess = sides.before.server.unwrap_or(local.len());
+        let server = walk_remote(remote, sides.remote, "", sides.skip, Some(guess), progress)?;
+        counted = Counts {
+            local: Some(local.len()),
+            server: Some(server.len()),
+        };
         let (from, to, copy, remove) = match direction {
             Direction::Upload => (&local, &server, Action::Upload, Action::DeleteRemote),
             Direction::Download => (&server, &local, Action::Download, Action::DeleteLocal),
@@ -227,6 +260,7 @@ pub(crate) fn plan(
         bytes,
         unchanged,
         kept_apart: Vec::new(),
+        counted,
     })
 }
 
@@ -296,6 +330,7 @@ fn walk_local(
     root: &Path,
     start: &str,
     skip: &[String],
+    expected: Option<usize>,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<BTreeMap<String, FileInfo>> {
     let mut found = BTreeMap::new();
@@ -323,8 +358,10 @@ fn walk_local(
     let mut folders = vec![start.to_string()];
     while let Some(rel) = folders.pop() {
         if !progress(Progress::Scanning {
+            side: Side::Local,
             folder: rel.clone(),
             found: found.len(),
+            expected,
         }) {
             return Err(stopped());
         }
@@ -381,6 +418,7 @@ pub(crate) fn walk_remote(
     root: &str,
     start: &str,
     skip: &[String],
+    expected: Option<usize>,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<BTreeMap<String, FileInfo>> {
     let mut found = BTreeMap::new();
@@ -406,8 +444,10 @@ pub(crate) fn walk_remote(
     let mut folders = vec![start.to_string()];
     while let Some(rel) = folders.pop() {
         if !progress(Progress::Scanning {
+            side: Side::Server,
             folder: rel.clone(),
             found: found.len(),
+            expected,
         }) {
             return Err(stopped());
         }
@@ -649,6 +689,7 @@ mod tests {
             local,
             remote: "/srv/site",
             skip,
+            before: Counts::default(),
         }
     }
 
@@ -724,6 +765,66 @@ mod tests {
             paths(&changed),
             [("index.php", Action::Upload, Reason::Changed)]
         );
+    }
+
+    #[test]
+    fn server_listing_guesses_its_total_from_the_last_count() {
+        let local = crate::testutil::tempdir();
+        write(&local, "a.txt", "a");
+        write(&local, "b/c.txt", "c");
+        let skip = Vec::new();
+        let mut server = Memory::default();
+        let mut guesses = Vec::new();
+        let mut watch = |p: Progress| {
+            if let Progress::Scanning { side, expected, .. } = p {
+                guesses.push((side, expected));
+            }
+            true
+        };
+        let first = plan(
+            &mut server,
+            &sides(&local, &skip),
+            Direction::Download,
+            Compare::Changed,
+            false,
+            None,
+            &mut watch,
+        )
+        .unwrap();
+        // The first time, the site folder's own count stands in.
+        assert!(guesses.contains(&(Side::Local, None)));
+        assert!(guesses.contains(&(Side::Server, Some(2))));
+        assert_eq!(
+            first.counted,
+            Counts {
+                local: Some(2),
+                server: Some(0)
+            }
+        );
+
+        guesses.clear();
+        let mut watch = |p: Progress| {
+            if let Progress::Scanning { side, expected, .. } = p {
+                guesses.push((side, expected));
+            }
+            true
+        };
+        let again = Sides {
+            before: first.counted,
+            ..sides(&local, &skip)
+        };
+        plan(
+            &mut server,
+            &again,
+            Direction::Download,
+            Compare::Changed,
+            false,
+            None,
+            &mut watch,
+        )
+        .unwrap();
+        assert!(guesses.contains(&(Side::Local, Some(2))));
+        assert!(guesses.contains(&(Side::Server, Some(0))));
     }
 
     #[test]
