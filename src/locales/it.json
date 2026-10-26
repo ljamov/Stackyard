@@ -809,5 +809,19 @@
   "Trying again continues where it stopped; files already downloaded are kept.": "Riprovando si riparte da dove si è fermato; i file già scaricati restano.",
   "{count} clones ready": "{count} cloni pronti",
   "{count} clones stopped": "{count} cloni fermati",
-  "{domain} was not cloned": "{domain} non è stato clonato"
+  "{domain} was not cloned": "{domain} non è stato clonato",
+  "All files": "Tutti i file",
+  "Counting the files on the server took too long, so the sizes above are what was counted before it stopped.": "Il conteggio dei file sul server ha richiesto troppo tempo, quindi le dimensioni sopra sono quelle contate prima dell'interruzione.",
+  "Media (uploads)": "Media (uploads)",
+  "WordPress core": "Core di WordPress",
+  "at least": "almeno",
+  "{count} plugins": "{count} plugin",
+  "{count} themes": "{count} temi",
+  "{size} of caches and backups inside the site are left out": "{size} di cache e backup nel sito vengono esclusi",
+  "Caches and backups": "Cache e backup",
+  "Measure again": "Misura di nuovo",
+  "Measuring…": "Misurazione…",
+  "Not measured yet": "Non ancora misurato",
+  "Size": "Dimensione",
+  "unknown (start its server)": "sconosciuta (avvia il suo server)"
 }
