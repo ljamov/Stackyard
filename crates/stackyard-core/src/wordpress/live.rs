@@ -87,6 +87,9 @@ pub struct Progress {
     pub total: u64,
 }
 
+/// Clones running at the same time add their sites one at a time.
+static SITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Reports progress; returning `false` stops the clone.
 pub type OnProgress<'a> = &'a mut dyn FnMut(Progress) -> bool;
 
@@ -1557,8 +1560,14 @@ pub fn clone(
             ..Default::default()
         },
     };
-    let site = store.add(site)?.clone();
-    store.save()?;
+    // Other clones may have added their sites since the list was read.
+    let site = {
+        let _one = SITES.lock().unwrap_or_else(|e| e.into_inner());
+        let mut store = SiteStore::load_from(&home.join("sites.toml"))?;
+        let site = store.add(site)?.clone();
+        store.save()?;
+        site
+    };
 
     let connection = match source {
         // A staging uses its main site's saved connection.
