@@ -183,3 +183,8 @@
 .wp-theme[data-active] .wp-theme-bar .btn { color: var(--text); }
 .wp-theme-name { flex: 1 1 110px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text-strong); }
 .wp-theme-active { font-weight: 400; }
+
+/* Remote servers: the compare before a transfer. */
+.remote-compare { flex: 1; min-width: 0; }
+.remote-compare .progress { max-width: none; }
+.remote-compare-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

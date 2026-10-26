@@ -4,6 +4,14 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Remote servers: Upload changes and Download changes show how far the compare is.** Instead of
+  only "… files so far", you now see which side is being listed, files so far of about how many,
+  a filled progress bar, the time left at the pace so far, and the folder being looked at. The
+  total comes from the last compare of that server, or from the site folder's own file count the
+  first time.
+
 ## 0.13.0
 
 - **Fixed: downloading a WordPress site's files from its server broke the site** with "Error

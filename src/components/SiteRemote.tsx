@@ -1,5 +1,5 @@
 import "./site-views.css";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   api,
   errorText,
@@ -589,10 +589,7 @@ function ConnectionCard({
 
       {job?.kind === "planning" && (
         <div className="row between wrap centered">
-          <span className="muted small">
-            Comparing files{progress?.step === "scanning" && progress.folder ? ` in ${progress.folder}` : ""}…
-            {progress?.step === "scanning" && ` ${plural(progress.found, "file")} so far`}
-          </span>
+          <Comparing progress={progress?.step === "scanning" ? progress : null} />
           <button type="button" className="btn small ghost" onClick={() => api.remoteStop(c.id)}>
             Stop
           </button>
@@ -1215,6 +1212,74 @@ function Git({ site }: { site: Site }) {
           </div>
         </form>
       )}
+    </div>
+  );
+}
+
+type Scanning = Extract<RemoteProgress, { step: "scanning" }>;
+
+/** Roughly how long is left, in words. */
+function timeLeft(seconds: number): string {
+  if (seconds < 60) return `about ${Math.max(5, Math.ceil(seconds / 5) * 5)} s left`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `about ${minutes} min left`;
+  return `about ${Math.floor(minutes / 60)} h ${minutes % 60} min left`;
+}
+
+/**
+ * The compare before a transfer: which side is being listed, files so far of
+ * about how many (from the last compare, or the site folder's own count the
+ * first time), a bar, the time left at the pace so far, and the folder now.
+ */
+function Comparing({ progress }: { progress: Scanning | null }) {
+  // When this side started, to work out the pace.
+  const start = useRef<{ side: Scanning["side"]; at: number; found: number } | null>(null);
+  if (progress && start.current?.side !== progress.side) {
+    start.current = { side: progress.side, at: Date.now(), found: progress.found };
+  }
+  if (!progress) {
+    return (
+      <div className="progress-line remote-compare">
+        <div className="progress" role="progressbar" aria-label="Comparing files">
+          <div className="progress-fill busy" style={{ width: "30%" }} />
+        </div>
+        <span className="muted small" role="status">Connecting…</span>
+      </div>
+    );
+  }
+  const { side, folder, found, expected } = progress;
+  const total = expected ? Math.max(expected, found) : null;
+  const percent = total ? Math.min(99, Math.floor((found * 100) / total)) : null;
+  let eta: string | null = null;
+  if (total && start.current && total > found) {
+    const seconds = (Date.now() - start.current.at) / 1000;
+    const done = found - start.current.found;
+    if (seconds >= 2 && done > 0) eta = timeLeft(((total - found) * seconds) / done);
+  }
+  const count = total
+    ? `${found.toLocaleString()} of about ${total.toLocaleString()} files`
+    : `${found.toLocaleString()} ${found === 1 ? "file" : "files"} so far`;
+  return (
+    <div className="progress-line remote-compare">
+      <span className="small">{side === "local" ? "Reading the site folder…" : "Listing files on the server…"}</span>
+      <div
+        className="progress"
+        role="progressbar"
+        aria-label="Comparing files"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent ?? undefined}
+      >
+        <div className={percent === null ? "progress-fill busy" : "progress-fill"} style={{ width: `${percent ?? 30}%` }} />
+      </div>
+      <span className="muted small" role="status">
+        {count}
+        {percent !== null && <span className="mono"> · {percent}%</span>}
+        {eta && ` · ${eta}`}
+      </span>
+      <span className="mono muted small remote-compare-path" title={folder || "/"}>
+        {folder || "/"}
+      </span>
     </div>
   );
 }
