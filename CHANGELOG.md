@@ -41,6 +41,14 @@ Update button, and the app shows its own version's section after it updates.
   Stackyard Shell, open phpMyAdmin, or go straight to a screen. The menu and the icon's tooltip
   follow the services as they start, stop or crash, without checking on a timer, and Stop all no
   longer holds up the menu while services shut down.
+- **AI tools can do more through the MCP server.** New tools that only look: `wordpress_overview`
+  (versions, plugins, themes, debug settings, snapshots and live backups of a WordPress site),
+  `read_wordpress_log` (the site's `debug.log`), `list_backups` and `list_tasks` (scheduled tasks,
+  so their logs can be read). New tools you allow first: `set_wordpress_debug` (only the local
+  `wp-config.php`), `install_runtime`, `backup_database` and `backup_site`. `list_databases` and
+  `backup_database` work with PostgreSQL too. Pushing to and pulling from a live site stays yours.
+- **Fixed: the WordPress MCP tools didn't see WordPress sites in a parked folder** (such as the
+  sites folder), so `run_wp_cli` and the staging tools said there was no such site.
 - **Clear connection errors.** When connecting to a server fails, Stackyard now says what failed,
   whose side the problem is on (internet or firewall, the server, the login or settings, or
   Stackyard), the server's own reason when it gave one, and what to try. "could not open a
