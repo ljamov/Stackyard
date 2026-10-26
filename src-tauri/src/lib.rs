@@ -1366,6 +1366,7 @@ fn set_site_layout(app: AppHandle, items: Vec<siteorder::Item>) -> CmdResult<Vec
     order.save().map_err(err)?;
     // Only the lists change; the web server needn't restart.
     let _ = app.emit("sites-changed", ());
+    tray::changed(&app);
     site_layout()
 }
 
