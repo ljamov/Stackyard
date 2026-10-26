@@ -1,4 +1,12 @@
 {
+  "Drag a site by its handle to change the order or put it in a group.": "Повлечете сајт за рачката за да го смените редоследот или да го ставите во група.",
+  "Drag sites here to add them to this group.": "Повлечете сајтови овде за да ги додадете во оваа група.",
+  "Drag to move {name}, or use the arrow keys": "Повлечете за да го преместите {name} или користете ги стрелките",
+  "Group name": "Име на групата",
+  "Move {name}": "Премести {name}",
+  "New group": "Нова група",
+  "Rename {name}": "Преименувај {name}",
+  "Ungroup {name}": "Растури ја групата {name}",
   "_name": "Македонски",
   "(no title)": "(без наслов)",
   "1 file": "1 датотека",

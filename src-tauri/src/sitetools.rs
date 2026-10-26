@@ -158,6 +158,11 @@ pub fn save_site_settings(
             &before.domain(),
             &after.domain(),
         );
+        let home = stackyard_core::paths::home();
+        if let Ok(mut order) = stackyard_core::siteorder::SiteOrder::load(&home) {
+            order.rename(&before.domain(), &after.domain());
+            let _ = order.save();
+        }
     }
     // PHP reads its settings only when it starts, so the site's own PHP
     // process starts again with the new ones.
