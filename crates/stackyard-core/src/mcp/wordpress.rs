@@ -4,28 +4,34 @@
 use serde_json::{json, Value};
 
 use super::tools::{
-    database_client, fail, flag, required, settings, sites_changed, text, Args, Ctx,
+    database_client, fail, flag, required, settings, sites_changed, text, Args, Ctx, MAX_LOG_LINES,
 };
 use crate::remote::Sessions;
-use crate::sites::{Site, SiteStore};
+use crate::services::ServiceManager;
+use crate::sites::Site;
 use crate::wordpress::cli::{self, Load};
 use crate::wordpress::merge::{self, Choice, Level};
 use crate::wordpress::staging::{self, MadeFrom, NewStaging};
+use crate::wordpress::{self as wp, snapshot, sync, DebugSettings, Kind};
 use crate::wordpress::{env, WpSite};
 
 /// Characters of WP-CLI's output returned; the rest is cut off.
 const MAX_OUTPUT: usize = 20_000;
 
-fn store(ctx: &Ctx) -> Result<SiteStore, String> {
-    SiteStore::load_from(&ctx.home.join("sites.toml")).map_err(fail)
+/// Every site as Stackyard serves it, sites in parked folders included.
+fn sites(ctx: &Ctx) -> Result<Vec<Site>, String> {
+    Ok(ServiceManager::new(ctx.home)
+        .user_sites()
+        .map_err(fail)?
+        .into_iter()
+        .map(|s| s.site)
+        .collect())
 }
 
 fn find(ctx: &Ctx, name: &str) -> Result<Site, String> {
-    store(ctx)?
-        .list()
-        .iter()
+    sites(ctx)?
+        .into_iter()
         .find(|s| s.domain() == name || s.name == name)
-        .cloned()
         .ok_or_else(|| format!("no site called {name}; list_wordpress_environments lists them"))
 }
 
@@ -41,7 +47,7 @@ pub(super) fn environments(ctx: &Ctx, args: &Args) -> Result<Value, String> {
         .map(|s| find(ctx, s).map(|site| staging::main_of(ctx.home, &site.domain())))
         .transpose()?;
     let mut out = Vec::new();
-    for site in store(ctx)?.list() {
+    for site in &sites(ctx)? {
         let domain = site.domain();
         let main = staging::main_of(ctx.home, &domain);
         if main != domain || only.as_ref().is_some_and(|o| o != &domain) {
@@ -230,4 +236,80 @@ pub(super) fn destroy_staging(ctx: &Ctx, args: &Args) -> Result<Value, String> {
         answer["warning"] = json!(warning);
     }
     Ok(answer)
+}
+
+pub(super) fn overview(ctx: &Ctx, args: &Args) -> Result<Value, String> {
+    let site = wordpress(ctx, required(args, "site")?)?;
+    let domain = site.site.domain();
+    let mut answer = json!(wp::overview(ctx.home, &site));
+    answer["site"] = json!(domain);
+    answer["main_site"] = json!(staging::main_of(ctx.home, &domain));
+    for (key, kind) in [("plugins", Kind::Plugin), ("themes", Kind::Theme)] {
+        answer[key] = match wp::extensions(ctx.home, &site, kind, false) {
+            Ok(list) => json!(list),
+            Err(e) => json!({ "error": e.to_string() }),
+        };
+    }
+    let snapshots: Vec<Value> = snapshot::list(ctx.home, &domain)
+        .into_iter()
+        .map(|s| json!({ "id": s.id, "reason": s.reason, "created_at": s.created_at }))
+        .collect();
+    answer["snapshots"] = json!(snapshots);
+    let live_backups: Vec<Value> = sync::backups(ctx.home, &domain)
+        .into_iter()
+        .map(|b| json!({ "id": b.id, "created_at": b.created_at }))
+        .collect();
+    answer["live_backups"] = json!(live_backups);
+    answer["note"] = json!("The user undoes a merge or pull from a snapshot in Sites › Manage › WordPress › Staging › Snapshots, and restores a live backup in Servers & Git › Live site.");
+    Ok(answer)
+}
+
+pub(super) fn read_log(ctx: &Ctx, args: &Args) -> Result<Value, String> {
+    let site = wordpress(ctx, required(args, "site")?)?;
+    let lines = match args.get("lines") {
+        None | Some(Value::Null) => 100,
+        Some(v) => v.as_u64().ok_or("lines must be a whole number")?,
+    }
+    .clamp(1, MAX_LOG_LINES as u64) as usize;
+    let tail = wp::read_log(&site, 256 * 1024).map_err(fail)?;
+    let all: Vec<&str> = tail.text.lines().collect();
+    let shown = &all[all.len().saturating_sub(lines)..];
+    let debug = DebugSettings::of(&site.config);
+    let note = if !debug.debug || !debug.log {
+        Some("WP_DEBUG_LOG is off, so new errors are not written here; set_wordpress_debug turns it on.")
+    } else if shown.is_empty() {
+        Some("The log is empty: nothing went wrong since it was last cleared.")
+    } else {
+        None
+    };
+    Ok(json!({
+        "site": site.site.domain(),
+        "file": tail.path,
+        "size": tail.size,
+        "lines": shown,
+        "note": note,
+    }))
+}
+
+pub(super) fn set_debug(ctx: &Ctx, args: &Args) -> Result<Value, String> {
+    let site = wordpress(ctx, required(args, "site")?)?;
+    let mut debug = DebugSettings::of(&site.config);
+    for (key, value) in [
+        ("debug", &mut debug.debug),
+        ("log", &mut debug.log),
+        ("display", &mut debug.display),
+        ("scripts", &mut debug.scripts),
+        ("queries", &mut debug.queries),
+    ] {
+        if let Some(on) = flag(args, key)? {
+            *value = on;
+        }
+    }
+    wp::set_debug(&site, debug).map_err(fail)?;
+    let site = wordpress(ctx, &site.site.domain())?;
+    Ok(json!({
+        "site": site.site.domain(),
+        "debug": DebugSettings::of(&site.config),
+        "note": "Only this computer's wp-config.php changed; it is never pushed to a live site.",
+    }))
 }

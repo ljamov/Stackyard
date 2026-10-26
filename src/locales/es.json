@@ -833,5 +833,13 @@
   "Not measured yet": "Aún sin medir",
   "Size": "Tamaño",
   "unknown (start its server)": "desconocido (inicia su servidor)",
-  "Clones from a live server pause for the update and go on after it.": "Las clonaciones desde un servidor en vivo se pausan durante la actualización y siguen después."
+  "Clones from a live server pause for the update and go on after it.": "Las clonaciones desde un servidor en vivo se pausan durante la actualización y siguen después.",
+  "Back up a database": "Hacer copia de una base de datos",
+  "Back up a site": "Hacer copia de un sitio",
+  "Install a runtime version": "Instalar una versión de runtime",
+  "List backups": "Listar copias de seguridad",
+  "List scheduled tasks": "Listar tareas programadas",
+  "Look at a WordPress site": "Ver un sitio WordPress",
+  "Read a WordPress debug log": "Leer el registro de depuración de WordPress",
+  "Switch WordPress debugging": "Activar o desactivar la depuración de WordPress"
 }

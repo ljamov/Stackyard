@@ -159,7 +159,10 @@ fn action_tools_stay_off_until_allowed() {
         "list_runtimes",
         "list_databases",
         "read_logs",
+        "list_backups",
         "list_wordpress_environments",
+        "wordpress_overview",
+        "read_wordpress_log",
     ];
     assert_eq!(tool_names(&mut server), reads);
     let message = failed(
@@ -180,7 +183,11 @@ fn action_tools_stay_off_until_allowed() {
     assert_eq!(stopped["state"], "stopped");
 
     change_settings(&home, |s| set_allowed(s, "all", true).unwrap());
+    // list_tasks waits for the task scheduler, which starts off.
+    assert_eq!(tool_names(&mut server).len(), TOOLS.len() - 1);
+    change_settings(&home, |s| s.set_module("scheduler", true).unwrap());
     assert_eq!(tool_names(&mut server).len(), TOOLS.len());
+    change_settings(&home, |s| s.set_module("scheduler", false).unwrap());
     change_settings(&home, |s| set_allowed(s, "all", false).unwrap());
     assert_eq!(tool_names(&mut server), reads);
 
@@ -716,7 +723,119 @@ fn wordpress_tools_follow_their_module() {
         .any(|n| n.contains("wordpress") || n == "run_wp_cli"));
     let message = failed(&mut server, "list_wordpress_environments", json!({}));
     assert!(
-        message.contains("WordPress tools are switched off"),
+        message.contains("WordPress tools module, which is switched off"),
         "{message}"
     );
+}
+
+/// A WordPress site in a parked folder, as dropping one into the sites
+/// folder makes it.
+fn parked_wordpress(home: &Path) -> PathBuf {
+    let parked = home.join("www");
+    let blog = parked.join("blog");
+    std::fs::create_dir_all(blog.join("wp-content")).unwrap();
+    std::fs::write(blog.join("wp-load.php"), "<?php").unwrap();
+    std::fs::write(
+        blog.join("wp-config.php"),
+        "<?php\ndefine( 'DB_NAME', 'blog' );\ndefine( 'WP_DEBUG', false );\n$table_prefix = 'wp_';\n",
+    )
+    .unwrap();
+    change_settings(home, |s| {
+        s.park(&parked).unwrap();
+    });
+    blog
+}
+
+#[test]
+fn wordpress_tools_find_sites_in_parked_folders() {
+    let home = home();
+    let blog = parked_wordpress(&home);
+    let mut server = server(&home);
+    let listed = ok(&mut server, "list_wordpress_environments", json!({}));
+    assert_eq!(listed["sites"][0]["site"], "blog.stack");
+
+    let log = ok(
+        &mut server,
+        "read_wordpress_log",
+        json!({ "site": "blog.stack" }),
+    );
+    assert_eq!(log["lines"], json!([]));
+    assert!(log["note"]
+        .as_str()
+        .unwrap()
+        .contains("set_wordpress_debug"));
+
+    let message = failed(
+        &mut server,
+        "set_wordpress_debug",
+        json!({ "site": "blog", "debug": true }),
+    );
+    assert!(message.contains("stackyard mcp allow"), "{message}");
+    change_settings(&home, |s| {
+        set_allowed(s, "set_wordpress_debug", true).unwrap()
+    });
+    let set = ok(
+        &mut server,
+        "set_wordpress_debug",
+        json!({ "site": "blog", "debug": true, "log": true }),
+    );
+    assert_eq!(set["debug"]["debug"], true);
+    assert_eq!(set["debug"]["log"], true);
+    assert_eq!(set["debug"]["queries"], false);
+    let config = std::fs::read_to_string(blog.join("wp-config.php")).unwrap();
+    assert!(config.contains("'WP_DEBUG', true"), "{config}");
+
+    let lines: Vec<String> = (0..150).map(|n| format!("PHP Notice {n}")).collect();
+    std::fs::write(blog.join("wp-content/debug.log"), lines.join("\n")).unwrap();
+    let log = ok(
+        &mut server,
+        "read_wordpress_log",
+        json!({ "site": "blog.stack", "lines": 2 }),
+    );
+    assert_eq!(log["lines"], json!(["PHP Notice 148", "PHP Notice 149"]));
+    assert_eq!(log["note"], Value::Null);
+}
+
+#[test]
+fn lists_backups_and_tasks() {
+    let home = home();
+    let mut server = server(&home);
+    let listed = ok(&mut server, "list_backups", json!({}));
+    assert_eq!(listed["database_backups"], json!([]));
+    assert_eq!(listed["site_backups"], json!([]));
+    let message = failed(&mut server, "list_backups", json!({ "site": "nowhere" }));
+    assert!(!message.is_empty());
+
+    let message = failed(&mut server, "list_tasks", json!({}));
+    assert!(message.contains("Task scheduler module"), "{message}");
+    change_settings(&home, |s| s.set_module("scheduler", true).unwrap());
+    let tasks = ok(&mut server, "list_tasks", json!({}));
+    assert_eq!(tasks["tasks"], json!([]));
+}
+
+#[test]
+fn checks_runtime_installs_and_backups_before_starting() {
+    let home = home();
+    change_settings(&home, |s| set_allowed(s, "all", true).unwrap());
+    let mut server = server(&home);
+    let message = failed(
+        &mut server,
+        "install_runtime",
+        json!({ "runtime": "php", "version": "4.0" }),
+    );
+    assert!(message.contains("not offered"), "{message}");
+    let message = failed(
+        &mut server,
+        "install_runtime",
+        json!({ "runtime": "ruby", "version": "3" }),
+    );
+    assert!(message.contains("php, node"), "{message}");
+    let message = failed(
+        &mut server,
+        "backup_database",
+        json!({ "database": "shop", "server": "oracle" }),
+    );
+    assert!(message.contains("mysql or postgres"), "{message}");
+    let message = failed(&mut server, "backup_site", json!({ "site": "nowhere" }));
+    assert!(!message.is_empty());
 }

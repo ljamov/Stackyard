@@ -457,7 +457,7 @@ pub struct DebugSettings {
 }
 
 impl DebugSettings {
-    fn of(config: &WpConfig) -> Self {
+    pub fn of(config: &WpConfig) -> Self {
         let debug = config.flag("WP_DEBUG");
         let log = config.flag("WP_DEBUG_LOG")
             || config
