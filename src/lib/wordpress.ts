@@ -79,6 +79,18 @@ export type WpCloneSource =
   | { kind: "saved"; id: string }
   | { kind: "new"; connection: WpConnectionInput }
   | { kind: "files"; files: string[] };
+/** A clone kept from before the app last quit; `running` ones start again. */
+export type WpSavedClone = {
+  job: string;
+  from: string;
+  source: WpCloneSource;
+  options: WpCloneOptions;
+  state: "running" | "stopped" | "failed";
+  error: string | null;
+  /** Still running in the app: the window was closed and opened again. */
+  active: boolean;
+};
+export type WpCloneEnded = { job: string; result: WpCloned | null; error: string | null };
 export type WpFound = {
   route: WpRoute | null;
   roots: string[];
@@ -90,7 +102,22 @@ export type WpFound = {
   prefix: string;
   tables: number;
   database_bytes: number;
+  /** The files by part, when they could be counted. */
+  files: WpSizes | null;
   notes: string[];
+};
+/** How much a part of the site's files holds; `items` counts themes or plugins. */
+export type WpPart = { files: number; bytes: number; items: number };
+export type WpSizes = {
+  core: WpPart;
+  themes: WpPart;
+  plugins: WpPart;
+  uploads: WpPart;
+  other: WpPart;
+  /** Caches and backups the clone leaves out. */
+  skipped: WpPart;
+  /** False when counting took too long and stopped partway. */
+  complete: boolean;
 };
 export type WpCloneOptions = {
   name: string;
@@ -223,7 +250,9 @@ export interface WpApi {
   savedConnections(): Promise<WpSavedConnection[]>;
   /** `job` names one clone; any number can run at once. */
   cloneInspect(job: string, source: WpCloneSource, root: string | null, url: string | null): Promise<WpFound>;
-  clone(job: string, source: WpCloneSource, options: WpCloneOptions): Promise<WpCloned>;
+  clone(job: string, source: WpCloneSource, options: WpCloneOptions, from: string): Promise<WpCloned>;
+  clonesSaved(): Promise<WpSavedClone[]>;
+  onCloneEnded(handler: (e: WpCloneEnded) => void): Promise<() => void>;
   cloneStop(job: string): Promise<void>;
   /** Logs out of the server typed in for a clone that is closed. */
   cloneForget(job: string): Promise<void>;
@@ -293,7 +322,9 @@ const tauriWp: WpApi = {
   wooCreate: (domain, kind, count) => invoke("wp_woo_create", { domain, kind, count }),
   savedConnections: () => invoke("wp_saved_connections"),
   cloneInspect: (job, source, root, url) => invoke("wp_clone_inspect", { job, source, root, url }),
-  clone: (job, source, options) => invoke("wp_clone", { job, source, options }),
+  clone: (job, source, options, from) => invoke("wp_clone", { job, source, options, from }),
+  clonesSaved: () => invoke("wp_clones_saved"),
+  onCloneEnded: (handler) => listen<WpCloneEnded>("wp-clone-ended", (e) => handler(e.payload)),
   cloneStop: (job) => invoke("wp_clone_stop", { job }),
   cloneForget: (job) => invoke("wp_clone_forget", { job }),
   cloneUnfinished: (name) => invoke("wp_clone_unfinished", { name }),
@@ -467,6 +498,15 @@ function mockWp(): WpApi {
         prefix: "wp_",
         tables: files ? 0 : 58,
         database_bytes: 3.1e8,
+        files: {
+          core: { files: 3290, bytes: 6.4e7, items: 0 },
+          themes: { files: 1840, bytes: 4.2e7, items: 3 },
+          plugins: { files: 41200, bytes: 6.1e8, items: 27 },
+          uploads: { files: 47800, bytes: 3.9e9, items: 0 },
+          other: { files: 120, bytes: 8.0e6, items: 0 },
+          skipped: { files: 6100, bytes: 1.2e9, items: 0 },
+          complete: true,
+        },
         notes: [
           files
             ? "The database comes from shop.sql.gz."
@@ -501,6 +541,8 @@ function mockWp(): WpApi {
     },
     cloneStop: async (job) => void cloneStopped.add(job),
     cloneForget: async () => {},
+    clonesSaved: async () => [],
+    onCloneEnded: async () => () => {},
     cloneUnfinished: async () => false,
     onCloneProgress: async (handler) => {
       cloneHandlers.push(handler);

@@ -1741,6 +1741,7 @@ fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
     remote::site_removed(&removed.domain());
     stackyard_core::wordpress::env::forget(&paths::home(), &removed.domain());
     stackyard_core::thumbnails::forget(&paths::home(), &removed.domain());
+    stackyard_core::sitesize::forget(&paths::home(), &removed.domain());
     let _ = stackyard_core::share::stop(app.state::<Arc<Engine>>().supervisor(), &removed);
     sites_changed(&app);
     site_views()
@@ -1862,8 +1863,7 @@ struct SystemView {
 
 fn system_view(app: &AppHandle) -> CmdResult<SystemView> {
     let manager = ServiceManager::open();
-    let wanted = manager.system_wanted().map_err(err)?;
-    let status = wanted.status(&system::applied(manager.home()));
+    let (wanted, status) = manager.system_status().map_err(err)?;
     Ok(SystemView {
         needed: status.needed,
         waiting_for_certificate: status.waiting_for_certificate,
@@ -2010,6 +2010,9 @@ pub fn run() {
             sitepics::site_thumbnail,
             sitepics::wp_theme_screenshot,
             sitepics::site_database,
+            sitepics::site_size,
+            sitepics::site_sizes,
+            sitepics::measure_site_size,
             sitepics::start_site_database,
             sitepics::set_site_database_autostart,
             wordpress::wp_overview,
@@ -2043,6 +2046,7 @@ pub fn run() {
             wordpress::wp_clone_stop,
             wordpress::wp_clone_forget,
             wordpress::wp_clone_unfinished,
+            wordpress::wp_clones_saved,
             wordpress::wp_environment,
             wordpress::wp_stagings,
             wordpress::wp_staging_create,
@@ -2248,6 +2252,7 @@ pub fn run() {
         RunEvent::Reopen { .. } => show_window(handle),
         // Never leave services running after Stackyard quits.
         RunEvent::Exit => {
+            wordpress::set_quitting(true);
             handle.state::<Control>().0.lock().unwrap().take();
             handle.state::<Arc<Engine>>().shutdown();
         }

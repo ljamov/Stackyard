@@ -249,6 +249,12 @@ impl Engine {
     /// After sites or domain endings change: answer the new endings, and
     /// restart a running web server so it serves the new list.
     pub fn sites_changed(&self) -> Result<()> {
+        // A new site's name goes into the hosts file (Windows) right away.
+        if let Ok(wanted) = self.manager.system_wanted() {
+            if let Err(e) = crate::system::sync_hosts(self.manager.home(), &wanted) {
+                eprintln!("{e}");
+            }
+        }
         if let Some(server) = self.dns.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             server.set_endings(&self.manager.endings()?);
         }

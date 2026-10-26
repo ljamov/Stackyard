@@ -24,6 +24,7 @@ import { siteBrand } from "../lib/brands";
 import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 import { api } from "../lib/api";
+import { restoreClones } from "../lib/clones";
 import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
@@ -119,6 +120,8 @@ export function Workbench() {
     (layout.panelTab === "logs" && logsOn) || (layout.panelTab === "terminal" && terminalOn) ? layout.panelTab : "problems";
   const problems = useProblems();
   useUserFiles();
+  // Clones from live that were running when the app quit (an update) go on.
+  useEffect(() => void restoreClones(), []);
 
   useEffect(() => {
     let off: (() => void) | undefined;

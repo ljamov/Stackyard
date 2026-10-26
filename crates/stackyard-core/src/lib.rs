@@ -39,6 +39,7 @@ pub mod shell;
 pub mod sitedb;
 pub mod sitepack;
 pub mod sites;
+pub mod sitesize;
 pub mod starters;
 pub mod supervisor;
 pub mod system;
