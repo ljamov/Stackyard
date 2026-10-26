@@ -626,6 +626,11 @@ details summary { cursor: pointer; color: var(--text-2); }
 .clone-item:last-child { border-bottom: 0; padding-bottom: 0; }
 .clone-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clone-progress-text { overflow-wrap: anywhere; }
+.clone-progress { max-width: 420px; }
+.clone-progress .progress { max-width: none; }
+.clone-progress-head { display: flex; justify-content: space-between; gap: 12px; }
+.clone-progress-amount { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.clone-progress-file { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* A narrow window keeps the screen: the side bar narrows to its icons. */
 @media (max-width: 720px) {

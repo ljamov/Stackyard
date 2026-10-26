@@ -33,6 +33,9 @@ Update button, and the app shows its own version's section after it updates.
   the new site under Manage › Servers & Git as Live (password in the system's password store),
   ready for live pull and push and editable there. Cloning the same site again from the same
   server, user and folder updates that connection instead of adding a second one.
+- **Clone progress stays put.** The downloaded amount and percent (e.g. 50.2 MB / 562.4 MB · 8%)
+  now sit at a fixed spot above the bar, and the file being copied goes on its own line below it,
+  so a long path no longer pushes the numbers around.
 
 ## 0.15.0
 
