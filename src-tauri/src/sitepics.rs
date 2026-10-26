@@ -5,12 +5,13 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
+use stackyard_core::databases::Client as DbClient;
 use stackyard_core::engine::Engine;
 use stackyard_core::settings::Settings;
 use stackyard_core::sitedb::{self, SiteDb};
 use stackyard_core::supervisor::ProcessState;
 use stackyard_core::wordpress::{self, WpSite};
-use stackyard_core::{paths, thumbnails};
+use stackyard_core::{paths, sitesize, thumbnails};
 use tauri::{AppHandle, Manager};
 
 use crate::{err, site_views, sitetools::find_site, CmdResult};
@@ -130,6 +131,45 @@ fn status_of(engine: &Engine, domain: &str) -> CmdResult<Option<SiteDb>> {
 #[tauri::command]
 pub fn site_database(app: AppHandle, domain: String) -> CmdResult<Option<SiteDb>> {
     status_of(&app.state::<Arc<Engine>>(), &domain)
+}
+
+/// The site's size as last measured, at once; `None` until it is measured.
+#[tauri::command]
+pub fn site_size(domain: String) -> Option<sitesize::SiteSize> {
+    sitesize::cached(&paths::home(), &domain)
+}
+
+/// Every site's size as last measured, by domain, for the Sites list.
+#[tauri::command]
+pub fn site_sizes() -> std::collections::BTreeMap<String, sitesize::SiteSize> {
+    sitesize::all_cached(&paths::home())
+}
+
+/// Measures the site's files and database now (on a worker thread) and keeps the answer.
+#[tauri::command]
+pub async fn measure_site_size(app: AppHandle, domain: String) -> CmdResult<sitesize::SiteSize> {
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (site, _) = find_site(&domain)?;
+        let db = status_of(&engine, &domain)?;
+        let home = paths::home();
+        // PostgreSQL has no folder per database; the running server says.
+        let running = db.as_ref().is_some_and(|d| d.running);
+        let pg_bytes = |name: &str| {
+            if !running {
+                return None;
+            }
+            DbClient::open_server(&home, Some("postgres"))
+                .and_then(|c| c.databases())
+                .ok()?
+                .into_iter()
+                .find(|d| d.name == name)
+                .map(|d| d.size)
+        };
+        sitesize::measure(&home, &site, db.as_ref(), &pg_bytes).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Starts the server with the site's database (stopping the other of MySQL

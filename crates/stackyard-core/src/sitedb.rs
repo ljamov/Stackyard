@@ -40,7 +40,7 @@ pub struct SiteDb {
 
 /// MySQL's name for a database folder: letters, digits and `_` as they
 /// are, anything else as `@` and four hex digits (`-` is `@002d`).
-fn folder_name(database: &str) -> String {
+pub(crate) fn folder_name(database: &str) -> String {
     let mut out = String::with_capacity(database.len());
     for c in database.chars() {
         if c.is_ascii_alphanumeric() || c == '_' {
