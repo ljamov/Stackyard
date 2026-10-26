@@ -108,12 +108,12 @@ impl Model {
                 state: engine.state(def.id),
             })
             .collect();
+        // In the order the Sites screen shows them.
         let mut sites: Vec<(String, String)> = crate::site_views()
             .unwrap_or_default()
             .into_iter()
             .map(|s| (s.name, s.domain))
             .collect();
-        sites.sort_by_key(|(name, _)| name.to_lowercase());
         let more_sites = sites.len() > MAX_SITES;
         sites.truncate(MAX_SITES);
         Self {
