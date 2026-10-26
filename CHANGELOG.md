@@ -6,6 +6,11 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Your own order for sites, and groups.** On the Sites screen, drag a site by its handle to move it,
+  or put sites in a group (one per client, say) with **New group**, and drag groups around too. A
+  group folds away with a click on its name and is renamed with the pencil. The order is kept and
+  every list of sites follows it: the side bar, the command palette, Home, the tray and
+  `stackyard sites`. The handle also moves with the arrow keys.
 - **See how big a live site's files are before cloning it.** Clone from a live server now shows,
   next to the database, the size of WordPress core, themes, plugins, media (uploads), other files
   and all files together, with file counts, plus how much in caches and backups is left out. The
