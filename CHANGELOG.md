@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.15.0
 
 - **Clone several live sites at once.** Clone from a live server no longer waits for the clone
   already running: start as many as you like. **Minimize** puts a clone away while it keeps going,
