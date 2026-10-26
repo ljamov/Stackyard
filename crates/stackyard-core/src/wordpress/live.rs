@@ -537,11 +537,10 @@ impl<'a> Server<'a> {
         } else {
             Vec::new()
         };
-        let until = env::now() + helper::LIFETIME_SECS;
         let made = if write {
-            helper::make_writing(&self.db, until)?
+            helper::make_writing(&self.db, helper::LIFETIME_SECS)?
         } else {
-            helper::make(&self.db, until)?
+            helper::make(&self.db, helper::LIFETIME_SECS)?
         };
         let local = temp.join(&made.file);
         std::fs::write(&local, &made.source).map_err(io(&local))?;
