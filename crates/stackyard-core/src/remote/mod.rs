@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::settings::{read_toml, write_toml};
 use crate::{paths, Error, Result};
 
-pub use sync::{Action, Compare, Direction, Outcome, Plan, PlannedFile, Progress};
+pub use sync::{Action, Compare, Direction, Outcome, Plan, PlannedFile, Progress, Side};
 
 /// Seconds a command on a server may go without printing anything.
 pub const EXEC_IDLE: u64 = 600;
@@ -447,6 +447,10 @@ pub struct Sessions {
     open: Mutex<HashMap<String, Box<dyn Remote>>>,
     /// Passwords of draft connections, which have none stored.
     drafts: Mutex<HashMap<String, Option<String>>>,
+    /// Files each side held at the last whole-folder compare, by
+    /// connection and site folder, so the next one can show how far along
+    /// it is.
+    counts: Mutex<HashMap<(String, PathBuf), sync::Counts>>,
 }
 
 impl Sessions {
@@ -613,6 +617,14 @@ impl Sessions {
         only: Option<&[String]>,
         progress: &mut dyn FnMut(Progress) -> bool,
     ) -> Result<Plan> {
+        let key = (connection.id.clone(), local_root.to_path_buf());
+        let before = self
+            .counts
+            .lock()
+            .unwrap()
+            .get(&key)
+            .copied()
+            .unwrap_or_default();
         let mut plan = self.with(connection, |r| {
             let root = remote_root(connection, r)?;
             sync::plan(
@@ -621,6 +633,7 @@ impl Sessions {
                     local: local_root,
                     remote: &root,
                     skip: &connection.skip,
+                    before,
                 },
                 direction,
                 compare,
@@ -629,6 +642,9 @@ impl Sessions {
                 progress,
             )
         })?;
+        if plan.counted.server.is_some() {
+            self.counts.lock().unwrap().insert(key, plan.counted);
+        }
         if let Some(kept) = crate::wordpress::KeptApart::of(local_root) {
             let (apart, files): (Vec<_>, Vec<_>) =
                 plan.files.into_iter().partition(|f| kept.keeps(&f.path));
@@ -655,7 +671,7 @@ impl Sessions {
         progress: &mut dyn FnMut(Progress) -> bool,
     ) -> Result<BTreeMap<String, (u64, Option<i64>)>> {
         self.with(connection, |r| {
-            Ok(sync::walk_remote(r, root, "", skip, progress)?
+            Ok(sync::walk_remote(r, root, "", skip, None, progress)?
                 .into_iter()
                 .map(|(rel, info)| (rel, (info.size, info.modified)))
                 .collect())

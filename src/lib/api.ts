@@ -460,7 +460,15 @@ export type TransferPlan = {
 export type TransferOutcome = { done: number; bytes: number; failed: { path: string; error: string }[]; stopped: boolean };
 
 export type RemoteProgress = { id: string } & (
-  | { step: "scanning"; folder: string; found: number }
+  | {
+      step: "scanning";
+      /** Which side is being listed. */
+      side: "local" | "server";
+      folder: string;
+      found: number;
+      /** About how many files this side holds, from the last compare or the other side's count; null when there is no guess. */
+      expected: number | null;
+    }
   | { step: "transfer"; index: number; total: number; path: string; done: number; size: number }
 );
 
@@ -1959,9 +1967,13 @@ function browserApi(): Api {
       return { dir: at, root, entries };
     },
     remotePlan: async (id, direction, compare, del, paths) => {
-      for (let i = 0; i < 4; i++) {
-        remoteHandlers.forEach((h) => h({ id, step: "scanning", folder: ["", "wp-content", "wp-content/themes", "wp-includes"][i], found: i * 40 }));
-        await new Promise((r) => setTimeout(r, 200));
+      const folders = ["", "wp-content", "wp-content/themes", "wp-includes"];
+      for (const side of ["local", "server"] as const) {
+        for (let i = 0; i < 4; i++) {
+          const expected = side === "server" ? 160 : null;
+          remoteHandlers.forEach((h) => h({ id, step: "scanning", side, folder: folders[i], found: i * 40, expected }));
+          await new Promise((r) => setTimeout(r, side === "server" ? 700 : 150));
+        }
       }
       const copy = direction === "upload" ? "upload" : "download";
       const files: PlannedFile[] = paths
