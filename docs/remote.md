@@ -31,6 +31,11 @@ of it, such as `public`). Then:
 - **Never transfer** skips names anywhere (`.git`, `*.log`) or paths from the
   top (`storage/logs`). `.git`, `node_modules`, `.env` and system clutter are
   skipped by default.
+- **WordPress sites** keep their own `wp-config.php` (with this computer's
+  database login), `wp-config.live.php`, `.user.ini`, `object-cache.php`,
+  `.maintenance` and Stackyard's files on each side: Upload and Download leave
+  them alone and say so. Posts, pages and settings are in the database, which
+  files don't carry; use WordPress › Live › Pull and Push for those.
 
 Transfers keep modification times, so a file just copied is seen as the same
 next time. Downloads are written as `name.part` and renamed once complete.

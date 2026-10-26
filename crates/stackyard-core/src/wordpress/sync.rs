@@ -177,12 +177,12 @@ pub(super) fn record_after_clone(
 // ---------------------------------------------------------------------------
 // Comparing
 
-/// Files neither push nor pull touches: each side's config, Stackyard's
-/// own files, caches and backups kept inside the site.
+/// Files neither push nor pull touches: each side's config, the live
+/// object cache, Stackyard's own files, caches and backups kept inside
+/// the site.
 fn left_out(rel: &str, content: &str) -> bool {
     merge::kept_apart(rel, content)
-        || rel == ".maintenance"
-        || (rel.starts_with("stackyard-") && !rel.contains('/'))
+        || super::one_side_only(rel, content)
         || live::SKIP
             .iter()
             .any(|s| rel == *s || rel.starts_with(&format!("{s}/")))

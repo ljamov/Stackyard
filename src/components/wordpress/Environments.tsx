@@ -11,7 +11,7 @@ import {
   type WpTrashed,
 } from "../../lib/wordpress";
 import { stageText } from "./CloneSite";
-import { LivePanel } from "./Live";
+import { LivePanel, type LiveAsk } from "./Live";
 import { MergePanel } from "./Merge";
 import { size } from "./WordPressTools";
 
@@ -28,7 +28,7 @@ function madeFromText(t: T, from: string | null) {
 
 /** The Environments part of the WordPress tab: the main site, its stagings,
  * the trash, and snapshots of this copy. */
-export function EnvironmentsTab({ site }: { site: Site }) {
+export function EnvironmentsTab({ site, liveAsk }: { site: Site; liveAsk?: LiveAsk | null }) {
   const t = useT();
   const [envs, setEnvs] = useState<WpEnvironments | null>(null);
   const [here, setHere] = useState<WpEnvironment | null>(null);
@@ -143,7 +143,7 @@ export function EnvironmentsTab({ site }: { site: Site }) {
         reload();
       }} />
 
-      {here?.live && <LivePanel domain={site.domain} main={envs.main} live={here.live} />}
+      {here?.live && <LivePanel key={liveAsk?.at ?? 0} domain={site.domain} main={envs.main} live={here.live} ask={liveAsk ?? undefined} />}
 
       {isStaging && <MergePanel source={site.domain} targets={[envs.main, ...envs.stagings.map((s) => s.domain)].filter((d) => d !== site.domain)} />}
 

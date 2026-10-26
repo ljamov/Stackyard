@@ -52,6 +52,56 @@ pub fn is_wordpress(project: &Path) -> bool {
     root_of(project).is_some()
 }
 
+/// Files a plain upload or download between a WordPress folder and its
+/// server leaves alone, since each side needs its own: `wp-config.php`
+/// with its database login, the live one Stackyard keeps beside it,
+/// `.user.ini`, the object cache (its cache server is only on the live
+/// side), Stackyard's own files, caches and maintenance mode.
+pub struct KeptApart {
+    /// WordPress's folder, relative to the project and ending in `/`; empty
+    /// when they are the same.
+    root: String,
+    /// `wp-content`, relative to the project.
+    content: String,
+}
+
+impl KeptApart {
+    /// `None` when `project` holds no WordPress.
+    pub fn of(project: &Path) -> Option<Self> {
+        let root = root_of(project)?;
+        let rel = root
+            .strip_prefix(project)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
+        let (root, content) = if rel.is_empty() {
+            (String::new(), "wp-content".to_string())
+        } else if rel == "web/wp" {
+            (format!("{rel}/"), "web/app".to_string())
+        } else {
+            (format!("{rel}/"), format!("{rel}/wp-content"))
+        };
+        Some(Self { root, content })
+    }
+
+    /// Whether `rel`, relative to the project with `/` between folders,
+    /// is one of those files.
+    pub fn keeps(&self, rel: &str) -> bool {
+        let in_root = rel.strip_prefix(self.root.as_str()).unwrap_or(rel);
+        merge::kept_apart(rel, &self.content)
+            || merge::kept_apart(in_root, &self.content)
+            || one_side_only(in_root, &self.content)
+    }
+}
+
+/// Besides [`merge::kept_apart`], what neither a push nor a pull nor a file
+/// transfer takes to the other side: maintenance mode, Stackyard's helper
+/// files, and the live object cache, which a copy keeps switched off.
+pub(crate) fn one_side_only(rel: &str, content: &str) -> bool {
+    rel == ".maintenance"
+        || (rel.starts_with("stackyard-") && !rel.contains('/'))
+        || rel == format!("{content}/object-cache.php")
+}
+
 /// A local WordPress site, with what its `wp-config.php` says.
 #[derive(Debug, Clone)]
 pub struct WpSite {
@@ -1137,6 +1187,44 @@ mod tests {
         assert_eq!(list[1].update, "none");
         assert_eq!(list[1].update_version, None);
         assert_eq!(list[2].version, "1.7");
+    }
+
+    #[test]
+    fn file_transfers_keep_each_sides_own_files() {
+        let dir = crate::testutil::tempdir();
+        assert!(KeptApart::of(&dir).is_none());
+        fake_wordpress(&dir);
+        let kept = KeptApart::of(&dir).unwrap();
+        for rel in [
+            "wp-config.php",
+            "wp-config.live.php",
+            ".user.ini",
+            ".maintenance",
+            "stackyard-helper-1a2b.php",
+            "wp-content/object-cache.php",
+            "wp-content/object-cache.php.stackyard-off",
+            "wp-content/mu-plugins/stackyard.php",
+            "wp-content/cache/page/index.html",
+        ] {
+            assert!(kept.keeps(rel), "{rel}");
+        }
+        for rel in [
+            "index.php",
+            ".htaccess",
+            "wp-content/advanced-cache.php",
+            "wp-content/plugins/akismet/akismet.php",
+            "wp-content/plugins/stackyard-x/stackyard-x.php",
+            "wp-content/themes/twentyfive/wp-config.php",
+        ] {
+            assert!(!kept.keeps(rel), "{rel}");
+        }
+
+        let bedrock = crate::testutil::tempdir();
+        fake_wordpress(&bedrock.join("web/wp"));
+        let kept = KeptApart::of(&bedrock).unwrap();
+        assert!(kept.keeps("web/wp/wp-config.php"));
+        assert!(kept.keeps("web/app/object-cache.php"));
+        assert!(!kept.keeps("web/app/plugins/a/a.php"));
     }
 
     pub(crate) fn fake_wordpress(dir: &Path) {

@@ -60,6 +60,12 @@ export function SiteRemote({ site }: { site: Site }) {
           ))}
         </div>
       )}
+      {shown === "Servers" && (site.framework === "WordPress" || site.framework === "WooCommerce") && (
+        <p className="muted small">
+          Upload and Download copy files only, and leave each side's wp-config.php alone. Posts, pages and settings are in the
+          database: to bring them from a live site this copy was cloned from, use WordPress › Pull from live.
+        </p>
+      )}
       {shown === "Servers" ? <Servers site={site} /> : <Git site={site} />}
     </div>
   );
@@ -778,6 +784,12 @@ function PlanView({
           The list below updates when you change this. Files in Never transfer are always left out.
         </Tip>
       </div>
+      {plan.kept_apart.length > 0 && (
+        <p className="muted small">
+          Left as they are on each side, since the site folder and the server each need their own:{" "}
+          {plan.kept_apart.join(", ")}.{upload ? "" : " Posts, pages and settings live in the database, which a download doesn't bring; for those, use the WordPress tab › Live › Pull."}
+        </p>
+      )}
       {plan.files.length === 0 ? (
         <p className="ok small" role="status">
           Nothing to {upload ? "upload" : "download"} with this choice ({plural(plan.unchanged, "file")} checked).

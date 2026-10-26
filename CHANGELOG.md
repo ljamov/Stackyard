@@ -4,6 +4,23 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## 0.13.0
+
+- **Fixed: downloading a WordPress site's files from its server broke the site** with "Error
+  establishing a database connection". Download copied the live `wp-config.php` over the copy's
+  own, so the copy tried the live database login. Upload and Download (Remote servers) now leave
+  each side's own files alone on WordPress sites: `wp-config.php`, the live copy Stackyard keeps
+  as `wp-config.live.php`, `.user.ini`, the object cache (`object-cache.php`), maintenance mode
+  and Stackyard's own files. The list of files says which ones were left alone, and a download
+  points to WordPress › Live › Pull for posts, pages and settings, which live in the database.
+- **Pull from live and Push to live are on the WordPress view's top row** of a copy of a live site,
+  next to WP Admin, and open the live panel ready to go (it now starts on Pull). When posts, pages
+  or comments changed only on the live site, a pull picks Everything, so the live database comes
+  too; when they changed on both sides, it says so and leaves the choice to you.
+- **Pulling from the live site no longer brings back the live object cache**, which a copy keeps
+  switched off, and a copy of a site that uses Redis gets `WP_REDIS_DISABLED` so a returning
+  cache file stays inactive.
+
 ## 0.12.0
 
 - **Site pictures that show something.** A site's picture on Sites is now the site's home page, or,
