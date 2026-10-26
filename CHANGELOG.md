@@ -4,6 +4,14 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **More in the tray menu.** Start and stop each service on its own (a tick shows which run), open a
+  site in the browser, make a new site or app, open the sites folder, open a terminal with
+  Stackyard Shell, open phpMyAdmin, or go straight to a screen. The menu and the icon's tooltip
+  follow the services as they start, stop or crash, without checking on a timer, and Stop all no
+  longer holds up the menu while services shut down.
+
 ## 0.15.0
 
 - **Clone several live sites at once.** Clone from a live server no longer waits for the clone

@@ -59,15 +59,30 @@ struct Entry {
     restart_at: Option<Instant>,
 }
 
+type Listener = Box<dyn Fn() + Send + Sync>;
+
 struct Shared {
     entries: Mutex<HashMap<String, Entry>>,
     log_dir: PathBuf,
+    on_change: Mutex<Option<Listener>>,
 }
 
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Entry>> {
         // A panic while holding the lock leaves the map usable; keep going.
         self.entries.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Tells the listener a state changed; called without the entries lock.
+    fn changed(&self) {
+        if let Some(listener) = self
+            .on_change
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            listener();
+        }
     }
 }
 
@@ -80,6 +95,7 @@ impl Supervisor {
         let shared = Arc::new(Shared {
             entries: Mutex::new(HashMap::new()),
             log_dir: log_dir.into(),
+            on_change: Mutex::new(None),
         });
         let weak = Arc::downgrade(&shared);
         std::thread::Builder::new()
@@ -89,8 +105,25 @@ impl Supervisor {
         Self { shared }
     }
 
+    /// Calls `listener` after any process starts, stops, crashes or is
+    /// restarted, so the tray can follow along without asking. It runs on
+    /// whichever thread made the change and should return quickly.
+    pub fn on_change(&self, listener: impl Fn() + Send + Sync + 'static) {
+        *self
+            .shared
+            .on_change
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(Box::new(listener));
+    }
+
     /// Starts a process, or returns the pid if it is already running.
     pub fn start(&self, spec: ProcessSpec) -> Result<u32> {
+        let pid = self.start_locked(spec)?;
+        self.shared.changed();
+        Ok(pid)
+    }
+
+    fn start_locked(&self, spec: ProcessSpec) -> Result<u32> {
         let mut entries = self.shared.lock();
         if let Some(Entry {
             state: ProcessState::Running { pid },
@@ -135,6 +168,7 @@ impl Supervisor {
             entry.restart_at = None;
             entry.child.take()
         };
+        self.shared.changed();
         if let Some(child) = child {
             terminate(child);
         }
@@ -153,6 +187,7 @@ impl Supervisor {
                 })
                 .collect()
         };
+        self.shared.changed();
         for child in children {
             terminate(child);
         }
@@ -239,7 +274,9 @@ fn watch(shared: Weak<Shared>) {
         };
         let now = Instant::now();
         let mut entries = shared.lock();
+        let mut changed = false;
         for entry in entries.values_mut() {
+            let before = std::mem::discriminant(&entry.state);
             check_exit(entry, now);
             if entry.restart_at.is_some_and(|at| now >= at) {
                 entry.restart_at = None;
@@ -253,6 +290,11 @@ fn watch(shared: Weak<Shared>) {
                     Err(_) => entry.state = ProcessState::Crashed { code: None },
                 }
             }
+            changed |= before != std::mem::discriminant(&entry.state);
+        }
+        drop(entries);
+        if changed {
+            shared.changed();
         }
     }
 }
@@ -431,6 +473,24 @@ mod tests {
         sup.stop("svc").unwrap();
         assert_eq!(sup.state("svc"), ProcessState::Stopped);
         assert!(matches!(sup.stop("nope"), Err(Error::UnknownProcess(_))));
+    }
+
+    #[test]
+    fn says_when_states_change() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let sup = Supervisor::new(crate::testutil::tempdir());
+        let changes = Arc::new(AtomicUsize::new(0));
+        let counter = changes.clone();
+        sup.on_change(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        sup.start(sleeper("svc")).unwrap();
+        assert_eq!(changes.load(Ordering::SeqCst), 1);
+        sup.stop("svc").unwrap();
+        assert_eq!(changes.load(Ordering::SeqCst), 2);
+        // A crash is noticed by the watch thread.
+        sup.start(crasher("bad")).unwrap();
+        assert!(wait_for(|| changes.load(Ordering::SeqCst) >= 4));
     }
 
     #[test]

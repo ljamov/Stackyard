@@ -170,7 +170,7 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>) -> UpdateView {
 /// system notification unless they are looking at Stackyard already (the
 /// window shows its own notice).
 fn announce<R: Runtime>(app: &AppHandle<R>, version: &str) {
-    crate::set_tray_update(app, Some(version));
+    crate::tray::set_update(app, Some(version));
     let looking = app
         .get_webview_window("main")
         .is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));

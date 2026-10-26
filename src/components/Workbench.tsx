@@ -28,7 +28,7 @@ import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
 import { SCREENS, isTabScreen, useScreenOn, type TabScreen } from "../lib/screens";
-import { closeTab, moveTab, openTab, PANEL_HEIGHT, setLayout, showScreen, SIDE_BAR_WIDTH, useLayout, type TabId } from "../lib/layout";
+import { closeTab, moveTab, openTab, PANEL_HEIGHT, setLayout, showNewSite, showScreen, SIDE_BAR_WIDTH, useLayout, type TabId } from "../lib/layout";
 import { useViewOptions } from "../lib/viewOptions";
 import { CommandsProvider, useWorkbenchCommands } from "../lib/commands";
 import { dispatchKeys, withKey } from "../lib/keybindings";
@@ -129,6 +129,27 @@ export function Workbench() {
       off?.();
     };
   }, [sites.reload]);
+  // The tray menu's New site and Go to items, when the window opens or now.
+  useEffect(() => {
+    let cancelled = false;
+    let off: (() => void) | undefined;
+    const take = () =>
+      void api
+        .takeTrayAction()
+        .then((action) => {
+          if (!action) return;
+          if (action === "new-site") showNewSite();
+          const to = action.startsWith("screen:") ? action.slice("screen:".length) : null;
+          if (isTabScreen(to)) showScreen(to);
+        })
+        .catch(() => {});
+    take();
+    api.onTrayAction(take).then((u) => (cancelled ? u() : (off = u)));
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, []);
 
   const togglePanel = () => setLayout((l) => ({ panel: !l.panel }));
 
