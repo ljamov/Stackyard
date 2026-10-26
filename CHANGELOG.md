@@ -4,6 +4,13 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Fixed: Pull from live and Push to live stopped with "This Stackyard helper has expired and
+  removed itself."** The helper Stackyard puts on the live server counted its 30 minutes from this
+  computer's clock, so a clock running behind the server's made it expire before it started. It now
+  counts from when it lands on the server, by the server's own clock.
+
 ## 0.13.0
 
 - **Fixed: downloading a WordPress site's files from its server broke the site** with "Error
