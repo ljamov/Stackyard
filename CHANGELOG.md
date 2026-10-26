@@ -4,6 +4,17 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **AI tools can do more through the MCP server.** New tools that only look: `wordpress_overview`
+  (versions, plugins, themes, debug settings, snapshots and live backups of a WordPress site),
+  `read_wordpress_log` (the site's `debug.log`), `list_backups` and `list_tasks` (scheduled tasks,
+  so their logs can be read). New tools you allow first: `set_wordpress_debug` (only the local
+  `wp-config.php`), `install_runtime`, `backup_database` and `backup_site`. `list_databases` and
+  `backup_database` work with PostgreSQL too. Pushing to and pulling from a live site stays yours.
+- **Fixed: the WordPress MCP tools didn't see WordPress sites in a parked folder** (such as the
+  sites folder), so `run_wp_cli` and the staging tools said there was no such site.
+
 ## 0.15.0
 
 - **Clone several live sites at once.** Clone from a live server no longer waits for the clone

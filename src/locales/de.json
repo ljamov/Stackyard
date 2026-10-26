@@ -809,5 +809,13 @@
   "Trying again continues where it stopped; files already downloaded are kept.": "Ein neuer Versuch macht dort weiter, wo er stoppte; bereits geladene Dateien bleiben erhalten.",
   "{count} clones ready": "{count} Klone fertig",
   "{count} clones stopped": "{count} Klone angehalten",
-  "{domain} was not cloned": "{domain} wurde nicht geklont"
+  "{domain} was not cloned": "{domain} wurde nicht geklont",
+  "Back up a database": "Datenbank sichern",
+  "Back up a site": "Website sichern",
+  "Install a runtime version": "Laufzeitversion installieren",
+  "List backups": "Sicherungen auflisten",
+  "List scheduled tasks": "Geplante Aufgaben auflisten",
+  "Look at a WordPress site": "WordPress-Website ansehen",
+  "Read a WordPress debug log": "WordPress-Debug-Log lesen",
+  "Switch WordPress debugging": "WordPress-Debugging umschalten"
 }

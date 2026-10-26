@@ -3,7 +3,8 @@
 //! JSON-RPC 2.0 messages one per line on stdin and stdout. It offers tools
 //! that read sites, services, runtimes, database names and logs, and, once
 //! the user allows each one, tools that start, stop and restart services,
-//! add or change sites, and query or change MySQL and MariaDB databases.
+//! add or change sites, install runtimes, make backups, query or change
+//! MySQL and MariaDB databases, and work on local WordPress sites.
 
 pub mod activity;
 mod sql;
@@ -42,10 +43,12 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 
 const INSTRUCTIONS: &str = "Stackyard runs this computer's local development stack: \
-sites at addresses such as https://myapp.stack, PHP and Node.js versions, and services \
-such as the Caddy web server, MySQL, MariaDB and Mailpit. Use the list tools to see what \
-is set up and read_logs to find out why something fails. Tools that change things, and \
-querying databases, appear only after the user allows them in Stackyard.";
+sites at addresses such as https://myapp.stack, PHP, Node.js, Python, Go and Java versions, \
+and services such as the Caddy web server, MySQL, MariaDB, PostgreSQL, Redis and Mailpit. \
+Use the list tools to see what is set up, and read_logs or read_wordpress_log to find out \
+why something fails. For WordPress sites, try changes on a staging and merge it. Tools that \
+change things, and querying databases, appear only after the user allows them in Stackyard. \
+Pushing to or pulling from a live site is left to the user.";
 
 /// One connection with an AI tool.
 pub struct Server {
@@ -169,6 +172,8 @@ impl Server {
                                 | "create_wordpress_staging"
                                 | "run_wp_cli"
                                 | "merge_wordpress_staging"
+                                | "backup_database"
+                                | "backup_site"
                         ),
                         "openWorldHint": false,
                     },
@@ -248,10 +253,12 @@ fn blocked(home: &Path, tool: &ToolInfo) -> Option<String> {
     if !settings.module_enabled("mcp") {
         return Some("The MCP server is switched off in Stackyard (Settings › Modules).".into());
     }
-    if tools::wordpress_tool(tool.name) && !settings.module_enabled("wordpress") {
-        return Some(
-            "The WordPress tools are switched off in Stackyard (Settings › Modules).".into(),
-        );
+    if let Some(module) = tools::module_of(tool.name).filter(|m| !settings.module_enabled(m)) {
+        let name = crate::modules::find(module).map_or(module, |m| m.name);
+        return Some(format!(
+            "{} needs the {name} module, which is switched off in Stackyard (Settings › Modules).",
+            tool.title
+        ));
     }
     (tool.action && !settings.mcp.allow.contains(tool.name)).then(|| {
         format!(

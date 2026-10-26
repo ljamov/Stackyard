@@ -76,22 +76,32 @@ pub const TOOLS: &[ToolInfo] = &[
     read(
         "list_services",
         "List services",
-        "Lists the services Stackyard manages (web server, databases, mail catcher): whether each is switched on, installed and running, and its ports.",
+        "Lists the services Stackyard manages (web server, MySQL, MariaDB, PostgreSQL, Redis, MongoDB, Mailpit, search, storage and queues): whether each is switched on, installed and running, and its ports.",
     ),
     read(
         "list_runtimes",
         "List runtimes",
-        "Lists PHP and Node.js versions: which are installed (with exact releases), which is the default, and which could be installed.",
+        "Lists PHP, Node.js, Python, Go and Java versions: which are installed (with exact releases), which is the default, and which could be installed with install_runtime.",
     ),
     read(
         "list_databases",
         "List databases",
-        "Lists the MySQL or MariaDB databases with their table count and size, or with database set, that database's tables and views with row estimates and sizes. Reads names only, never what is in the tables.",
+        "Lists the MySQL or MariaDB databases (or PostgreSQL's, with server set to postgres) with their table count and size, or with database set, that database's tables and views with row estimates and sizes. Reads names only, never what is in the tables.",
     ),
     read(
         "read_logs",
         "Read a log",
-        "Returns the last lines of a log: a service (caddy, mysql, mariadb, postgres, redis, mongodb, mailpit, meilisearch, seaweedfs, nats), PHP for one version (php-8.4), a scheduled task (task-<id>) or the background service (daemon). Use it to find out why a site or service fails.",
+        "Returns the last lines of a log: a service (caddy, mysql, mariadb, postgres, redis, mongodb, mailpit, meilisearch, seaweedfs, nats), PHP for one version (php-8.4), a scheduled task (task-<id>, ids from list_tasks) or the background service (daemon). Use it to find out why a site or service fails.",
+    ),
+    read(
+        "list_tasks",
+        "List scheduled tasks",
+        "Lists the scheduled tasks: id, name, command, project folder, schedule, whether each is on, when it runs next, how its last run went and anything that stops it. Read a task's output with read_logs and task-<id>.",
+    ),
+    read(
+        "list_backups",
+        "List backups",
+        "Lists the backups Stackyard has made: database backups (MySQL, MariaDB and PostgreSQL) and site backups (a site's files and database in one zip), with their size and when they were made. Set site or database to see only theirs.",
     ),
     action(
         "start_service",
@@ -116,7 +126,22 @@ pub const TOOLS: &[ToolInfo] = &[
     action(
         "set_site_runtime",
         "Switch a site's version",
-        "Switches the PHP or Node.js version a site runs on. For a site found in a parked folder, the version is written to the project's .stackyard file.",
+        "Switches the PHP, Node.js, Python, Go or Java version a site runs on. For a site found in a parked folder, the version is written to the project's .stackyard file.",
+    ),
+    action(
+        "install_runtime",
+        "Install a runtime version",
+        "Downloads and installs a PHP, Node.js, Python, Go or Java version that list_runtimes shows as not installed, e.g. before switching a site to it. It becomes the default only when it is the first of its kind.",
+    ),
+    action(
+        "backup_database",
+        "Back up a database",
+        "Saves a MySQL, MariaDB or PostgreSQL database to a new gzipped file in Stackyard's backups folder, which the user can restore on the Databases screen. Make one before changing a database.",
+    ),
+    action(
+        "backup_site",
+        "Back up a site",
+        "Packs a site's files and its database into a new zip in Stackyard's backups folder, which the user can restore in Sites › Manage › Backups. Make one before a big change.",
     ),
     private_read(
         "query_database",
@@ -128,10 +153,25 @@ pub const TOOLS: &[ToolInfo] = &[
         "List WordPress environments",
         "Lists the WordPress sites with their environments: each main site, its stagings (such as checkout.shop.stack) and what each was made from, and the live site a copy was cloned from, with when they were last in step.",
     ),
+    read(
+        "wordpress_overview",
+        "Look at a WordPress site",
+        "Returns a local WordPress site's versions (WordPress, PHP, WooCommerce), database and table prefix, theme, plugins and themes with their status, debug settings (and the live site's, for a copy of one), snapshots that can undo a merge or pull, live backups made before pushes, and warnings such as a DB_HOST pointing at the wrong port.",
+    ),
+    read(
+        "read_wordpress_log",
+        "Read a WordPress debug log",
+        "Returns the last lines of a local WordPress site's debug.log, where PHP errors, warnings and notices go while WP_DEBUG_LOG is on (set_wordpress_debug turns it on). Use it to find out why a WordPress page fails.",
+    ),
     action(
         "create_wordpress_staging",
         "Create a WordPress staging",
         "Makes a staging of a WordPress site: a full copy with its own files and database at <name>.<site>, e.g. checkout.shop.stack, made from the main site, another staging or the live site. Mail goes to Mailpit and payments stay in test mode. Use it to try changes before they reach the main site.",
+    ),
+    action(
+        "set_wordpress_debug",
+        "Switch WordPress debugging",
+        "Switches WP_DEBUG, WP_DEBUG_LOG, WP_DEBUG_DISPLAY, SCRIPT_DEBUG and SAVEQUERIES in a local WordPress site's wp-config.php; settings left out stay as they are. Only this computer's copy changes: wp-config.php is never pushed to a live site.",
     ),
     ToolInfo {
         destructive: true,
@@ -167,9 +207,17 @@ pub const TOOLS: &[ToolInfo] = &[
     },
 ];
 
-/// Tools that need the WordPress module.
-pub fn wordpress_tool(name: &str) -> bool {
-    name.contains("wordpress") || name == "run_wp_cli"
+/// The module a tool needs besides the MCP server, if any.
+pub fn module_of(name: &str) -> Option<&'static str> {
+    if name.contains("wordpress") || name == "run_wp_cli" {
+        Some("wordpress")
+    } else if name == "list_tasks" {
+        Some("scheduler")
+    } else if name == "backup_site" {
+        Some("sitebackups")
+    } else {
+        None
+    }
 }
 
 pub fn find(name: &str) -> Option<&'static ToolInfo> {
@@ -216,8 +264,54 @@ pub fn input_schema(name: &str) -> Value {
                     "type": "string",
                     "description": "List this database's tables; leave out to list the databases",
                 },
+                "server": database_server(),
             }),
             &[],
+        ),
+        "backup_database" => (
+            json!({
+                "database": {
+                    "type": "string",
+                    "description": "The database, as list_databases shows it",
+                },
+                "server": database_server(),
+            }),
+            &["database"],
+        ),
+        "list_backups" => (
+            json!({
+                "site": {
+                    "type": "string",
+                    "description": "Only this site's backups, by domain (shop.stack) or name",
+                },
+                "database": {
+                    "type": "string",
+                    "description": "Only this database's backups",
+                },
+            }),
+            &[],
+        ),
+        "backup_site" => (
+            json!({
+                "site": {
+                    "type": "string",
+                    "description": "The site's domain (shop.stack) or name (shop)",
+                },
+            }),
+            &["site"],
+        ),
+        "install_runtime" => (
+            json!({
+                "runtime": {
+                    "type": "string",
+                    "enum": ["php", "node", "python", "go", "java"],
+                },
+                "version": {
+                    "type": "string",
+                    "description": "A version list_runtimes shows under not_installed, e.g. 8.4, 22, 3.13, 1.26 or 21",
+                },
+            }),
+            &["runtime", "version"],
         ),
         "query_database" | "change_database" => (
             json!({
@@ -302,6 +396,45 @@ pub fn input_schema(name: &str) -> Value {
             }),
             &[],
         ),
+        "wordpress_overview" => (
+            json!({
+                "site": {
+                    "type": "string",
+                    "description": "The local WordPress site, e.g. shop.stack or checkout.shop.stack",
+                },
+            }),
+            &["site"],
+        ),
+        "read_wordpress_log" => (
+            json!({
+                "site": {
+                    "type": "string",
+                    "description": "The local WordPress site, e.g. shop.stack",
+                },
+                "lines": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_LOG_LINES,
+                    "default": 100,
+                    "description": "How many lines from the end",
+                },
+            }),
+            &["site"],
+        ),
+        "set_wordpress_debug" => (
+            json!({
+                "site": {
+                    "type": "string",
+                    "description": "The local WordPress site, e.g. shop.stack",
+                },
+                "debug": { "type": "boolean", "description": "WP_DEBUG" },
+                "log": { "type": "boolean", "description": "WP_DEBUG_LOG: errors written to debug.log" },
+                "display": { "type": "boolean", "description": "WP_DEBUG_DISPLAY: errors shown on the page" },
+                "scripts": { "type": "boolean", "description": "SCRIPT_DEBUG: full, unminified scripts and styles" },
+                "queries": { "type": "boolean", "description": "SAVEQUERIES: every database query kept for the page" },
+            }),
+            &["site"],
+        ),
         "create_wordpress_staging" => (
             json!({
                 "site": {
@@ -380,7 +513,16 @@ pub fn input_schema(name: &str) -> Value {
     })
 }
 
-const MAX_LOG_LINES: usize = 500;
+pub(super) const MAX_LOG_LINES: usize = 500;
+
+fn database_server() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["mysql", "postgres"],
+        "default": "mysql",
+        "description": "mysql for MySQL or MariaDB (whichever runs), or postgres for PostgreSQL",
+    })
+}
 /// Rows a query returns unless the AI tool asks for more.
 const DEFAULT_ROWS: usize = 100;
 /// Characters of one value a query returns; the rest is cut off.
@@ -417,6 +559,14 @@ pub(super) fn call(ctx: &Ctx, tool: &ToolInfo, args: &Args) -> Outcome {
         "change_database" => run_sql(ctx, args, true),
         "create_site" => create_site(ctx, args),
         "set_site_runtime" => set_site_runtime(ctx, args),
+        "list_tasks" => list_tasks(ctx),
+        "list_backups" => list_backups(ctx, args),
+        "install_runtime" => install_runtime(ctx, args),
+        "backup_database" => backup_database(ctx, args),
+        "backup_site" => backup_site(ctx, args),
+        "wordpress_overview" => wordpress::overview(ctx, args),
+        "read_wordpress_log" => wordpress::read_log(ctx, args),
+        "set_wordpress_debug" => wordpress::set_debug(ctx, args),
         "list_wordpress_environments" => wordpress::environments(ctx, args),
         "create_wordpress_staging" => wordpress::create_staging(ctx, args),
         "run_wp_cli" => wordpress::run_cli(ctx, args),
@@ -433,11 +583,25 @@ pub(super) fn summarize(tool: &str, args: &Args) -> String {
         "read_logs" | "start_service" | "stop_service" | "restart_service" => {
             text("service").to_string()
         }
-        "list_databases" => args
-            .get("database")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
+        "list_databases" | "list_backups" => ["site", "database", "server"]
+            .iter()
+            .filter_map(|key| args.get(*key).and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join(" "),
+        "backup_database" => text("database").to_string(),
+        "backup_site" | "wordpress_overview" | "read_wordpress_log" => text("site").to_string(),
+        "install_runtime" => format!("{} {}", text("runtime"), text("version")),
+        "set_wordpress_debug" => {
+            let switched: Vec<String> = ["debug", "log", "display", "scripts", "queries"]
+                .iter()
+                .filter_map(|key| {
+                    args.get(*key)
+                        .and_then(Value::as_bool)
+                        .map(|on| format!("{key} {}", if on { "on" } else { "off" }))
+                })
+                .collect();
+            format!("{}: {}", text("site"), switched.join(", "))
+        }
         "query_database" | "change_database" => format!("{}: {}", text("database"), text("sql")),
         "create_site" => format!("{} in {}", text("name"), text("folder")),
         "set_site_runtime" => format!("{} → {}", text("site"), text("version")),
@@ -786,8 +950,19 @@ pub(super) fn database_client(ctx: &Ctx) -> Result<databases::Client, String> {
     })
 }
 
+/// The client for the server an AI tool named: `postgres`, or MySQL and
+/// MariaDB when left out.
+fn server_client(ctx: &Ctx, args: &Args) -> Result<databases::Client, String> {
+    match text(args, "server")?.filter(|s| !s.is_empty()) {
+        None | Some("mysql") | Some("mariadb") => database_client(ctx),
+        Some("postgres") => databases::Client::open_server(ctx.home, Some("postgres"))
+            .map_err(|e| format!("{e}. The user can install PostgreSQL in Stackyard › Services")),
+        Some(other) => Err(format!("server must be mysql or postgres, not {other:?}")),
+    }
+}
+
 fn list_databases(ctx: &Ctx, args: &Args) -> Result<Value, String> {
-    let client = database_client(ctx)?;
+    let client = server_client(ctx, args)?;
     let server = client.server();
     if let Some(database) = text(args, "database")? {
         let tables = client.tables(database).map_err(fail)?;
@@ -984,4 +1159,101 @@ fn answer_for_site(ctx: &Ctx, domain: &str) -> Result<Value, String> {
         );
     }
     Ok(json!({ "site": site_json(site, ports), "notes": notes }))
+}
+
+fn list_tasks(ctx: &Ctx) -> Result<Value, String> {
+    let tasks = crate::scheduler::views(ctx.home).map_err(fail)?;
+    Ok(json!({ "tasks": tasks }))
+}
+
+fn list_backups(ctx: &Ctx, args: &Args) -> Result<Value, String> {
+    let site = text(args, "site")?.filter(|s| !s.is_empty());
+    let database = text(args, "database")?.filter(|s| !s.is_empty());
+    let database_backups: Vec<databases::Backup> = if site.is_some() && database.is_none() {
+        Vec::new()
+    } else {
+        databases::backups(ctx.home)
+            .into_iter()
+            .filter(|b| database.is_none_or(|d| b.database == d))
+            .collect()
+    };
+    let site_backups: Vec<crate::sitepack::SiteBackup> = if database.is_some() && site.is_none() {
+        Vec::new()
+    } else {
+        let domains: Vec<String> = match site {
+            Some(wanted) => vec![find_site(ctx, wanted)?.domain()],
+            None => served_sites(ctx)?.iter().map(ServedSite::domain).collect(),
+        };
+        domains
+            .iter()
+            .flat_map(|d| crate::sitepack::backups(ctx.home, d))
+            .collect()
+    };
+    Ok(json!({
+        "database_backups": database_backups,
+        "site_backups": site_backups,
+        "folder": databases::backups_dir(ctx.home),
+        "note": "The user restores backups in Stackyard: databases on the Databases screen, sites in Sites › Manage › Backups.",
+    }))
+}
+
+/// A site by domain or name, parked ones included.
+fn find_site(ctx: &Ctx, wanted: &str) -> Result<Site, String> {
+    served_sites(ctx)?
+        .into_iter()
+        .find(|s| s.domain() == wanted || s.site.name == wanted)
+        .map(|s| s.site)
+        .ok_or_else(|| fail(Error::SiteNotFound(wanted.into())))
+}
+
+fn install_runtime(ctx: &Ctx, args: &Args) -> Result<Value, String> {
+    let id = required(args, "runtime")?;
+    let kind = RuntimeKind::from_id(id)
+        .ok_or_else(|| format!("runtime must be php, node, python, go or java, not {id:?}"))?;
+    let version = required(args, "version")?;
+    let mut settings = settings(ctx)?;
+    check_version(&settings, kind, version)?;
+    let manager = RuntimeManager::new(ctx.home);
+    let name = catalog::runtime(kind).name;
+    if let Some(installed) = manager.get(kind, version) {
+        return Ok(json!({
+            "runtime": kind.id(),
+            "version": installed.version,
+            "release": installed.release,
+            "note": format!("{name} {version} was already installed."),
+        }));
+    }
+    let installed = manager.install(kind, version, &mut |_| {}).map_err(fail)?;
+    if manager.fix_default(&mut settings, kind) {
+        settings
+            .save_to(&ctx.home.join("settings.toml"))
+            .map_err(fail)?;
+    }
+    Ok(json!({
+        "runtime": kind.id(),
+        "version": installed.version,
+        "release": installed.release,
+        "folder": installed.path,
+        "default": manager.default_for(&settings, kind).map(|i| i.version),
+    }))
+}
+
+fn backup_database(ctx: &Ctx, args: &Args) -> Result<Value, String> {
+    let database = required(args, "database")?;
+    let backup = server_client(ctx, args)?.backup(database).map_err(fail)?;
+    Ok(json!({
+        "backup": backup,
+        "folder": databases::backups_dir(ctx.home).join(&backup.database),
+        "note": "The user can restore it on Stackyard's Databases screen.",
+    }))
+}
+
+fn backup_site(ctx: &Ctx, args: &Args) -> Result<Value, String> {
+    let site = find_site(ctx, required(args, "site")?)?;
+    let packed = crate::sitepack::backup(ctx.home, &site, &mut |_| {}).map_err(fail)?;
+    Ok(json!({
+        "site": site.domain(),
+        "backup": packed,
+        "note": "The user can restore it in Stackyard › Sites › Manage › Backups.",
+    }))
 }

@@ -809,5 +809,13 @@
   "Trying again continues where it stopped; files already downloaded are kept.": "Réessayer reprend là où il s'est arrêté ; les fichiers déjà téléchargés sont conservés.",
   "{count} clones ready": "{count} clones prêts",
   "{count} clones stopped": "{count} clones arrêtés",
-  "{domain} was not cloned": "{domain} n'a pas été cloné"
+  "{domain} was not cloned": "{domain} n'a pas été cloné",
+  "Back up a database": "Sauvegarder une base de données",
+  "Back up a site": "Sauvegarder un site",
+  "Install a runtime version": "Installer une version de runtime",
+  "List backups": "Lister les sauvegardes",
+  "List scheduled tasks": "Lister les tâches planifiées",
+  "Look at a WordPress site": "Examiner un site WordPress",
+  "Read a WordPress debug log": "Lire le journal de débogage WordPress",
+  "Switch WordPress debugging": "Activer ou couper le débogage WordPress"
 }
