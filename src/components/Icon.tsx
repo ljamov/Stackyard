@@ -44,6 +44,9 @@ const PATHS = {
   archive: "M3.5 4.5h17v4h-17zM5 8.5v11h14v-11M10 12h4",
   link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
   git: "M7 4v11M7 15a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM17 4a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM17 9c0 4-4 4-9 6.5",
+  // Moving and naming sites and their groups.
+  grip: "M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01",
+  edit: "M4.5 19.5h4l10-10-4-4-10 10zM13 7l4 4",
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -85,6 +88,8 @@ const CODICONS: Record<IconName, string> = {
   archive: "archive",
   link: "link",
   git: "source-control",
+  grip: "gripper",
+  edit: "edit",
 };
 
 export function Icon({ name }: { name: IconName }) {

@@ -37,6 +37,7 @@ pub mod setup;
 pub mod share;
 pub mod shell;
 pub mod sitedb;
+pub mod siteorder;
 pub mod sitepack;
 pub mod sites;
 pub mod starters;

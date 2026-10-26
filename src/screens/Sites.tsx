@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api, errorText, siteAddress, type PackProgress, type RuntimeFamily, type Site, type SiteFile, type SystemStatus } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
@@ -13,6 +13,7 @@ import { newClone, showClone, useClones } from "../lib/clones";
 import { useT } from "../lib/i18n";
 import { Progress, packState, type ProgressState } from "../components/Progress";
 import { SiteActions } from "../components/SiteActions";
+import { SiteList, type RowParts } from "../components/SiteList";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
 
@@ -498,21 +499,28 @@ export function Sites() {
                 </td>
               </tr>
             )}
-            {sites.data.map((site) => (
-              <Fragment key={site.domain}>
-                <SiteRow
-                  site={site}
-                  system={system.data}
-                  families={runtimes.data}
-                  onVersionChanged={() => {
-                    sites.reload();
-                    runtimes.reload();
-                  }}
-                  onRemove={remove}
-                  onOpen={(open) => void attempt(open)}
-                />
-              </Fragment>
-            ))}
+            {sites.data.length > 0 && (
+              <SiteList
+                sites={sites.data}
+                columns={4}
+                onError={setError}
+                renderSite={(site, parts) => (
+                  <SiteRow
+                    key={site.domain}
+                    site={site}
+                    parts={parts}
+                    system={system.data}
+                    families={runtimes.data}
+                    onVersionChanged={() => {
+                      sites.reload();
+                      runtimes.reload();
+                    }}
+                    onRemove={remove}
+                    onOpen={(open) => void attempt(open)}
+                  />
+                )}
+              />
+            )}
           </tbody>
         </table>
       </section>
@@ -522,6 +530,7 @@ export function Sites() {
 
 function SiteRow({
   site,
+  parts,
   families,
   onVersionChanged,
   onRemove,
@@ -529,6 +538,8 @@ function SiteRow({
   system,
 }: {
   site: Site;
+  /** Its drag handle and place in the order. */
+  parts: RowParts;
   families: RuntimeFamily[];
   onVersionChanged: () => void;
   onRemove: (domain: string) => void;
@@ -538,9 +549,10 @@ function SiteRow({
 }) {
   const address = siteAddress(site, system);
   return (
-    <tr>
+    <tr {...parts.row}>
       <td>
         <div className="site-cell">
+          {parts.handle}
           <SiteThumb site={site} />
           <div>
             <button type="button" className="link mono" onClick={() => api.openLocalPage(address)}>

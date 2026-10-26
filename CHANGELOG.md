@@ -4,6 +4,14 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Your own order for sites, and groups.** On the Sites screen, drag a site by its handle to move it,
+  or put sites in a group (one per client, say) with **New group**, and drag groups around too. A
+  group folds away with a click on its name and is renamed with the pencil. The order is kept and
+  every list of sites follows it: the side bar, the command palette, Home, the tray and
+  `stackyard sites`. The handle also moves with the arrow keys.
+
 ## 0.15.0
 
 - **Clone several live sites at once.** Clone from a live server no longer waits for the clone
