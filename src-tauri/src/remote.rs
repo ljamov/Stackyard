@@ -236,6 +236,17 @@ pub async fn remote_test(app: AppHandle, id: String) -> CmdResult<TestView> {
     .await
 }
 
+/// Connects one step at a time and says where it stops and what to try.
+#[tauri::command]
+pub async fn remote_check(
+    app: AppHandle,
+    id: String,
+) -> CmdResult<stackyard_core::remote::check::Report> {
+    require("remote")?;
+    let connection = connection(&id)?;
+    blocking(move || Ok(app.state::<RemoteState>().sessions.check(&connection, None))).await
+}
+
 #[tauri::command]
 pub async fn remote_browse(app: AppHandle, id: String, dir: Option<String>) -> CmdResult<Listing> {
     require("remote")?;

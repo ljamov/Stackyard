@@ -3,6 +3,7 @@
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { previewCheck, type ConnectionReport } from "./api";
 
 export type WpDebug = { debug: boolean; log: boolean; display: boolean; scripts: boolean; queries: boolean };
 
@@ -253,6 +254,8 @@ export interface WpApi {
   clone(job: string, source: WpCloneSource, options: WpCloneOptions, from: string): Promise<WpCloned>;
   clonesSaved(): Promise<WpSavedClone[]>;
   onCloneEnded(handler: (e: WpCloneEnded) => void): Promise<() => void>;
+  /** Checks the server login step by step: where it stops and what to try. */
+  cloneCheck(source: WpCloneSource): Promise<ConnectionReport>;
   cloneStop(job: string): Promise<void>;
   /** Logs out of the server typed in for a clone that is closed. */
   cloneForget(job: string): Promise<void>;
@@ -325,6 +328,7 @@ const tauriWp: WpApi = {
   clone: (job, source, options, from) => invoke("wp_clone", { job, source, options, from }),
   clonesSaved: () => invoke("wp_clones_saved"),
   onCloneEnded: (handler) => listen<WpCloneEnded>("wp-clone-ended", (e) => handler(e.payload)),
+  cloneCheck: (source) => invoke("wp_clone_check", { source }),
   cloneStop: (job) => invoke("wp_clone_stop", { job }),
   cloneForget: (job) => invoke("wp_clone_forget", { job }),
   cloneUnfinished: (name) => invoke("wp_clone_unfinished", { name }),
@@ -484,6 +488,10 @@ function mockWp(): WpApi {
     savedConnections: async () => [
       { id: "k3j9x2ab", name: "Production", site: "legacy.stack", host: "203.0.113.10", user: "master", protocol: "sftp" },
     ],
+    cloneCheck: async (source) => {
+      await wait(900);
+      return previewCheck(source.kind === "new" ? source.connection.host || "example.com" : "203.0.113.10");
+    },
     cloneInspect: async (_job, source) => {
       await wait(900);
       const files = source.kind === "files";

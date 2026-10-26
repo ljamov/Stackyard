@@ -841,5 +841,21 @@
   "List scheduled tasks": "Прикажи закажани задачи",
   "Look at a WordPress site": "Погледни WordPress сајт",
   "Read a WordPress debug log": "Прочитај WordPress debug лог",
-  "Switch WordPress debugging": "Вклучи или исклучи WordPress debug"
+  "Switch WordPress debugging": "Вклучи или исклучи WordPress debug",
+  "Check connection": "Провери ја врската",
+  "Connection check": "Проверка на врската",
+  "Everything works.": "Сè работи.",
+  "Only do this if you know the server was rebuilt or moved.": "Направи го ова само ако знаеш дека серверот е повторно поставен или преместен.",
+  "Tries each step and shows where it stops and what to do.": "Го проба секој чекор и покажува каде застанува и што да направиш.",
+  "Trust the new key": "Верувај му на новиот клуч",
+  "Trust this certificate": "Верувај му на овој сертификат",
+  "Find the server": "Најди го серверот",
+  "Reach the port": "Стигни до портата",
+  "Secure handshake": "Безбедно поврзување",
+  "Log in": "Најава",
+  "Open a session": "Отвори сесија",
+  "Open the files": "Отвори ги датотеките",
+  "Run commands": "Изврши команди",
+  "Internet or firewall": "Интернет или заштитен ѕид",
+  "Login or settings": "Најава или поставки"
 }

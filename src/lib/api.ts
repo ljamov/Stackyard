@@ -462,6 +462,25 @@ export type RemoteTest = {
   key_changed: boolean;
 };
 
+export type ConnectionStage = "find" | "reach" | "handshake" | "login" | "session" | "files" | "commands";
+/** Whose side a connection problem is on. */
+export type ConnectionWhose = "internet" | "server" | "access" | "stackyard";
+export type ConnectionStep = {
+  stage: ConnectionStage;
+  status: "ok" | "failed" | "warning" | "skipped";
+  detail: string;
+  whose?: ConnectionWhose;
+  /** What to try. */
+  fix?: string;
+};
+export type ConnectionReport = {
+  steps: ConnectionStep[];
+  server_key?: string;
+  /** An FTPS certificate the system does not trust, which can be trusted by hand. */
+  certificate?: string;
+  key_changed: boolean;
+};
+
 export type RemoteEntry = { name: string; dir: boolean; size: number; modified: number | null };
 export type RemoteListing = { dir: string; root: string; entries: RemoteEntry[] };
 export type TransferDirection = "upload" | "download";
@@ -756,6 +775,8 @@ export interface Api {
   /** Trusts a certificate or server key; null forgets the trusted one. */
   remoteTrust(id: string, fingerprint: string | null): Promise<RemoteConnections>;
   remoteTest(id: string): Promise<RemoteTest>;
+  /** Connects step by step and says where it stops and what to try. */
+  remoteCheck(id: string): Promise<ConnectionReport>;
   remoteBrowse(id: string, dir: string | null): Promise<RemoteListing>;
   /** What would be transferred; `paths` limits it to picked files and folders. */
   remotePlan(
@@ -976,6 +997,7 @@ const tauriApi: Api = {
   remoteRemove: (id) => invoke("remote_remove", { id }),
   remoteTrust: (id, fingerprint) => invoke("remote_trust", { id, fingerprint }),
   remoteTest: (id) => invoke("remote_test", { id }),
+  remoteCheck: (id) => invoke("remote_check", { id }),
   remoteBrowse: (id, dir) => invoke("remote_browse", { id, dir }),
   remotePlan: (id, direction, compare, del, paths) =>
     invoke("remote_plan", { id, direction, compare, delete: del, paths }),
@@ -2021,6 +2043,10 @@ function browserApi(): Api {
         };
       return { start_dir: `/home/${c?.user ?? "user"}`, error: null, certificate: null, key_changed: false };
     },
+    remoteCheck: async (id) => {
+      await new Promise((r) => setTimeout(r, 900));
+      return previewCheck(remotes.find((x) => x.id === id)?.host ?? "203.0.113.10");
+    },
     remoteBrowse: async (id, dir) => {
       const c = remotes.find((x) => x.id === id);
       const root = c?.remote_dir || "/home/master/applications/app/public_html";
@@ -2395,4 +2421,26 @@ export const api: Api = isTauri() ? tauriApi : browserApi();
 
 export function errorText(e: unknown): string {
   return typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+}
+
+/** A check that stops after login, as when a host turns SSH off for a user (browser preview). */
+export function previewCheck(host: string): ConnectionReport {
+  return {
+    steps: [
+      { stage: "find", status: "ok", detail: `${host} is at 203.0.113.10.` },
+      { stage: "reach", status: "ok", detail: "Port 22 answered." },
+      { stage: "handshake", status: "ok", detail: "Secure connection made; the server's key is SHA256:UpPwj7uui9zzOD1iFsVGgiYtIgjSBY1fpynswD4Z90A." },
+      { stage: "login", status: "ok", detail: "Logged in as master." },
+      {
+        stage: "session",
+        status: "failed",
+        whose: "access",
+        detail: `${host} accepted the login for master, then closed the connection; the server said: "Too many sessions".`,
+        fix: "The login is right, but the account may not use it this way. In your hosting panel, check that SSH/SFTP access is turned on for master and the account is not suspended. Some hosts allow only one or two connections at once: close FileZilla or WinSCP, stop other clones from this server, wait a minute and try again.",
+      },
+      { stage: "files", status: "skipped", detail: "" },
+      { stage: "commands", status: "skipped", detail: "" },
+    ],
+    key_changed: false,
+  };
 }

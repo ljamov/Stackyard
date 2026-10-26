@@ -13,6 +13,7 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, SignatureScheme, StreamOwned};
 use sha2::{Digest, Sha256};
 
+use super::check::{self, Stage, Stopped, Whose};
 use super::{io_error, partial_name, set_mtime, Connection, Entry, OnBytes, Protocol, Remote};
 use crate::{Error, Result};
 
@@ -315,7 +316,11 @@ fn connect_tcp(host: &str, port: u16) -> Result<TcpStream> {
 
 impl Ftp {
     pub(crate) fn connect(connection: &Connection, password: Option<&str>) -> Result<Self> {
-        let tcp = connect_tcp(&connection.host, connection.port)?;
+        let addrs = check::find(&connection.host, connection.port).map_err(Stopped::into_error)?;
+        let tcp = check::reach(connection, &addrs).map_err(Stopped::into_error)?;
+        let _ = tcp.set_read_timeout(Some(TIMEOUT));
+        let _ = tcp.set_write_timeout(Some(TIMEOUT));
+        let _ = tcp.set_nodelay(true);
         let peer = tcp.peer_addr().map_err(|e| fail(e.to_string()))?.ip();
         let mut control = Control {
             stream: Stream::Plain(tcp),
@@ -745,6 +750,83 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let day_of_year = (153 * month_from_march + 2) / 5 + day - 1;
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     era * 146_097 + day_of_era - 719_468
+}
+
+/// Finds and reaches the server, logs in, and lists the start folder.
+pub(crate) fn check(connection: &Connection, password: Option<&str>) -> check::Report {
+    let mut done = Vec::new();
+    let reached = check::find(&connection.host, connection.port).and_then(|addrs| {
+        done.push(check::ok(
+            Stage::Find,
+            format!("{} is at {}.", connection.host, addrs[0].ip()),
+        ));
+        check::reach(connection, &addrs)
+    });
+    if let Err(stop) = reached {
+        return check::report(connection.protocol, done, Some(stop), None);
+    }
+    done.push(check::ok(
+        Stage::Reach,
+        format!("Port {} answered.", connection.port),
+    ));
+    let mut ftp = match Ftp::connect(connection, password) {
+        Ok(ftp) => ftp,
+        Err(e) => {
+            let text = e.to_string();
+            let mut stop = if text.contains("refused the user name") {
+                check::login_refused(
+                    connection,
+                    false,
+                    Some(text.trim_start_matches("the server ").to_string()),
+                )
+            } else if matches!(e, Error::RemoteCertificate { .. }) {
+                Stopped::new(
+                    Stage::Login,
+                    Whose::Server,
+                    format!("The server's certificate is not trusted ({text})."),
+                    "If this is your host's server, trust the certificate below. Hosts with shared servers often use a certificate made out to the server's own name instead of your domain.",
+                )
+            } else if text.contains("does not offer FTPS") {
+                Stopped::new(
+                    Stage::Login,
+                    Whose::Server,
+                    "This server does not offer FTPS.",
+                    "Connect with SFTP (best) or plain FTP instead.",
+                )
+            } else {
+                Stopped::new(
+                    Stage::Login,
+                    Whose::Server,
+                    format!("Logging in failed: {text}."),
+                    "Check the user name, password and port, then try again in a few minutes.",
+                )
+            };
+            if matches!(e, Error::RemoteCertificate { .. }) {
+                stop.typed = Some(Box::new(e));
+            }
+            return check::report(connection.protocol, done, Some(stop), None);
+        }
+    };
+    done.push(check::ok(
+        Stage::Login,
+        format!("Logged in as {}.", connection.user),
+    ));
+    let stop = match ftp.start_dir() {
+        Ok(dir) => {
+            done.push(check::ok(
+                Stage::Files,
+                format!("Files can be listed; the server starts in {dir}."),
+            ));
+            None
+        }
+        Err(e) => Some(Stopped::new(
+            Stage::Files,
+            Whose::Internet,
+            format!("Logged in, but listing files failed: {e}."),
+            "FTP opens a second connection for each listing; a firewall on this computer or the network may block it. Try SFTP, or allow Stackyard in the firewall.",
+        )),
+    };
+    check::report(connection.protocol, done, stop, None)
 }
 
 #[cfg(test)]

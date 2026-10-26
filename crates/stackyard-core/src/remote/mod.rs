@@ -7,6 +7,7 @@
 //! VPS, all offer SFTP or FTP, so these cover them without a separate
 //! integration per host.
 
+pub mod check;
 mod ftp;
 pub mod secrets;
 mod sftp;
@@ -612,6 +613,40 @@ impl Sessions {
 
     pub fn remove_file(&self, connection: &Connection, remote: &str) -> Result<()> {
         self.with(connection, |r| r.remove_file(remote))
+    }
+
+    /// Connects one step at a time and reports each step, so a failure
+    /// says plainly where it stopped and what to try. `secret` is for a
+    /// connection typed in but not saved; saved ones use their stored one.
+    pub fn check(&self, connection: &Connection, secret: Option<Option<String>>) -> check::Report {
+        self.close(&connection.id);
+        let draft = self.drafts.lock().unwrap().get(&connection.id).cloned();
+        let secret = match secret.or(draft) {
+            Some(secret) => secret,
+            None => match secrets::get(&secret_account(&connection.id)) {
+                Ok(secret) => secret,
+                Err(e) => {
+                    let stop = check::Stopped::new(
+                        check::Stage::Login,
+                        check::Whose::Stackyard,
+                        format!("The saved password could not be read: {e}."),
+                        "Type the password again in the connection's settings.",
+                    );
+                    return check::report(connection.protocol, Vec::new(), Some(stop), None);
+                }
+            },
+        };
+        let report = match connection.protocol {
+            Protocol::Sftp => sftp::check(connection, secret),
+            Protocol::Ftps | Protocol::Ftp => ftp::check(connection, secret.as_deref()),
+        };
+        // A first connect to a saved connection remembers the key, as logging in does.
+        if let (None, Some(key)) = (&connection.server_key, &report.server_key) {
+            if RemoteStore::load().is_ok_and(|s| s.get(&connection.id).is_ok()) {
+                let _ = remember_key(&connection.id, key.clone());
+            }
+        }
+        report
     }
 
     /// Logs in and reports where the server starts, to check the settings work.

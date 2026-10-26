@@ -750,3 +750,13 @@ details summary { cursor: pointer; color: var(--text-2); }
 .facts-grid .site-versions { margin-top: 0; }
 .site-size { gap: 4px; }
 .site-size-parts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+
+/* Check connection (components/ConnectionCheck.tsx): one row per step */
+.conn-check { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.conn-step { display: flex; gap: 10px; align-items: flex-start; }
+.conn-mark { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--bg); background: var(--muted); }
+.conn-step.ok .conn-mark { background: var(--ok); }
+.conn-step.failed .conn-mark { background: var(--error); }
+.conn-step.warning .conn-mark { background: var(--warn); }
+.conn-step.skipped { opacity: 0.6; }
+.conn-whose { margin-left: 8px; padding: 1px 6px; border-radius: 4px; font-size: 11px; background: var(--surface-2); color: var(--text-2); }

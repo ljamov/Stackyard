@@ -58,6 +58,24 @@ back to `config/secrets.toml`, readable only by you.
   shows its fingerprint and offers *Trust this certificate*, after which only
   that exact certificate is accepted.
 
+### When connecting fails
+
+Every connection error says what failed, whose side the problem is on
+(internet or firewall, the server, the login or settings, or Stackyard) and
+what to try. **Check connection** (under a failed Test, and under a failed
+Clone from a live server) goes through each step and stops at the one that
+fails:
+
+| Step | When it fails |
+| --- | --- |
+| **Find the server** | The address is mistyped, is a web address (`https://…`) instead of a server name, or this computer is offline. |
+| **Reach the port** | *Nothing accepts connections*: wrong port or protocol (SFTP is usually 22, FTP 21; some hosts use their own). *No answer*: a firewall, often the host only allowing listed IP addresses or blocking yours after failed logins. |
+| **Secure handshake** | The port is FTP or something else, not SSH; or the server closed the connection before login, usually a blocked IP. |
+| **Log in** | Wrong user name, password or key. Use the SFTP/FTP user from the hosting panel. |
+| **Open a session** | The login is right but the server hung up: SSH/SFTP is off for that user, the account is suspended, or it allows only one or two connections at once (close FileZilla, stop other clones). The server's own reason is shown when it gave one. |
+| **Open the files** | SFTP is turned off for the user; turn it on, or use FTPS/FTP. |
+| **Run commands** | Only a warning: the user may move files but not run commands. Clone from live then copies the database through a small temporary helper on the website. |
+
 ### Cloudways
 
 Use SFTP with the server's **Public IP**, your **application's** SFTP user and

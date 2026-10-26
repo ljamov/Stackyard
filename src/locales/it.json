@@ -841,5 +841,21 @@
   "List scheduled tasks": "Elenca le attività pianificate",
   "Look at a WordPress site": "Guarda un sito WordPress",
   "Read a WordPress debug log": "Leggi il log di debug di WordPress",
-  "Switch WordPress debugging": "Attiva o disattiva il debug di WordPress"
+  "Switch WordPress debugging": "Attiva o disattiva il debug di WordPress",
+  "Check connection": "Verifica connessione",
+  "Connection check": "Verifica della connessione",
+  "Everything works.": "Funziona tutto.",
+  "Only do this if you know the server was rebuilt or moved.": "Fallo solo se sai che il server è stato ricostruito o spostato.",
+  "Tries each step and shows where it stops and what to do.": "Prova ogni passaggio e mostra dove si ferma e cosa fare.",
+  "Trust the new key": "Fidati della nuova chiave",
+  "Trust this certificate": "Fidati di questo certificato",
+  "Find the server": "Trova il server",
+  "Reach the port": "Raggiungi la porta",
+  "Secure handshake": "Connessione sicura",
+  "Log in": "Accedi",
+  "Open a session": "Apri una sessione",
+  "Open the files": "Apri i file",
+  "Run commands": "Esegui comandi",
+  "Internet or firewall": "Internet o firewall",
+  "Login or settings": "Accesso o impostazioni"
 }

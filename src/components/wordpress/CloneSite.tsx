@@ -15,6 +15,7 @@ import {
 import { size } from "./WordPressTools";
 import { closeClone, editClone, minimizeClone, retryClone, startClone, stopClone, useClones } from "../../lib/clones";
 import { CloneProgress } from "./Clones";
+import { ConnectionCheck } from "../ConnectionCheck";
 
 type T = ReturnType<typeof useT>;
 type From = "saved" | "new" | "files";
@@ -497,6 +498,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
           {error}
         </p>
       )}
+      {error && !needsAddress && from !== "files" && <ConnectionCheck run={() => wp.cloneCheck(source())} />}
     </section>
   );
 }
@@ -566,6 +568,9 @@ function CloneJob({ id, onCloned }: { id: string; onCloned: (domain: string) => 
         <p className="error small" role="alert">
           {job.error}
         </p>
+      )}
+      {job.state === "failed" && job.source && job.source.kind !== "files" && (
+        <ConnectionCheck run={() => wp.cloneCheck(job.source!)} />
       )}
       <div className="row">
         {job.state === "running" ? (

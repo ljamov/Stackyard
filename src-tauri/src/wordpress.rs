@@ -521,6 +521,36 @@ pub async fn wp_clone_inspect(
     .await
 }
 
+/// Checks the server login of a clone one step at a time, saying where it
+/// stops and what to try.
+#[tauri::command]
+pub async fn wp_clone_check(
+    app: AppHandle,
+    source: SourceInput,
+) -> CmdResult<remote::check::Report> {
+    require_clone()?;
+    blocking(move || {
+        let state = app.state::<CloneState>();
+        match source {
+            SourceInput::Saved { id } => {
+                let connection = RemoteStore::load()
+                    .and_then(|s| s.get(&id).cloned())
+                    .map_err(err)?;
+                Ok(state.sessions.check(&connection, None))
+            }
+            SourceInput::New { mut connection } => {
+                let password = connection.password.take();
+                let draft = remote::draft(connection).map_err(err)?;
+                let report = state.sessions.check(&draft, Some(password));
+                state.sessions.forget(&draft.id);
+                Ok(report)
+            }
+            SourceInput::Files { .. } => Err("backup files need no connection".into()),
+        }
+    })
+    .await
+}
+
 /// Clones the live site into a new site, starting MySQL or MariaDB first
 /// and the web server after. Other clones can run at the same time, each
 /// under its own `job`. Progress comes as `wp-clone-progress` events.

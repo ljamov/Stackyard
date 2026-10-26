@@ -49,6 +49,14 @@ Update button, and the app shows its own version's section after it updates.
   `backup_database` work with PostgreSQL too. Pushing to and pulling from a live site stays yours.
 - **Fixed: the WordPress MCP tools didn't see WordPress sites in a parked folder** (such as the
   sites folder), so `run_wp_cli` and the staging tools said there was no such site.
+- **Clear connection errors.** When connecting to a server fails, Stackyard now says what failed,
+  whose side the problem is on (internet or firewall, the server, the login or settings, or
+  Stackyard), the server's own reason when it gave one, and what to try. "could not open a
+  session: Disconnected" now reads, for example, that the server accepted the login and then closed
+  the connection, and to check that SSH/SFTP is on for the user and that no other program is
+  connected. **Check connection** under a failed clone or Test goes through each step (find the
+  server, reach the port, handshake, log in, open a session, open the files, run commands) and shows
+  where it stops.
 
 ## 0.15.0
 
