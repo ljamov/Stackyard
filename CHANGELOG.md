@@ -26,6 +26,16 @@ Update button, and the app shows its own version's section after it updates.
 - **Clones go on after an update.** A clone from a live server that was running when Stackyard
   updated or quit starts again by itself and continues where it stopped. Stopped or failed clones
   are shown again too, with their Try again button. The update notice says so while a clone runs.
+- **Clone from a live server: tidier server form.** Connect with, Server address and Port share
+  the first row (20/60/20), User name and Password the second, Folder on the server and Private
+  key the third.
+- **The live login is saved once.** The server typed into Clone from a live server is kept with
+  the new site under Manage › Servers & Git as Live (password in the system's password store),
+  ready for live pull and push and editable there. Cloning the same site again from the same
+  server, user and folder updates that connection instead of adding a second one.
+- **Clone progress stays put.** The downloaded amount and percent (e.g. 50.2 MB / 562.4 MB · 8%)
+  now sit at a fixed spot above the bar, and the file being copied goes on its own line below it,
+  so a long path no longer pushes the numbers around.
 - **Clear connection errors.** When connecting to a server fails, Stackyard now says what failed,
   whose side the problem is on (internet or firewall, the server, the login or settings, or
   Stackyard), the server's own reason when it gave one, and what to try. "could not open a

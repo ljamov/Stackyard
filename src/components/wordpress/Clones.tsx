@@ -10,8 +10,17 @@ export function CloneProgress({ clone }: { clone: Clone }) {
   const p = clone.progress;
   const percent = clonePercent(p);
   const bytes = p?.stage === "files" && p.total > 0 ? `${size(p.done)} / ${size(p.total)}` : null;
+  const message = p ? p.message : t("Starting…");
+  // The amount sits at a fixed spot above the bar; the changing file name goes
+  // on its own line below, cut to one line, so a long path never moves it.
   return (
-    <div className="progress-line">
+    <div className="progress-line clone-progress">
+      <div className="clone-progress-head small">
+        <span>{p ? stageText(t, p.stage) : t("Starting…")}</span>
+        {(bytes || percent !== null) && (
+          <span className="mono clone-progress-amount">{[bytes, percent !== null && `${percent}%`].filter(Boolean).join(" · ")}</span>
+        )}
+      </div>
       <div
         className="progress"
         role="progressbar"
@@ -22,11 +31,11 @@ export function CloneProgress({ clone }: { clone: Clone }) {
       >
         <div className={percent === null ? "progress-fill busy" : "progress-fill"} style={{ width: `${percent ?? 30}%` }} />
       </div>
-      <span className="muted small clone-progress-text">
-        {p ? `${stageText(t, p.stage)}: ${p.message}` : t("Starting…")}
-        {bytes && <span className="mono"> · {bytes}</span>}
-        {percent !== null && <span className="mono"> · {percent}%</span>}
-      </span>
+      {p && (
+        <span className="muted small clone-progress-file" title={message}>
+          {message}
+        </span>
+      )}
     </div>
   );
 }

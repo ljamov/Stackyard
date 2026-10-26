@@ -205,6 +205,18 @@ impl RemoteStore {
         Ok(())
     }
 
+    /// The site's connection to the same server, user and folder as
+    /// `connection`, so saving it again updates that one.
+    pub fn find_same(&self, site: &str, connection: &Connection) -> Option<&Connection> {
+        let folder = |c: &Connection| c.remote_dir.trim_end_matches('/').to_string();
+        self.connections.iter().find(|c| {
+            c.site == site
+                && c.host.eq_ignore_ascii_case(&connection.host)
+                && c.user == connection.user
+                && folder(c) == folder(connection)
+        })
+    }
+
     /// Moves a site's connections to its new domain, e.g. after its domain
     /// ending changed.
     pub fn rename_site(&mut self, old: &str, new: &str) {
@@ -518,6 +530,9 @@ impl Sessions {
 
     /// Saves a copy of a connection (a draft, or one saved for another
     /// site) as `name` for `site`, with its password and trusted server key.
+    /// When the site already has a connection to the same server, user and
+    /// folder, that one is updated instead of adding a second; it keeps its
+    /// name, local folder and skip list.
     pub fn save_copy(&self, connection: &Connection, site: &str, name: &str) -> Result<Connection> {
         let draft = self.drafts.lock().unwrap().get(&connection.id).cloned();
         let mut input = input_of(connection)?;
@@ -527,7 +542,20 @@ impl Sessions {
         input.site = site.to_string();
         input.name = name.to_string();
         let mut store = RemoteStore::load()?;
-        let saved = store.add(input)?;
+        let same = store.find_same(site, connection).map(|c| c.id.clone());
+        let saved = match same {
+            Some(id) => {
+                let old = store.get(&id)?.clone();
+                let input = ConnectionInput {
+                    name: old.name.clone(),
+                    local_dir: old.local_dir.clone(),
+                    skip: Some(old.skip.clone()),
+                    ..input
+                };
+                store.update(&id, input)?
+            }
+            None => store.add(input)?,
+        };
         store.set_server_key(&saved.id, connection.server_key.clone())?;
         store.save()?;
         Ok(Connection {
@@ -973,6 +1001,41 @@ mod tests {
         assert_eq!(reloaded.get("abcd2345").unwrap(), &c);
         assert_eq!(reloaded.for_site("myapp.stack").count(), 1);
         assert_eq!(reloaded.for_site("other.stack").count(), 0);
+    }
+
+    #[test]
+    fn finds_the_same_server_user_and_folder() {
+        let path = crate::testutil::tempdir().join(FILE);
+        let mut store = RemoteStore::load_from(&path).unwrap();
+        let saved = validate("abcd2345".into(), input(), None).unwrap();
+        store.connections.push(saved);
+        let draft = validate(
+            "draft-x".into(),
+            ConnectionInput {
+                site: "draft".into(),
+                host: "203.0.113.10".into(),
+                port: Some(2222),
+                remote_dir: "/home/master/applications/abc/public_html".into(),
+                ..input()
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            store.find_same("myapp.stack", &draft).unwrap().id,
+            "abcd2345"
+        );
+        assert!(store.find_same("other.stack", &draft).is_none());
+        let other_user = Connection {
+            user: "someone".into(),
+            ..draft.clone()
+        };
+        assert!(store.find_same("myapp.stack", &other_user).is_none());
+        let other_folder = Connection {
+            remote_dir: "/home/master/applications/xyz/public_html".into(),
+            ..draft
+        };
+        assert!(store.find_same("myapp.stack", &other_folder).is_none());
     }
 
     #[test]
