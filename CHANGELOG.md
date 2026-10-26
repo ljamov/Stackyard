@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.14.0
 
 - **Push and pull moved to Servers & Git.** A copy of a live WordPress site has a **Live site** tab
   in Manage › Servers & Git with Pull from live, Push to live and the live backups. The Pull and Push
@@ -20,6 +20,8 @@ Update button, and the app shows its own version's section after it updates.
   removed itself."** The helper Stackyard puts on the live server counted its 30 minutes from this
   computer's clock, so a clock running behind the server's made it expire before it started. It now
   counts from when it lands on the server, by the server's own clock.
+- **Fixed: Meilisearch couldn't be installed while a new release was still uploading its builds.**
+  Stackyard now takes the newest Meilisearch release that has a download for your system.
 - **Remote servers: Upload changes and Download changes show how far the compare is.** Instead of
   only "… files so far", you now see which side is being listed, files so far of about how many,
   a filled progress bar, the time left at the pace so far, and the folder being looked at. The

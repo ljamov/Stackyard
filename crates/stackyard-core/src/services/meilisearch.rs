@@ -23,26 +23,24 @@ pub(super) fn asset_name(p: Platform) -> Option<&'static str> {
     })
 }
 
-/// Checked against the SHA-256 GitHub records for each uploaded file.
+/// Checked against the SHA-256 GitHub records for each uploaded file. A
+/// release still uploading its builds is passed over for the newest one
+/// that has this platform's file.
 pub(super) fn resolve(http: &Http, platform: Platform) -> Result<Release> {
-    let latest = super::github::latest(http, REPO)?;
-    let no_build = || Error::NoBuild {
-        name: "Meilisearch".into(),
-        version: latest.version().into(),
-        platform: platform.to_string(),
+    let Some(file_name) = asset_name(platform) else {
+        return Err(Error::NoBuild {
+            name: "Meilisearch".into(),
+            version: super::github::latest(http, REPO)?.version().into(),
+            platform: platform.to_string(),
+        });
     };
-    let file_name = asset_name(platform).ok_or_else(no_build)?;
-    let asset = latest.asset(file_name).ok_or_else(no_build)?;
-    let checksum = asset.sha256().ok_or_else(|| Error::Download {
-        url: asset.browser_download_url.clone(),
-        message: "GitHub lists no checksum for this file".into(),
-    })?;
-    Ok(Release {
-        version: latest.version().to_string(),
-        url: asset.browser_download_url.clone(),
-        file_name: file_name.to_string(),
-        checksum,
-    })
+    super::github::newest_with(
+        http,
+        REPO,
+        "Meilisearch",
+        &[file_name.to_string()],
+        platform,
+    )
 }
 
 pub(super) fn spec(ctx: &Context) -> Result<ProcessSpec> {
