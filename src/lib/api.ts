@@ -694,6 +694,10 @@ export interface Api {
   setTerminal(on: boolean): Promise<TerminalStatus>;
   /** Fires when a terminal or an AI tool changed the sites. */
   onSitesChanged(handler: () => void): Promise<() => void>;
+  /** What the tray menu asked the window to show (`new-site`, `screen:Sites`), once. */
+  takeTrayAction(): Promise<string | null>;
+  /** Fires when the tray menu has something for the window to show. */
+  onTrayAction(handler: () => void): Promise<() => void>;
   /** Starts a shell for the Terminal tab in `folder` (the home folder when null); returns its number. */
   consoleOpen(folder: string | null, cols: number, rows: number): Promise<number>;
   consoleWrite(id: number, data: string): Promise<void>;
@@ -922,6 +926,8 @@ const tauriApi: Api = {
   terminalStatus: () => invoke("terminal_status"),
   setTerminal: (on) => invoke("set_terminal", { on }),
   onSitesChanged: (handler) => listen("sites-changed", () => handler()),
+  takeTrayAction: () => invoke("take_tray_action"),
+  onTrayAction: (handler) => listen("tray-action", () => handler()),
   consoleOpen: (folder, cols, rows) => invoke("console_open", { folder, cols, rows }),
   consoleWrite: (id, data) => invoke("console_write", { id, data }),
   consoleResize: (id, cols, rows) => invoke("console_resize", { id, cols, rows }),
@@ -1732,6 +1738,8 @@ function browserApi(): Api {
       terminal = { ...terminal, on, places: on ? ["~/.zshrc"] : [] };
       return terminal;
     },
+    takeTrayAction: async () => null,
+    onTrayAction: async () => () => {},
     onSitesChanged: async (handler) => {
       // Its own entry each time, as with the app's events, even for the same function.
       const entry = () => handler();
