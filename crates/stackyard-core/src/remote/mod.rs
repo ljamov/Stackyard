@@ -92,7 +92,7 @@ pub fn default_skip() -> Vec<String> {
 }
 
 /// What a person fills in to add or change a connection.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectionInput {
     pub site: String,
     pub name: String,
@@ -108,8 +108,8 @@ pub struct ConnectionInput {
     pub local_dir: String,
     pub skip: Option<Vec<String>>,
     /// The password, or the key's passphrase. `None` keeps the stored one;
-    /// an empty string removes it.
-    #[serde(default)]
+    /// an empty string removes it. Never written out.
+    #[serde(default, skip_serializing)]
     pub password: Option<String>,
 }
 
@@ -873,6 +873,17 @@ pub(crate) fn io_error(path: &Path) -> impl FnOnce(std::io::Error) -> Error + '_
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_typed_in_password_is_never_written_out() {
+        let mut typed = input();
+        typed.password = Some("hunter2".into());
+        let json = serde_json::to_string(&typed).unwrap();
+        assert!(!json.contains("hunter2"), "{json}");
+        let back: ConnectionInput = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.password, None);
+        assert_eq!(back.host, typed.host);
+    }
 
     fn input() -> ConnectionInput {
         ConnectionInput {

@@ -920,8 +920,7 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         Command::Daemon => daemon()?,
         Command::System { action: None } => {
             let manager = ServiceManager::open();
-            let wanted = manager.system_wanted()?;
-            let status = wanted.status(&system::applied(manager.home()));
+            let (_, status) = manager.system_status()?;
             if status.needed.is_empty() {
                 println!("Local domains and HTTPS are set up.");
             } else {
@@ -1523,9 +1522,7 @@ fn up(services: &[String]) -> stackyard_core::Result<()> {
     let ports = Ports::current(manager.home());
     println!("Web server on ports {} and {}", ports.http, ports.https);
     print_sites(manager)?;
-    let status = manager
-        .system_wanted()?
-        .status(&system::applied(manager.home()));
+    let (_, status) = manager.system_status()?;
     if !status.needed.is_empty() {
         println!(
             "Local domains need `stackyard system setup` first; .localhost addresses work now."

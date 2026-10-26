@@ -824,6 +824,7 @@
   "Not measured yet": "Aún sin medir",
   "Size": "Tamaño",
   "unknown (start its server)": "desconocido (inicia su servidor)",
+  "Clones from a live server pause for the update and go on after it.": "Las clonaciones desde un servidor en vivo se pausan durante la actualización y siguen después.",
   "Check connection": "Comprobar conexión",
   "Connection check": "Comprobación de conexión",
   "Everything works.": "Todo funciona.",

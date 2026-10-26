@@ -306,7 +306,7 @@ fn ensure_web(engine: &Engine) -> CmdResult<()> {
 }
 
 /// Where to clone from, as the New site form fills it in.
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum SourceInput {
     /// A connection saved for another site.
@@ -360,7 +360,11 @@ fn source(
             match draft {
                 Some(draft) if !inspecting => Ok(live::Source::Server(Box::new(draft))),
                 _ => {
-                    let password = connection.password.take();
+                    // After a restart the password comes from the keychain.
+                    let password = connection
+                        .password
+                        .take()
+                        .or_else(|| remote::secrets::get(&clone_secret(job)).ok().flatten());
                     let mut draft = remote::draft(connection).map_err(err)?;
                     forget_draft(state, job);
                     draft.server_key = state.sessions.login(&draft, password).map_err(err)?;
@@ -377,6 +381,93 @@ fn source(
             files.into_iter().map(PathBuf::from).collect(),
         )),
     }
+}
+
+/// A clone kept in `wordpress/clones.json`, so it outlives the app: one
+/// running when the app quit (for an update, say) starts again the next
+/// time and continues where it stopped; a stopped or failed one is shown
+/// again with its Continue button. A typed-in password is kept in the
+/// system's keychain until the clone is done or closed.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SavedClone {
+    job: String,
+    /// Where it comes from, as the clone list shows it.
+    from: String,
+    source: SourceInput,
+    options: live::CloneOptions,
+    /// `running`, `stopped` or `failed`.
+    state: String,
+    #[serde(default)]
+    error: Option<String>,
+    /// Still running in this app (the window was closed and opened again).
+    #[serde(default, skip_deserializing)]
+    active: bool,
+}
+
+/// How a clone ended, for a window that did not start it.
+#[derive(Clone, Serialize)]
+struct CloneEnded {
+    job: String,
+    result: Option<live::Cloned>,
+    error: Option<String>,
+}
+
+static SAVED_CLONES: Mutex<()> = Mutex::new(());
+
+/// Set when the app quits or installs an update: a clone that fails then
+/// (its database stopped under it) stays `running`, so it starts again.
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
+pub fn set_quitting(quitting: bool) {
+    QUITTING.store(quitting, Ordering::SeqCst);
+}
+
+fn clones_file() -> PathBuf {
+    paths::home().join("wordpress").join("clones.json")
+}
+
+fn saved_clones() -> Vec<SavedClone> {
+    std::fs::read(clones_file())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Puts `clone` in the saved list in place of its job's old entry, or
+/// takes the job out when `clone` is `None`.
+fn save_clone(job: &str, clone: Option<SavedClone>) {
+    let _guard = SAVED_CLONES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut list = saved_clones();
+    list.retain(|c| c.job != job);
+    list.extend(clone);
+    let file = clones_file();
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_vec_pretty(&list) {
+        let _ = std::fs::write(file, json);
+    }
+}
+
+fn clone_secret(job: &str) -> String {
+    format!("clone-{job}")
+}
+
+fn forget_clone(job: &str) {
+    save_clone(job, None);
+    let _ = remote::secrets::delete(&clone_secret(job));
+}
+
+/// The clones kept from before the app last quit.
+#[tauri::command]
+pub fn wp_clones_saved(state: State<'_, CloneState>) -> Vec<SavedClone> {
+    let running = state.running.lock().unwrap();
+    let _guard = SAVED_CLONES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut list = saved_clones();
+    for clone in &mut list {
+        clone.active = running.contains_key(&clone.job);
+    }
+    list
 }
 
 /// Logs out of the connection typed in for this clone.
@@ -469,6 +560,7 @@ pub async fn wp_clone(
     job: String,
     source: SourceInput,
     options: live::CloneOptions,
+    from: Option<String>,
 ) -> CmdResult<live::Cloned> {
     require_clone()?;
     let stop = Arc::new(AtomicBool::new(false));
@@ -486,6 +578,22 @@ pub async fn wp_clone(
         }
         running.insert(job.clone(), (name.to_string(), stop.clone()));
     }
+    if let SourceInput::New { connection } = &source {
+        if let Some(password) = connection.password.as_deref().filter(|p| !p.is_empty()) {
+            let _ = remote::secrets::set(&clone_secret(&job), password);
+        }
+    }
+    let mut saved = SavedClone {
+        job: job.clone(),
+        from: from.unwrap_or_default(),
+        source: source.clone(),
+        options: options.clone(),
+        state: "running".into(),
+        error: None,
+        active: false,
+    };
+    save_clone(&job, Some(saved.clone()));
+    let stopped = stop.clone();
     let worker = app.clone();
     let id = job.clone();
     let result = blocking(move || {
@@ -535,9 +643,31 @@ pub async fn wp_clone(
         .lock()
         .unwrap()
         .remove(&job);
-    if result.is_ok() {
-        crate::sites_changed(&app);
+    match &result {
+        Ok(_) => {
+            forget_clone(&job);
+            crate::sites_changed(&app);
+        }
+        Err(_) if QUITTING.load(Ordering::SeqCst) => return result,
+        Err(e) => {
+            saved.state = if stopped.load(Ordering::SeqCst) {
+                "stopped"
+            } else {
+                "failed"
+            }
+            .into();
+            saved.error = Some(e.clone());
+            save_clone(&job, Some(saved));
+        }
     }
+    let _ = app.emit(
+        "wp-clone-ended",
+        CloneEnded {
+            job,
+            result: result.as_ref().ok().cloned(),
+            error: result.as_ref().err().cloned(),
+        },
+    );
     result
 }
 
@@ -554,6 +684,7 @@ pub fn wp_clone_stop(state: State<'_, CloneState>, job: String) {
 pub fn wp_clone_forget(state: State<'_, CloneState>, job: String) {
     if !state.running.lock().unwrap().contains_key(&job) {
         forget_draft(&state, &job);
+        forget_clone(&job);
     }
 }
 

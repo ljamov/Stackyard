@@ -131,7 +131,7 @@ pub struct Found {
 }
 
 /// What the user chose for the copy.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloneOptions {
     /// The new site's name, e.g. `shop` for `shop.stack`.
     pub name: String,
