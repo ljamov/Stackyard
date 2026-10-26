@@ -5,7 +5,9 @@
 //!   systemd-resolved gets a drop-in, both sending only Stackyard's endings
 //!   to [`crate::dns`]. Windows, and Linux without systemd-resolved, get a
 //!   marked block in the hosts file instead, which is rewritten when sites
-//!   change.
+//!   change. On Windows setup also lets the user's own account change the
+//!   hosts file, so Stackyard keeps its block up to date by itself
+//!   ([`sync_hosts`]) and new sites need no password prompt.
 //! - **HTTPS.** The web server's local root certificate is added to the
 //!   system's trusted certificates, so browsers accept the sites.
 //! - **Standard ports (Linux only).** Lets normal programs listen on ports
@@ -75,6 +77,9 @@ pub struct Applied {
     /// SHA-256 of the trusted certificate.
     pub certificate: Option<String>,
     pub ports: bool,
+    /// The user's own account may change the hosts file (Windows), so
+    /// [`sync_hosts`] adds new sites without asking for a password.
+    pub hosts_writable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -133,7 +138,10 @@ impl Wanted {
         let same_resolver = applied.resolver == Some(self.resolver);
         let names_ok = same_resolver
             && match self.resolver {
-                Resolver::HostsFile => self.domains.iter().all(|d| applied.domains.contains(d)),
+                Resolver::HostsFile => {
+                    self.domains.iter().all(|d| applied.domains.contains(d))
+                        && (self.os != Os::Windows || applied.hosts_writable)
+                }
                 _ => self.endings.iter().all(|e| applied.endings.contains(e)),
             };
         if !names_ok {
@@ -179,14 +187,21 @@ impl Wanted {
             domains: self.domains.clone(),
             certificate: self.certificate.as_deref().map(sha256),
             ports: self.os == Os::Linux,
+            hosts_writable: self.os == Os::Windows && self.resolver == Resolver::HostsFile,
         }
     }
 
     /// The script that makes it so: POSIX `sh` on macOS and Linux,
     /// PowerShell on Windows. Every value in it has been checked first.
     pub fn script(&self) -> String {
+        self.script_for(None)
+    }
+
+    /// The script, with `user` (a Windows account SID) allowed to change
+    /// the hosts file from then on.
+    fn script_for(&self, user: Option<&str>) -> String {
         if self.os == Os::Windows {
-            self.powershell()
+            self.powershell(user)
         } else {
             self.shell()
         }
@@ -263,7 +278,7 @@ impl Wanted {
         s
     }
 
-    fn powershell(&self) -> String {
+    fn powershell(&self, user: Option<&str>) -> String {
         let mut s = String::from("$ErrorActionPreference = 'Stop'\n");
         // Hosts file: drop the old block, add the new one.
         s.push_str(&format!(
@@ -283,6 +298,13 @@ impl Wanted {
             "Set-Content -LiteralPath $hosts -Value $keep -Encoding ASCII\n\
              ipconfig /flushdns | Out-Null\n",
         );
+        if let Some(sid) = user.filter(|s| is_sid(s)) {
+            // Lets Stackyard, running as this user, keep its block current.
+            s.push_str(&format!(
+                "& icacls.exe $hosts /grant '*{sid}:(M)' | Out-Null\n\
+                 if ($LASTEXITCODE -ne 0) {{ throw 'icacls could not change the hosts file permissions' }}\n"
+            ));
+        }
         if let Some(pem) = &self.certificate {
             s.push_str(&format!(
                 "$cert = New-TemporaryFile\n\
@@ -306,6 +328,103 @@ fn hosts_block(domains: &[String]) -> String {
     block.push_str(END);
     block.push('\n');
     block
+}
+
+/// A Windows security identifier like `S-1-5-21-1-2-3-1001`.
+fn is_sid(text: &str) -> bool {
+    text.strip_prefix("S-1-").is_some_and(|rest| {
+        !rest.is_empty()
+            && rest
+                .split('-')
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+    })
+}
+
+/// The hosts file with Stackyard's block replaced by one for `domains`,
+/// keeping everything else and the file's own line endings.
+fn with_block(text: &str, domains: &[String]) -> String {
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = String::new();
+    let mut skip = false;
+    for line in text.lines() {
+        let bare = line.trim_end_matches('\r');
+        if bare == BEGIN {
+            skip = true;
+        } else if bare == END {
+            skip = false;
+        } else if !skip {
+            out.push_str(bare);
+            out.push_str(newline);
+        }
+    }
+    for line in hosts_block(domains).lines() {
+        out.push_str(line);
+        out.push_str(newline);
+    }
+    out
+}
+
+/// Where the hosts file is.
+pub fn hosts_path() -> PathBuf {
+    if cfg!(windows) {
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        PathBuf::from(root).join(r"System32\drivers\etc\hosts")
+    } else {
+        PathBuf::from("/etc/hosts")
+    }
+}
+
+/// Keeps the hosts file's Stackyard block in step with the sites, without
+/// a password prompt, once setup let the user's account change the file.
+/// Returns whether the file was changed. When it can't be written any more
+/// (its permissions were reset), setup is shown as needed again.
+pub fn sync_hosts(home: &Path, wanted: &Wanted) -> Result<bool> {
+    sync_hosts_at(home, wanted, &hosts_path())
+}
+
+fn sync_hosts_at(home: &Path, wanted: &Wanted, hosts: &Path) -> Result<bool> {
+    let mut applied = applied(home);
+    if !applied.hosts_writable
+        || wanted.resolver != Resolver::HostsFile
+        || applied.resolver != Some(Resolver::HostsFile)
+    {
+        return Ok(false);
+    }
+    let text = std::fs::read_to_string(hosts).unwrap_or_default();
+    let next = with_block(&text, &wanted.domains);
+    let changed = next != text;
+    if changed {
+        if let Err(e) = std::fs::write(hosts, &next) {
+            applied.hosts_writable = false;
+            write_toml(&applied_file(home), &applied)?;
+            return Err(Error::SystemSetup(format!(
+                "could not update the hosts file: {e}"
+            )));
+        }
+        if wanted.os == Os::Windows {
+            let mut flush = Command::new("ipconfig");
+            flush.arg("/flushdns");
+            crate::platform::hide_console(&mut flush);
+            let _ = flush.output();
+        }
+    }
+    if changed || applied.domains != wanted.domains {
+        applied.domains = wanted.domains.clone();
+        write_toml(&applied_file(home), &applied)?;
+    }
+    Ok(changed)
+}
+
+/// The account Stackyard runs as (Windows), for setup to give it the
+/// right to change the hosts file. Asked before the password prompt, since
+/// an elevated script may run as another (administrator) account.
+fn current_user_sid() -> Option<String> {
+    let output =
+        powershell_command("[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value")
+            .output()
+            .ok()?;
+    let sid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    is_sid(&sid).then_some(sid)
 }
 
 /// Only letters, digits, hyphens and dots, so a name is safe in any script.
@@ -373,7 +492,12 @@ pub enum Elevate {
 /// A user-level step follows on Linux: Chrome and Firefox there keep their
 /// own certificate list, which `certutil` updates when it is installed.
 pub fn apply(home: &Path, wanted: &Wanted, how: Elevate) -> Result<()> {
-    let script = wanted.script();
+    let user = if wanted.os == Os::Windows {
+        current_user_sid()
+    } else {
+        None
+    };
+    let script = wanted.script_for(user.as_deref());
     let output = elevated(wanted.os, &script, how)
         .output()
         .map_err(|e| Error::SystemSetup(format!("could not ask for administrator rights: {e}")))?;
@@ -392,7 +516,9 @@ pub fn apply(home: &Path, wanted: &Wanted, how: Elevate) -> Result<()> {
             trust_in_browsers(pem);
         }
     }
-    write_toml(&applied_file(home), &wanted.applied())
+    let mut applied = wanted.applied();
+    applied.hosts_writable &= user.is_some();
+    write_toml(&applied_file(home), &applied)
 }
 
 fn elevated(os: Os, script: &str, how: Elevate) -> Command {
@@ -598,6 +724,66 @@ mod tests {
             more.status(&w.applied()).ready_domains,
             ["a.stack", "b.stack", "c.stack"]
         );
+    }
+
+    #[test]
+    fn windows_setup_lets_the_user_keep_the_hosts_file_current() {
+        let w = wanted(Os::Windows, Resolver::HostsFile);
+        let script = w.script_for(Some("S-1-5-21-11-22-33-1001"));
+        assert!(
+            script.contains("icacls.exe $hosts /grant '*S-1-5-21-11-22-33-1001:(M)'"),
+            "{script}"
+        );
+        assert!(!w.script_for(Some("S-1-5'; evil")).contains("icacls"));
+        assert!(!w.script().contains("icacls"));
+        assert!(!is_sid("S-1-"));
+        assert!(!is_sid("S-1-5--1"));
+
+        // Set up before Stackyard could keep the file current: once more.
+        let mut old = w.applied();
+        old.hosts_writable = false;
+        assert_eq!(
+            w.status(&old).needed.len(),
+            1,
+            "{:?}",
+            w.status(&old).needed
+        );
+        assert!(w.status(&w.applied()).needed.is_empty());
+    }
+
+    #[test]
+    fn rewrites_only_its_own_block_and_keeps_line_endings() {
+        let text = format!(
+            "127.0.0.1 localhost\r\n{BEGIN}\r\n127.0.0.1 old.stack\r\n{END}\r\n10.0.0.1 other\r\n"
+        );
+        assert_eq!(
+            with_block(&text, &["a.stack".into()]),
+            format!("127.0.0.1 localhost\r\n10.0.0.1 other\r\n{BEGIN}\r\n127.0.0.1 a.stack\r\n{END}\r\n")
+        );
+        assert_eq!(with_block("", &[]), format!("{BEGIN}\n{END}\n"));
+    }
+
+    #[test]
+    fn new_sites_go_into_the_hosts_file_without_setup() {
+        let home = crate::testutil::tempdir();
+        let hosts = home.join("hosts");
+        std::fs::write(&hosts, "127.0.0.1 localhost\n").unwrap();
+        let w = wanted(Os::Windows, Resolver::HostsFile);
+        // Not set up yet: nothing is touched.
+        assert!(!sync_hosts_at(&home, &w, &hosts).unwrap());
+        write_toml(&applied_file(&home), &w.applied()).unwrap();
+
+        let mut more = w.clone();
+        more.domains.push("c.stack".into());
+        assert!(more.status(&applied(&home)).needed.len() == 1);
+        assert!(sync_hosts_at(&home, &more, &hosts).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&hosts).unwrap(),
+            format!("127.0.0.1 localhost\n{BEGIN}\n127.0.0.1 a.stack\n127.0.0.1 b.stack\n127.0.0.1 c.stack\n{END}\n")
+        );
+        assert!(more.status(&applied(&home)).needed.is_empty());
+        // Already current: no write.
+        assert!(!sync_hosts_at(&home, &more, &hosts).unwrap());
     }
 
     #[test]

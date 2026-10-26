@@ -823,5 +823,6 @@
   "Measuring…": "Misurazione…",
   "Not measured yet": "Non ancora misurato",
   "Size": "Dimensione",
-  "unknown (start its server)": "sconosciuta (avvia il suo server)"
+  "unknown (start its server)": "sconosciuta (avvia il suo server)",
+  "Clones from a live server pause for the update and go on after it.": "I cloni da un server live si fermano per l'aggiornamento e riprendono dopo."
 }

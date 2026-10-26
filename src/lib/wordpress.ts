@@ -79,6 +79,18 @@ export type WpCloneSource =
   | { kind: "saved"; id: string }
   | { kind: "new"; connection: WpConnectionInput }
   | { kind: "files"; files: string[] };
+/** A clone kept from before the app last quit; `running` ones start again. */
+export type WpSavedClone = {
+  job: string;
+  from: string;
+  source: WpCloneSource;
+  options: WpCloneOptions;
+  state: "running" | "stopped" | "failed";
+  error: string | null;
+  /** Still running in the app: the window was closed and opened again. */
+  active: boolean;
+};
+export type WpCloneEnded = { job: string; result: WpCloned | null; error: string | null };
 export type WpFound = {
   route: WpRoute | null;
   roots: string[];
@@ -238,7 +250,9 @@ export interface WpApi {
   savedConnections(): Promise<WpSavedConnection[]>;
   /** `job` names one clone; any number can run at once. */
   cloneInspect(job: string, source: WpCloneSource, root: string | null, url: string | null): Promise<WpFound>;
-  clone(job: string, source: WpCloneSource, options: WpCloneOptions): Promise<WpCloned>;
+  clone(job: string, source: WpCloneSource, options: WpCloneOptions, from: string): Promise<WpCloned>;
+  clonesSaved(): Promise<WpSavedClone[]>;
+  onCloneEnded(handler: (e: WpCloneEnded) => void): Promise<() => void>;
   cloneStop(job: string): Promise<void>;
   /** Logs out of the server typed in for a clone that is closed. */
   cloneForget(job: string): Promise<void>;
@@ -308,7 +322,9 @@ const tauriWp: WpApi = {
   wooCreate: (domain, kind, count) => invoke("wp_woo_create", { domain, kind, count }),
   savedConnections: () => invoke("wp_saved_connections"),
   cloneInspect: (job, source, root, url) => invoke("wp_clone_inspect", { job, source, root, url }),
-  clone: (job, source, options) => invoke("wp_clone", { job, source, options }),
+  clone: (job, source, options, from) => invoke("wp_clone", { job, source, options, from }),
+  clonesSaved: () => invoke("wp_clones_saved"),
+  onCloneEnded: (handler) => listen<WpCloneEnded>("wp-clone-ended", (e) => handler(e.payload)),
   cloneStop: (job) => invoke("wp_clone_stop", { job }),
   cloneForget: (job) => invoke("wp_clone_forget", { job }),
   cloneUnfinished: (name) => invoke("wp_clone_unfinished", { name }),
@@ -525,6 +541,8 @@ function mockWp(): WpApi {
     },
     cloneStop: async (job) => void cloneStopped.add(job),
     cloneForget: async () => {},
+    clonesSaved: async () => [],
+    onCloneEnded: async () => () => {},
     cloneUnfinished: async () => false,
     onCloneProgress: async (handler) => {
       cloneHandlers.push(handler);
