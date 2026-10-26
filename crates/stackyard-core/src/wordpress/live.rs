@@ -122,6 +122,9 @@ pub struct Found {
     pub prefix: String,
     pub tables: usize,
     pub database_bytes: u64,
+    /// The files by part (core, themes, plugins, uploads), when they
+    /// could be counted.
+    pub files: Option<helper::Sizes>,
     /// Notes on how it will be copied, e.g. that the database comes
     /// through the helper because the server has no shell.
     pub notes: Vec<String>,
@@ -192,6 +195,13 @@ pub(super) const SKIP: &[&str] = &[
     "wp-snapshots",
     "error_log",
 ];
+
+/// What a clone leaves out of the files: the usual (`.git`, …) and [`SKIP`].
+fn clone_skip() -> Vec<String> {
+    let mut skip = remote::default_skip();
+    skip.extend(SKIP.iter().map(|s| s.to_string()));
+    skip
+}
 
 /// Folder names never searched for WordPress.
 const NOT_SEARCHED: &[&str] = &[
@@ -770,6 +780,23 @@ impl<'a> Server<'a> {
         }
     }
 
+    /// Asks the helper how much the site's files hold, by part.
+    pub(super) fn sizes(&self) -> Result<helper::Sizes> {
+        let skip = serde_json::to_string(&clone_skip()).unwrap_or_default();
+        let seconds = helper::SIZES_SECS.to_string();
+        let mut out = Vec::new();
+        self.call(
+            &[("do", "sizes"), ("skip", &skip), ("seconds", &seconds)],
+            &mut out,
+        )?;
+        serde_json::from_slice(&out).map_err(|_| {
+            fail(format!(
+                "the helper's answer could not be read: {}",
+                String::from_utf8_lossy(&out[..out.len().min(300)])
+            ))
+        })
+    }
+
     fn read_info(&self) -> Result<Info> {
         let mut out = Vec::new();
         self.call(&[("do", "info")], &mut out)?;
@@ -896,6 +923,7 @@ pub fn inspect(
                     .unwrap_or_default(),
                     prefix: config.prefix().to_string(),
                     database_bytes: size,
+                    files: Some(local_sizes(&unpacked.root)),
                     notes: vec![format!(
                         "The database comes from {}.",
                         sql.file_name().unwrap_or_default().to_string_lossy()
@@ -987,6 +1015,7 @@ fn inspect_server(
     let mut server = Server::open(sessions, connection, root, url, temp, &mut roots)?;
     server.upload_helper(temp)?;
     let info = server.info();
+    let files = info.as_ref().ok().and_then(|_| server.sizes().ok());
     server.remove_helper();
     let info = info?;
     let mut notes = Vec::new();
@@ -1025,6 +1054,7 @@ fn inspect_server(
         prefix: server.db.prefix.clone(),
         tables: info.tables.len(),
         database_bytes: info.tables.iter().map(|t| t.bytes).sum(),
+        files,
         notes,
     })
 }
@@ -1154,6 +1184,44 @@ impl Unpacked {
             .map(|(path, _)| path.clone())
             .ok_or_else(|| fail("no database file found"))
     }
+}
+
+/// How much the files of a WordPress folder on this computer hold, by part.
+fn local_sizes(root: &Path) -> helper::Sizes {
+    let skip = clone_skip();
+    let mut sizes = helper::Sizes {
+        complete: true,
+        ..helper::Sizes::default()
+    };
+    walk(root, &mut |path, meta| {
+        let Ok(rel) = path.strip_prefix(root) else {
+            return;
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        sizes.add(&rel, meta.len(), &skip);
+    });
+    for (dir, part) in [
+        ("themes", &mut sizes.themes),
+        ("plugins", &mut sizes.plugins),
+    ] {
+        let Ok(entries) = std::fs::read_dir(root.join("wp-content").join(dir)) else {
+            continue;
+        };
+        part.items = entries
+            .flatten()
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                match e.file_type() {
+                    Ok(t) if t.is_dir() => !skip.iter().any(|s| s == &name),
+                    Ok(t) if t.is_file() => {
+                        dir == "plugins" && name.ends_with(".php") && name != "index.php"
+                    }
+                    _ => false,
+                }
+            })
+            .count() as u64;
+    }
+    sizes
 }
 
 /// Calls `visit` for every file under `dir`.
@@ -1723,8 +1791,7 @@ fn clone_from_server<'a>(
 
     // Files
     if !work.state.files_done {
-        let mut skip = remote::default_skip();
-        skip.extend(SKIP.iter().map(|s| s.to_string()));
+        let mut skip = clone_skip();
         if let Some(h) = &s.helper {
             skip.push(h.file.clone());
         }
@@ -2290,6 +2357,89 @@ pub fn discard(home: &Path, name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A small WordPress folder: core, two themes, two plugins (one a
+    /// single file), uploads, a language file and a cache that is left out.
+    fn sample_site(root: &Path) {
+        for (rel, bytes) in [
+            ("index.php", 10),
+            ("wp-login.php", 20),
+            ("wp-config.php", 5),
+            ("wp-admin/admin.php", 100),
+            ("wp-includes/version.php", 30),
+            ("wp-content/themes/one/style.css", 40),
+            ("wp-content/themes/two/style.css", 50),
+            ("wp-content/plugins/index.php", 1),
+            ("wp-content/plugins/hello.php", 7),
+            ("wp-content/plugins/shop/shop.php", 200),
+            ("wp-content/uploads/2026/10/a.jpg", 1000),
+            ("wp-content/uploads/2026/10/b.jpg", 2000),
+            ("wp-content/languages/mk_MK.mo", 300),
+            ("wp-content/cache/page.html", 9000),
+            (".git/HEAD", 4),
+        ] {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, vec![b'x'; bytes]).unwrap();
+        }
+    }
+
+    #[test]
+    fn counts_site_files_by_part() {
+        let root = crate::testutil::tempdir();
+        sample_site(&root);
+        let sizes = local_sizes(&root);
+        let part = |files, bytes, items| helper::Part {
+            files,
+            bytes,
+            items,
+        };
+        assert_eq!(sizes.core, part(4, 160, 0));
+        assert_eq!(sizes.themes, part(2, 90, 2));
+        assert_eq!(sizes.plugins, part(3, 208, 2));
+        assert_eq!(sizes.uploads, part(2, 3000, 0));
+        assert_eq!(sizes.other, part(2, 305, 0));
+        assert_eq!(sizes.skipped, part(2, 9004, 0));
+        assert_eq!(sizes.total().files, 13);
+        assert_eq!(sizes.total().bytes, 3763);
+        assert!(sizes.complete);
+    }
+
+    /// The helper counts a folder on the server the same way, with the PHP
+    /// on this computer when there is one.
+    #[test]
+    fn helper_counts_the_same() {
+        let root = crate::testutil::tempdir();
+        sample_site(&root);
+        let db = DbSettings {
+            host: "localhost".into(),
+            user: "u".into(),
+            password: String::new(),
+            name: "d".into(),
+            charset: "utf8mb4".into(),
+            prefix: "wp_".into(),
+        };
+        let expected = local_sizes(&root);
+        let made = helper::make(&db, 1800).unwrap();
+        std::fs::write(root.join(&made.file), &made.source).unwrap();
+        let skip = serde_json::to_string(&clone_skip()).unwrap();
+        let Ok(out) = std::process::Command::new("php")
+            .arg(root.join(&made.file))
+            .arg("do=sizes")
+            .arg(format!("skip={skip}"))
+            .output()
+        else {
+            return; // no PHP here
+        };
+        let sizes: helper::Sizes = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+            panic!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            )
+        });
+        assert_eq!(sizes, expected);
+    }
 
     #[test]
     fn finds_domains_in_server_paths() {

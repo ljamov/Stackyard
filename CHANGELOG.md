@@ -4,6 +4,13 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **See how big a live site's files are before cloning it.** Clone from a live server now shows,
+  next to the database, the size of WordPress core, themes, plugins, media (uploads), other files
+  and all files together, with file counts, plus how much in caches and backups is left out. The
+  media choice shows how much **Download it all** downloads. Backup files are counted the same way.
+
 ## 0.15.0
 
 - **Clone several live sites at once.** Clone from a live server no longer waits for the clone
