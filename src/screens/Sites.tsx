@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, errorText, siteAddress, type PackProgress, type RuntimeFamily, type Site, type SiteFile, type SystemStatus } from "../lib/api";
+import { api, errorText, siteAddress, type PackProgress, type RuntimeFamily, type Site, type SiteFile, type SiteSize, type SystemStatus } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { closeTab, openTab, setLayout, siteTab, useLayout } from "../lib/layout";
@@ -50,6 +50,8 @@ export function Sites() {
   // The New site and Parked folders forms fold away; open or closed is kept.
   const { newSiteOpen } = useLayout();
   const sites = useLoad(api.listSites, []);
+  // Sizes as last measured in each site's tab; nothing is measured here.
+  const sizes = useLoad(api.siteSizes, {} as Record<string, SiteSize>);
   const runtimes = useLoad(api.listRuntimes, []);
   const parked = useLoad(api.listParked, []);
   const system = useLoad(api.systemStatus, null);
@@ -509,6 +511,7 @@ export function Sites() {
                     key={site.domain}
                     site={site}
                     parts={parts}
+                    size={sizes.data[site.domain]}
                     system={system.data}
                     families={runtimes.data}
                     onVersionChanged={() => {
@@ -528,9 +531,16 @@ export function Sites() {
   );
 }
 
+function bytesText(bytes: number) {
+  if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+}
+
 function SiteRow({
   site,
   parts,
+  size,
   families,
   onVersionChanged,
   onRemove,
@@ -540,6 +550,8 @@ function SiteRow({
   site: Site;
   /** Its drag handle and place in the order. */
   parts: RowParts;
+  /** The site's size when its tab last measured it. */
+  size?: SiteSize;
   families: RuntimeFamily[];
   onVersionChanged: () => void;
   onRemove: (domain: string) => void;
@@ -561,6 +573,7 @@ function SiteRow({
             <div className="muted small">
               {site.https ? "HTTPS" : "HTTP only"}
               {site.parked && " · parked"}
+              {size && ` · ${bytesText(size.total)}`}
             </div>
           </div>
         </div>

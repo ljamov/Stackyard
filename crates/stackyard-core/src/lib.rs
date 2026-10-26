@@ -40,6 +40,7 @@ pub mod sitedb;
 pub mod siteorder;
 pub mod sitepack;
 pub mod sites;
+pub mod sitesize;
 pub mod starters;
 pub mod supervisor;
 pub mod system;

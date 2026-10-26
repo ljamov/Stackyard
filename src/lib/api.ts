@@ -209,6 +209,31 @@ export const siteAddress = (site: Site, system: SystemStatus | null) =>
   !system || system.ready_domains.includes(site.domain.toLowerCase()) ? site.url : site.local_url;
 
 /** The database a site uses and the server that holds it. */
+/** How much a part of a site's files holds; `items` counts themes or plugins. */
+export type SizePart = { files: number; bytes: number; items: number };
+export type FileSizes = {
+  core: SizePart;
+  themes: SizePart;
+  plugins: SizePart;
+  uploads: SizePart;
+  other: SizePart;
+  /** Caches and backups inside the site (a clone leaves them out). */
+  skipped: SizePart;
+  /** False when counting stopped partway. */
+  complete: boolean;
+};
+/** A site's size when it was last measured. */
+export type SiteSize = {
+  /** Files split into WordPress's parts; otherwise all in `files.other`. */
+  wordpress: boolean;
+  files: FileSizes;
+  database: string | null;
+  /** Null when it could not be read, e.g. PostgreSQL not running. */
+  database_bytes: number | null;
+  total: number;
+  /** Seconds since 1970. */
+  measured: number;
+};
 export type SiteDb = {
   database: string;
   /** `mysql`, `mariadb` or `postgres`; null when no installed server has it yet. */
@@ -747,6 +772,12 @@ export interface Api {
   /** A picture of the site's home page as a data: URL; null when there is none. */
   siteThumbnail(domain: string, refresh: boolean): Promise<string | null>;
   siteDatabase(domain: string): Promise<SiteDb | null>;
+  /** The site's size as last measured; null until it is measured. */
+  siteSize(domain: string): Promise<SiteSize | null>;
+  /** Every site's size as last measured, by domain. */
+  siteSizes(): Promise<Record<string, SiteSize>>;
+  /** Measures the site's files and database now. */
+  measureSiteSize(domain: string): Promise<SiteSize>;
   startSiteDatabase(domain: string): Promise<SiteDb | null>;
   setSiteDatabaseAutostart(domain: string, on: boolean): Promise<SiteDb | null>;
   siteSettings(domain: string): Promise<SiteSettingsInfo>;
@@ -955,6 +986,9 @@ const tauriApi: Api = {
     saveDialog({ title, defaultPath: name, filters: [{ name: "Stackyard site", extensions: ["zip"] }] }),
   siteThumbnail: (domain, refresh) => invoke("site_thumbnail", { domain, refresh }),
   siteDatabase: (domain) => invoke("site_database", { domain }),
+  siteSize: (domain) => invoke("site_size", { domain }),
+  siteSizes: () => invoke("site_sizes"),
+  measureSiteSize: (domain) => invoke("measure_site_size", { domain }),
   startSiteDatabase: (domain) => invoke("start_site_database", { domain }),
   setSiteDatabaseAutostart: (domain, on) => invoke("set_site_database_autostart", { domain, on }),
   siteSettings: (domain) => invoke("site_settings", { domain }),
@@ -1259,6 +1293,7 @@ function browserApi(): Api {
   let parked = ["~/Code"];
   const autostart = new Set<string>();
   /** The sample WordPress site keeps its database in MySQL; the others have none. */
+  const sizes: Record<string, SiteSize> = {};
   const mockSiteDb = (domain: string): SiteDb | null => {
     if (sites.find((s) => s.domain === domain)?.framework !== "WordPress") return null;
     const holder = services.find((s) => s.id === "mysql")!;
@@ -2038,6 +2073,22 @@ function browserApi(): Api {
       return null;
     },
     siteDatabase: async (domain) => mockSiteDb(domain),
+    siteSize: async (domain) => sizes[domain] ?? null,
+    siteSizes: async () => ({ ...sizes }),
+    measureSiteSize: async (domain) => {
+      await new Promise((r) => setTimeout(r, 700));
+      const site = sites.find((s) => s.domain === domain);
+      const wordpress = site?.framework === "WordPress" || site?.framework === "WooCommerce";
+      const part = (files: number, bytes: number, items = 0) => ({ files, bytes, items });
+      const none = part(0, 0);
+      const files = wordpress
+        ? { core: part(3290, 6.4e7), themes: part(1840, 4.2e7, 3), plugins: part(21400, 3.1e8, 18), uploads: part(9800, 1.4e9), other: part(40, 2.0e6), skipped: part(900, 6.0e7), complete: true }
+        : { core: none, themes: none, plugins: none, uploads: none, other: part(1240, 4.8e7), skipped: none, complete: true };
+      const database_bytes = mockSiteDb(domain) ? 1.135e8 : null;
+      const all = [files.core, files.themes, files.plugins, files.uploads, files.other, files.skipped].reduce((n, p) => n + p.bytes, 0);
+      sizes[domain] = { wordpress, files, database: mockSiteDb(domain)?.database ?? null, database_bytes, total: all + (database_bytes ?? 0), measured: Math.floor(Date.now() / 1000) };
+      return sizes[domain];
+    },
     startSiteDatabase: async (domain) => {
       const db = mockSiteDb(domain);
       if (db?.service) {
