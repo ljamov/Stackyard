@@ -14,7 +14,7 @@
 //! for a push ([`make_writing`]) can also load a `.sql.gz` file Stackyard
 //! uploaded next to it, statement by statement, a few seconds at a time.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::config::quote;
@@ -112,6 +112,102 @@ pub struct Table {
     /// An estimate, as MySQL keeps it.
     pub rows: u64,
     pub bytes: u64,
+}
+
+/// How much a part of the site's files holds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Part {
+    pub files: u64,
+    pub bytes: u64,
+    /// Themes or plugins in it (their folders, and single-file plugins).
+    #[serde(default)]
+    pub items: u64,
+}
+
+/// What `do=sizes` answers: the WordPress folder's files by part.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sizes {
+    /// `wp-admin`, `wp-includes` and WordPress's own files at the top.
+    pub core: Part,
+    pub themes: Part,
+    pub plugins: Part,
+    pub uploads: Part,
+    /// Everything else that is copied, e.g. `wp-content/languages`.
+    pub other: Part,
+    /// Caches and backups the clone leaves out; not in [`Sizes::total`].
+    pub skipped: Part,
+    /// `false` when counting took too long and stopped partway.
+    pub complete: bool,
+}
+
+/// The seconds the helper counts files for before it answers with what it has.
+pub const SIZES_SECS: u64 = 15;
+
+impl Sizes {
+    /// Everything that is copied.
+    pub fn total(&self) -> Part {
+        [
+            self.core,
+            self.themes,
+            self.plugins,
+            self.uploads,
+            self.other,
+        ]
+        .iter()
+        .fold(Part::default(), |a, p| Part {
+            files: a.files + p.files,
+            bytes: a.bytes + p.bytes,
+            items: 0,
+        })
+    }
+
+    /// Counts one file at `rel` (relative to WordPress's folder, with `/`).
+    pub fn add(&mut self, rel: &str, bytes: u64, skip: &[String]) {
+        let part = match part_of(rel, skip) {
+            "core" => &mut self.core,
+            "themes" => &mut self.themes,
+            "plugins" => &mut self.plugins,
+            "uploads" => &mut self.uploads,
+            "skipped" => &mut self.skipped,
+            _ => &mut self.other,
+        };
+        part.files += 1;
+        part.bytes += bytes;
+    }
+}
+
+/// Which part of the site a file or folder belongs to; the helper's
+/// `sy_part` does the same on the server.
+pub fn part_of(rel: &str, skip: &[String]) -> &'static str {
+    if crate::remote::sync::skipped(rel, skip) {
+        return "skipped";
+    }
+    for dir in ["themes", "plugins", "uploads"] {
+        if rel.starts_with(&format!("wp-content/{dir}/")) {
+            return dir;
+        }
+    }
+    if ["wp-admin", "wp-includes"]
+        .iter()
+        .any(|d| rel == *d || rel.starts_with(&format!("{d}/")))
+    {
+        return "core";
+    }
+    if !rel.contains('/') && rel != "wp-config.php" && is_core_file(rel) {
+        return "core";
+    }
+    "other"
+}
+
+fn is_core_file(name: &str) -> bool {
+    matches!(
+        name,
+        "index.php" | "xmlrpc.php" | "license.txt" | "readme.html"
+    ) || (name.starts_with("wp-")
+        && name.ends_with(".php")
+        && name[3..name.len() - 4]
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b == b'-'))
 }
 
 /// What `do=import` answers.
@@ -267,6 +363,94 @@ if ( 'finish' === $sy_do ) {
 }
 if ( 'ping' === $sy_do ) {
 	sy_json( array( 'php' => PHP_VERSION, 'abspath' => __DIR__ ) );
+}
+
+// Which part of the site a file belongs to; Rust's `part_of` does the same.
+function sy_part( $path, $skip ) {
+	foreach ( $skip as $pattern ) {
+		$pattern = (string) $pattern;
+		if ( false !== strpos( $pattern, '/' ) ) {
+			if ( $path === $pattern || 0 === strpos( $path, $pattern . '/' ) ) {
+				return 'skipped';
+			}
+		} else {
+			foreach ( explode( '/', $path ) as $name ) {
+				if ( function_exists( 'fnmatch' ) ? fnmatch( $pattern, $name ) : $pattern === $name ) {
+					return 'skipped';
+				}
+			}
+		}
+	}
+	foreach ( array( 'themes', 'plugins', 'uploads' ) as $dir ) {
+		if ( 0 === strpos( $path, 'wp-content/' . $dir . '/' ) ) {
+			return $dir;
+		}
+	}
+	if ( 'wp-admin' === $path || 'wp-includes' === $path || 0 === strpos( $path, 'wp-admin/' ) || 0 === strpos( $path, 'wp-includes/' ) ) {
+		return 'core';
+	}
+	if ( false === strpos( $path, '/' ) && 'wp-config.php' !== $path && preg_match( '/^(wp-[a-z-]+\.php|index\.php|xmlrpc\.php|license\.txt|readme\.html)$/', $path ) ) {
+		return 'core';
+	}
+	return 'other';
+}
+
+// Counts the files under this folder by part, for at most $seconds.
+function sy_sizes( $root, $skip, $seconds ) {
+	$parts = array();
+	foreach ( array( 'core', 'themes', 'plugins', 'uploads', 'other', 'skipped' ) as $name ) {
+		$parts[ $name ] = array( 'files' => 0, 'bytes' => 0, 'items' => 0 );
+	}
+	$until    = microtime( true ) + $seconds;
+	$complete = true;
+	$self     = basename( __FILE__ );
+	$stack    = array( '' );
+	while ( $stack ) {
+		if ( microtime( true ) > $until ) {
+			$complete = false;
+			break;
+		}
+		$rel    = array_pop( $stack );
+		$handle = @opendir( '' === $rel ? $root : $root . '/' . $rel );
+		if ( ! $handle ) {
+			continue;
+		}
+		while ( false !== ( $name = readdir( $handle ) ) ) {
+			if ( '.' === $name || '..' === $name ) {
+				continue;
+			}
+			if ( '' === $rel && ( $self === $name || preg_match( '/^stackyard-[a-f0-9]+\.sql\.gz$/', $name ) ) ) {
+				continue;
+			}
+			$path = '' === $rel ? $name : $rel . '/' . $name;
+			$full = $root . '/' . $path;
+			if ( is_link( $full ) ) {
+				continue;
+			}
+			$part = sy_part( $path, $skip );
+			$top  = 'wp-content/themes' === $rel || 'wp-content/plugins' === $rel;
+			if ( is_dir( $full ) ) {
+				if ( $top && 'skipped' !== $part ) {
+					++$parts[ $part ]['items'];
+				}
+				$stack[] = $path;
+			} else {
+				++$parts[ $part ]['files'];
+				$parts[ $part ]['bytes'] += (int) @filesize( $full );
+				if ( 'wp-content/plugins' === $rel && 'index.php' !== $name && '.php' === substr( $name, -4 ) ) {
+					++$parts[ $part ]['items'];
+				}
+			}
+		}
+		closedir( $handle );
+	}
+	$parts['complete'] = $complete;
+	return $parts;
+}
+
+if ( 'sizes' === $sy_do ) {
+	$sy_skip = isset( $sy_args['skip'] ) ? json_decode( (string) $sy_args['skip'], true ) : array();
+	sy_json( sy_sizes( __DIR__, is_array( $sy_skip ) ? $sy_skip : array(), isset( $sy_args['seconds'] ) ? max( 1, (int) $sy_args['seconds'] ) : 15 ) );
 }
 
 if ( ! class_exists( 'mysqli' ) ) {

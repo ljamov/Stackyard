@@ -1741,6 +1741,7 @@ fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
     remote::site_removed(&removed.domain());
     stackyard_core::wordpress::env::forget(&paths::home(), &removed.domain());
     stackyard_core::thumbnails::forget(&paths::home(), &removed.domain());
+    stackyard_core::sitesize::forget(&paths::home(), &removed.domain());
     let _ = stackyard_core::share::stop(app.state::<Arc<Engine>>().supervisor(), &removed);
     sites_changed(&app);
     site_views()
@@ -2009,6 +2010,9 @@ pub fn run() {
             sitepics::site_thumbnail,
             sitepics::wp_theme_screenshot,
             sitepics::site_database,
+            sitepics::site_size,
+            sitepics::site_sizes,
+            sitepics::measure_site_size,
             sitepics::start_site_database,
             sitepics::set_site_database_autostart,
             wordpress::wp_overview,

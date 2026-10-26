@@ -102,7 +102,22 @@ export type WpFound = {
   prefix: string;
   tables: number;
   database_bytes: number;
+  /** The files by part, when they could be counted. */
+  files: WpSizes | null;
   notes: string[];
+};
+/** How much a part of the site's files holds; `items` counts themes or plugins. */
+export type WpPart = { files: number; bytes: number; items: number };
+export type WpSizes = {
+  core: WpPart;
+  themes: WpPart;
+  plugins: WpPart;
+  uploads: WpPart;
+  other: WpPart;
+  /** Caches and backups the clone leaves out. */
+  skipped: WpPart;
+  /** False when counting took too long and stopped partway. */
+  complete: boolean;
 };
 export type WpCloneOptions = {
   name: string;
@@ -483,6 +498,15 @@ function mockWp(): WpApi {
         prefix: "wp_",
         tables: files ? 0 : 58,
         database_bytes: 3.1e8,
+        files: {
+          core: { files: 3290, bytes: 6.4e7, items: 0 },
+          themes: { files: 1840, bytes: 4.2e7, items: 3 },
+          plugins: { files: 41200, bytes: 6.1e8, items: 27 },
+          uploads: { files: 47800, bytes: 3.9e9, items: 0 },
+          other: { files: 120, bytes: 8.0e6, items: 0 },
+          skipped: { files: 6100, bytes: 1.2e9, items: 0 },
+          complete: true,
+        },
         notes: [
           files
             ? "The database comes from shop.sql.gz."

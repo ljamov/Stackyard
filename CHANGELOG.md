@@ -6,6 +6,14 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **See how big a live site's files are before cloning it.** Clone from a live server now shows,
+  next to the database, the size of WordPress core, themes, plugins, media (uploads), other files
+  and all files together, with file counts, plus how much in caches and backups is left out. The
+  media choice shows how much **Download it all** downloads. Backup files are counted the same way.
+- **See how much room each site takes.** A site's own tab shows its size: the database, WordPress
+  core, themes, plugins, media, other files, caches and backups, and the total. It is measured in
+  the background when the tab opens (again after an hour, or with **Measure again**), and the Sites
+  list shows each site's last measured total.
 - **Local domains stay set up.** On Windows, new sites (and clones and stagings) used to bring back
   "Finish setting up local domains" with a password prompt each time. Setup now lets Stackyard keep
   its own lines in the hosts file up to date, so it is asked for once. Click **Set up** one more
