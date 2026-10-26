@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.16.0
 
 - **Your own order for sites, and groups.** On the Sites screen, drag a site by its handle to move it,
   or put sites in a group (one per client, say) with **New group**, and drag groups around too. A
