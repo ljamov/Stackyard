@@ -831,5 +831,6 @@
   "Measuring…": "Се мери…",
   "Not measured yet": "Сè уште не е измерено",
   "Size": "Големина",
-  "unknown (start its server)": "непознато (стартувајте го серверот)"
+  "unknown (start its server)": "непознато (стартувајте го серверот)",
+  "Clones from a live server pause for the update and go on after it.": "Клонирањата од живиот сервер паузираат за ажурирањето и продолжуваат по него."
 }

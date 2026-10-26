@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { installUpdate, progressText, seenWhatsNew, useUpdate } from "../lib/updates";
 import { ReleaseNotes } from "./ReleaseNotes";
+import { useClones } from "../lib/clones";
 import { useT } from "../lib/i18n";
 
 /**
@@ -12,6 +13,7 @@ export function UpdateNotice() {
   const { status, progress, error } = useUpdate();
   const [later, setLater] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const cloning = useClones().some((c) => c.state === "running");
   if (!status) return null;
   const { available } = status;
 
@@ -27,6 +29,7 @@ export function UpdateNotice() {
                 : t("You have {version}. Running services stop for a moment and start again in the new version.", {
                     version: status.current,
                   })}
+              {!status.installing && cloning && ` ${t("Clones from a live server pause for the update and go on after it.")}`}
             </p>
           </div>
           <div className="row wrap">
