@@ -817,5 +817,11 @@
   "at least": "almeno",
   "{count} plugins": "{count} plugin",
   "{count} themes": "{count} temi",
-  "{size} of caches and backups inside the site are left out": "{size} di cache e backup nel sito vengono esclusi"
+  "{size} of caches and backups inside the site are left out": "{size} di cache e backup nel sito vengono esclusi",
+  "Caches and backups": "Cache e backup",
+  "Measure again": "Misura di nuovo",
+  "Measuring…": "Misurazione…",
+  "Not measured yet": "Non ancora misurato",
+  "Size": "Dimensione",
+  "unknown (start its server)": "sconosciuta (avvia il suo server)"
 }

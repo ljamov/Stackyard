@@ -180,7 +180,7 @@ pub struct Cloned {
 
 /// Folders not worth copying: caches and the backups backup plugins keep
 /// inside the site, which are often bigger than the site itself.
-pub(super) const SKIP: &[&str] = &[
+pub(crate) const SKIP: &[&str] = &[
     "wp-content/cache",
     "wp-content/et-cache",
     "wp-content/updraft",
@@ -991,6 +991,7 @@ fn replace_site(
     store.save()?;
     env::forget(home, &domain);
     crate::thumbnails::forget(home, &domain);
+    crate::sitesize::forget(home, &domain);
     Ok(format!(
         "The earlier {domain} was backed up to {} before it was replaced; restore it under Manage › Backups.",
         backup.path.display()

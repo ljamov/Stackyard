@@ -817,5 +817,11 @@
   "at least": "најмалку",
   "{count} plugins": "{count} приклучоци",
   "{count} themes": "{count} теми",
-  "{size} of caches and backups inside the site are left out": "{size} кеш и резервни копии во сајтот се изоставени"
+  "{size} of caches and backups inside the site are left out": "{size} кеш и резервни копии во сајтот се изоставени",
+  "Caches and backups": "Кеш и резервни копии",
+  "Measure again": "Измери повторно",
+  "Measuring…": "Се мери…",
+  "Not measured yet": "Сè уште не е измерено",
+  "Size": "Големина",
+  "unknown (start its server)": "непознато (стартувајте го серверот)"
 }
