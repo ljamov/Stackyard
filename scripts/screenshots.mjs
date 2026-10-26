@@ -41,14 +41,14 @@ const SHOTS = {
     },
     after: closeTab,
   },
-  // A WordPress site's copies: the main site, its stagings and the live site.
+  // A WordPress site's stagings.
   wordpress: {
     screen: "Sites",
     prep: async (page) => {
       await manage(page, "legacy.stack");
       await page.getByRole("tab", { name: "WordPress", exact: true }).click();
       await sleep(600);
-      await page.getByRole("tab", { name: "Environments", exact: true }).click();
+      await page.getByRole("tab", { name: "Staging", exact: true }).click();
       await sleep(800);
     },
     after: closeTab,

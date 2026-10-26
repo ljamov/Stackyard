@@ -4,14 +4,12 @@ import { useT } from "../../lib/i18n";
 import {
   wp,
   type WpCloneProgress,
-  type WpEnvironment,
   type WpEnvironments,
   type WpSnapshots,
   type WpStagingFrom,
   type WpTrashed,
 } from "../../lib/wordpress";
 import { stageText } from "./CloneSite";
-import { LivePanel, type LiveAsk } from "./Live";
 import { MergePanel } from "./Merge";
 import { size } from "./WordPressTools";
 
@@ -26,26 +24,26 @@ function madeFromText(t: T, from: string | null) {
   return from === "live" ? t("made from the live site") : t("made from {site}", { site: from });
 }
 
-/** The Environments part of the WordPress tab: the main site, its stagings,
- * the trash, and snapshots of this copy. */
-export function EnvironmentsTab({ site, liveAsk }: { site: Site; liveAsk?: LiveAsk | null }) {
+/** The Staging part of the WordPress tab: copies of this site for trying
+ * something out, merged back or deleted when done, the trash, and
+ * snapshots of this copy. Pushing to and pulling from the live site is in
+ * Servers & Git. */
+export function StagingTab({ site }: { site: Site }) {
   const t = useT();
   const [envs, setEnvs] = useState<WpEnvironments | null>(null);
-  const [here, setHere] = useState<WpEnvironment | null>(null);
   const [trash, setTrash] = useState<WpTrashed[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDestroy, setConfirmDestroy] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
+  /** The staging whose Merge panel is open, when looking at the main site. */
+  const [merging, setMerging] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     wp.stagings(site.domain)
       .then(setEnvs)
       .catch((e) => setError(errorText(e)));
-    wp.environment(site.domain)
-      .then(setHere)
-      .catch(() => setHere(null));
     wp.trash()
       .then(setTrash)
       .catch(() => setTrash([]));
@@ -83,8 +81,8 @@ export function EnvironmentsTab({ site, liveAsk }: { site: Site; liveAsk?: LiveA
     <div className="stack">
       <p className="muted small">
         {isStaging
-          ? t("This is a staging of {site}. Stagings are full copies with their own files and database, for trying changes before they go to the main site.", { site: envs.main })
-          : t("Stagings are full copies of this site with their own files and database, for trying changes before they go to the main site.")}
+          ? t("This is a staging of {site}: a full copy with its own files and database. When you are done trying things here, merge it into {site} or delete it.", { site: envs.main })
+          : t("A staging is a full copy of this site with its own files and database, for trying something out without touching {site}. When you are done, merge it into {site} or delete it.", { site: envs.main })}
       </p>
 
       <section className="stack" aria-label={t("Stagings")}>
@@ -102,10 +100,21 @@ export function EnvironmentsTab({ site, liveAsk }: { site: Site; liveAsk?: LiveA
               <button type="button" className="btn small" onClick={() => api.openLocalPage(s.url)}>
                 {t("Open")}
               </button>
+              {!isStaging && confirmDestroy !== s.domain && (
+                <button
+                  type="button"
+                  className="btn small"
+                  aria-expanded={merging === s.domain}
+                  disabled={busy !== null}
+                  onClick={() => setMerging(merging === s.domain ? null : s.domain)}
+                >
+                  {t("Merge into {site}…", { site: envs.main })}
+                </button>
+              )}
               {confirmDestroy === s.domain ? (
                 <>
                   <label className="stack tight warn small">
-                    {t("Destroy {site}? It goes to the trash for 7 days. Type {name} to confirm.", { site: s.domain, name: s.domain.split(".")[0] })}
+                    {t("Delete {site}? It goes to the trash for 7 days. Type {name} to confirm.", { site: s.domain, name: s.domain.split(".")[0] })}
                     <input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
                   </label>
                   <button
@@ -114,10 +123,11 @@ export function EnvironmentsTab({ site, liveAsk }: { site: Site; liveAsk?: LiveA
                     disabled={busy !== null || typed.trim() !== s.domain.split(".")[0]}
                     onClick={() => {
                       setConfirmDestroy(null);
-                      act(t("Destroying…"), () => wp.destroyStaging(s.domain), t("{site} is in the trash.", { site: s.domain }));
+                      if (merging === s.domain) setMerging(null);
+                      act(t("Deleting…"), () => wp.destroyStaging(s.domain), t("{site} is in the trash.", { site: s.domain }));
                     }}
                   >
-                    {t("Destroy")}
+                    {t("Delete")}
                   </button>
                   <button type="button" className="btn small ghost" onClick={() => setConfirmDestroy(null)}>
                     {t("Cancel")}
@@ -129,7 +139,7 @@ export function EnvironmentsTab({ site, liveAsk }: { site: Site; liveAsk?: LiveA
                       setTyped("");
                       setConfirmDestroy(s.domain);
                     }}>
-                    {t("Destroy…")}
+                    {t("Delete…")}
                   </button>
                 )
               )}
@@ -143,7 +153,9 @@ export function EnvironmentsTab({ site, liveAsk }: { site: Site; liveAsk?: LiveA
         reload();
       }} />
 
-      {here?.live && <LivePanel key={liveAsk?.at ?? 0} domain={site.domain} main={envs.main} live={here.live} ask={liveAsk ?? undefined} />}
+      {!isStaging && merging && envs.stagings.some((s) => s.domain === merging) && (
+        <MergePanel key={merging} source={merging} targets={[envs.main, ...envs.stagings.map((s) => s.domain)].filter((d) => d !== merging)} />
+      )}
 
       {isStaging && <MergePanel source={site.domain} targets={[envs.main, ...envs.stagings.map((s) => s.domain)].filter((d) => d !== site.domain)} />}
 
@@ -155,7 +167,7 @@ export function EnvironmentsTab({ site, liveAsk }: { site: Site; liveAsk?: LiveA
               <div className="stack tight">
                 <span className="mono small">{`${x.site.name}${x.site.tld}`}</span>
                 <span className="muted small">
-                  {t("destroyed {date}; deleted for good after 7 days", { date: when(x.trashed_at) })}
+                  {t("deleted {date}; gone for good after 7 days", { date: when(x.trashed_at) })}
                 </span>
               </div>
               <div className="row wrap">
@@ -226,7 +238,7 @@ function NewStaging({
   const sources = [envs.main, ...envs.stagings.map((s) => s.domain)];
 
   async function make() {
-    const source: WpStagingFrom = from === "live" ? { kind: "live" } : { kind: "site", domain: from };
+    const source: WpStagingFrom = { kind: "site", domain: from };
     setMaking(true);
     setError(null);
     setProgress(null);
@@ -264,23 +276,19 @@ function NewStaging({
                 {d}
               </option>
             ))}
-            {envs.from_live && <option value="live">{t("The live site")}</option>}
           </select>
         </label>
       </div>
       <p id="staging-address" className="muted small">
         {clean ? t("Its address: {url}", { url: `https://${clean}.${envs.main}` }) : t("Its address is the name in front of {site}, e.g. checkout.{site}.", { site: envs.main })}
       </p>
-      {from !== "live" && (
-        <label className="row small">
-          <input type="checkbox" checked={copyMedia} onChange={(e) => setCopyMedia(e.target.checked)} />
-          {t("Copy the media too (wp-content/uploads)")}
-        </label>
-      )}
-      {from !== "live" && !copyMedia && (
+      <label className="row small">
+        <input type="checkbox" checked={copyMedia} onChange={(e) => setCopyMedia(e.target.checked)} />
+        {t("Copy the media too (wp-content/uploads)")}
+      </label>
+      {!copyMedia && (
         <p className="muted small">{t("The staging then copies each image from {site} the first time a page shows it. Faster to make and smaller.", { site: from })}</p>
       )}
-      {from === "live" && <p className="muted small">{t("Downloaded from the live server like a clone, made safe the same way.")}</p>}
       {making && progress && (
         <div className="stack" role="status">
           <div className="progress" aria-hidden="true">

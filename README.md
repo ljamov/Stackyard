@@ -182,7 +182,7 @@ stackyard use php 8.3                  # pin a version for the current project
 <td><img src="docs/images/settings.png" alt="Settings screen with updates, theme, accent color, language and modules you can switch off"></td>
 </tr>
 <tr>
-<td><img src="docs/images/wordpress.png" alt="A WordPress site's Environments tab: a staging copy, a form for a new staging, and push to or pull from the live site"></td>
+<td><img src="docs/images/wordpress.png" alt="A WordPress site's Staging tab: a staging copy and a form for a new staging"></td>
 <td><img src="docs/images/terminal.png" alt="The Terminal tab in the bottom panel, opened in a site's folder, running stackyard status, php -v and node -v"></td>
 </tr>
 <tr>

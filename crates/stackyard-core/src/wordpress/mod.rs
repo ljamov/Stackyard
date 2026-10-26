@@ -309,6 +309,10 @@ pub struct Overview {
     /// e.g. `MariaDB 11.8`.
     pub database_server: Option<String>,
     pub debug: DebugSettings,
+    /// How the live site is set, for a copy of one: read from the live
+    /// `wp-config.php` kept beside this one. Push and pull never carry
+    /// `wp-config.php`, so `debug` stays this copy's own.
+    pub live_debug: Option<DebugSettings>,
     /// WooCommerce's version, when it is installed.
     pub woocommerce: Option<String>,
     pub multisite: bool,
@@ -370,6 +374,9 @@ pub fn overview(home: &Path, wp: &WpSite) -> Overview {
         prefix: wp.prefix().to_string(),
         database_server: server.map(|c| c.server().name),
         debug,
+        live_debug: std::fs::read_to_string(live_config_file(wp))
+            .ok()
+            .map(|text| DebugSettings::of(&WpConfig::read(&text))),
         woocommerce: wp.plugin_version("woocommerce"),
         multisite: wp.config.flag("MULTISITE"),
         environment: wp.config.get("WP_ENVIRONMENT_TYPE").map(str::to_string),
@@ -491,6 +498,13 @@ pub fn set_debug(wp: &WpSite, settings: DebugSettings) -> Result<()> {
         };
     }
     wp.write_config(&text)
+}
+
+/// The live site's `wp-config.php`, as a copy of a live site keeps it
+/// beside its own: saved when cloned, read again on each push, pull and
+/// compare.
+pub fn live_config_file(wp: &WpSite) -> PathBuf {
+    wp.config_file.with_file_name("wp-config.live.php")
 }
 
 /// Where errors are logged: `WP_DEBUG_LOG`'s path, or `wp-content/debug.log`.

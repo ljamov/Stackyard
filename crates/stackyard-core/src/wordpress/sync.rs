@@ -32,7 +32,7 @@ use super::helper::{self, Imported, Info, OptionValue};
 use super::live::{self, OnProgress, Progress, Server, Stage};
 use super::merge::{self, Change, Choice, FileChange, Level, SettingChange, Switch};
 use super::snapshot::{self, Facts, FileEntry, Manifest};
-use super::{posts, replace, staging, ExtensionAction, Kind, WpSite};
+use super::{live_config_file, posts, replace, staging, ExtensionAction, Kind, WpSite};
 use crate::databases::{ident, literal, Client};
 use crate::remote::{self, RemoteStore, Sessions};
 use crate::sites::{Site, SiteStore};
@@ -658,6 +658,12 @@ fn reach<'a>(
         &work,
         &mut roots,
     )?;
+    // The live wp-config.php just read is kept beside the local one, so the
+    // Debug tab can show how the live site is set.
+    let fresh = work.join("wp-config.live.php");
+    if fresh.is_file() {
+        let _ = std::fs::copy(&fresh, live_config_file(&wp));
+    }
     server.upload_helper_with(&work, write)?;
     let info = match server.info() {
         Ok(info) => info,

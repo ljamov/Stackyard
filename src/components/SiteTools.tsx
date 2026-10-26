@@ -18,6 +18,8 @@ import { Icon, type IconName } from "./Icon";
 import { BRAND_PATHS } from "../lib/brands";
 import { rovingGroup, rovingKeys } from "../lib/focus";
 import { WordPressTools } from "./wordpress/WordPressTools";
+import type { LiveAsk } from "./wordpress/Live";
+import { wp, type WpEnvironment } from "../lib/wordpress";
 
 function size(bytes: number) {
   if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -65,12 +67,22 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
   const t = useT();
   const { isOn } = useModules();
   const wordpress = site.framework === "WordPress" || site.framework === "WooCommerce";
+  // A copy of a live WordPress site pushes and pulls in Servers & Git.
+  const [live, setLive] = useState<WpEnvironment["live"]>(null);
+  const [liveAsk, setLiveAsk] = useState<LiveAsk | null>(null);
+  useEffect(() => {
+    setLive(null);
+    if (!wordpress || !isOn("wordpress")) return;
+    wp.environment(site.domain)
+      .then((env) => setLive(env?.live ?? null))
+      .catch(() => setLive(null));
+  }, [site.domain, wordpress, isOn]);
   const sections = [
     wordpress && isOn("wordpress") && { id: "WordPress", label: "WordPress", icon: "wordpress" },
     isOn("sitesettings") && { id: "Settings", label: t("Settings"), icon: "manage" },
     (isOn("sitebackups") || isOn("sitetransfer")) && { id: "Backups", label: t("Backups"), icon: "archive" },
     isOn("share") && { id: "Public link", label: t("Public link"), icon: "link" },
-    (isOn("remote") || isOn("git")) && { id: "Servers & Git", label: t("Servers & Git"), icon: "git" },
+    (isOn("remote") || isOn("git") || live) && { id: "Servers & Git", label: t("Servers & Git"), icon: "git" },
   ].filter(Boolean) as Section[];
   const [tab, setTab] = useState(sections[0]?.id ?? "Settings");
   if (sections.length === 0) {
@@ -97,7 +109,10 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
             className="site-section-tab"
             aria-selected={shown === x.id}
             aria-controls="site-section-panel"
-            onClick={() => setTab(x.id)}
+            onClick={() => {
+              setTab(x.id);
+              setLiveAsk(null);
+            }}
           >
             {x.icon === "wordpress" ? (
               <svg viewBox="0 0 24 24" className="filled" aria-hidden="true">
@@ -111,11 +126,19 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
         ))}
       </div>
       <section id="site-section-panel" role="tabpanel" aria-labelledby={tabId(shown)} className="card stack site-section-panel">
-        {shown === "WordPress" && <WordPressTools site={site} />}
+        {shown === "WordPress" && (
+          <WordPressTools
+            site={site}
+            onLive={(way) => {
+              setLiveAsk({ way, at: Date.now() });
+              setTab("Servers & Git");
+            }}
+          />
+        )}
         {shown === "Settings" && <SettingsTab site={site} onChanged={onChanged} />}
         {shown === "Backups" && <BackupsTab site={site} onChanged={onChanged} />}
         {shown === "Public link" && <ShareTab site={site} />}
-        {shown === "Servers & Git" && <SiteRemote site={site} />}
+        {shown === "Servers & Git" && <SiteRemote site={site} live={live} liveAsk={liveAsk} />}
       </section>
     </div>
   );

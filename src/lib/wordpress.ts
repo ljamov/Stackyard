@@ -13,6 +13,8 @@ export type WpOverview = {
   prefix: string;
   database_server: string | null;
   debug: WpDebug;
+  /** How the live site is set, for a copy of one. Push and pull never carry wp-config.php. */
+  live_debug: WpDebug | null;
   woocommerce: string | null;
   multisite: boolean;
   environment: string | null;
@@ -350,6 +352,7 @@ function mockWp(): WpApi {
     prefix,
     database_server: "MySQL 8.4",
     debug,
+    live_debug: { debug: false, log: false, display: false, scripts: false, queries: false },
     woocommerce: "10.2.1",
     multisite: false,
     environment: "local",
