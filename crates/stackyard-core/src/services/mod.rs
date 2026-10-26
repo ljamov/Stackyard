@@ -324,11 +324,15 @@ impl ServiceManager {
     }
 
     /// The sites the user made or parked, without the ones Stackyard adds
-    /// itself (phpMyAdmin), for lists.
+    /// itself (phpMyAdmin), for lists: in the order the user put them in.
     pub fn user_sites(&self) -> Result<Vec<ServedSite>> {
         let builtin = crate::phpmyadmin::dir(&self.home);
         let mut sites = self.sites()?;
         sites.retain(|s| s.site.path != builtin);
+        // A damaged order file shouldn't hide the sites.
+        if let Ok(order) = crate::siteorder::SiteOrder::load(&self.home) {
+            order.sort(&mut sites, |s| s.site.domain());
+        }
         Ok(sites)
     }
 
