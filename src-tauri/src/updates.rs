@@ -222,10 +222,12 @@ pub async fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .await;
     let result = bytes.map_err(|e| explain(&e)).and_then(|bytes| {
         let engine = app.state::<Arc<Engine>>();
+        crate::wordpress::set_quitting(true);
         remember_running(&engine.running());
         let _ = std::fs::write(updated_file(), app.package_info().version.to_string());
         engine.shutdown();
         update.install(bytes).map_err(|e| {
+            crate::wordpress::set_quitting(false);
             let _ = std::fs::remove_file(resume_file());
             let _ = std::fs::remove_file(updated_file());
             explain(&e)
