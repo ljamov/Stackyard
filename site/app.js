@@ -65,7 +65,7 @@
     runtimes: "Runtimes screen with PHP 7.4 to 8.5, three versions installed",
     servers: "A site's Servers panel with an SFTP server and upload, download and browse buttons",
     databases: "Databases screen listing a database's tables",
-    wordpress: "A WordPress site's Environments tab: stagings, a new staging, and push to or pull from the live site",
+    wordpress: "A WordPress site's Staging tab: stagings and a new staging",
     logs: "The Logs panel with warnings and errors highlighted",
     terminal: "The Terminal tab in the bottom panel, opened in a site's folder",
     images: "Image optimizer making WebP and AVIF copies of images",

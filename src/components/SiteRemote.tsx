@@ -19,7 +19,12 @@ import {
   type TransferPlan,
 } from "../lib/api";
 import { useModules } from "../lib/modules";
+import { useT } from "../lib/i18n";
+import type { WpEnvironment } from "../lib/wordpress";
+import { LiveSiteTab, type LiveAsk } from "./wordpress/Live";
 import { Tip, TipMark } from "./Tip";
+
+type WpLive = NonNullable<WpEnvironment["live"]>;
 
 const PROTOCOLS: { value: RemoteProtocol; label: string }[] = [
   { value: "sftp", label: "SFTP (SSH)" },
@@ -40,33 +45,46 @@ function plural(n: number, one: string, many = `${one}s`) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** Remote servers and Git for one site, shown under its row on the Sites screen. */
-export function SiteRemote({ site }: { site: Site }) {
+/** Remote servers and Git for one site, shown in its Servers & Git tab. A
+ * copy of a live WordPress site also gets Live site, to push and pull. */
+export function SiteRemote({ site, live, liveAsk }: { site: Site; live?: WpLive | null; liveAsk?: LiveAsk | null }) {
   const { isOn } = useModules();
-  const tabs = [isOn("remote") && "Servers", isOn("git") && "Git"].filter(Boolean) as string[];
-  const [tab, setTab] = useState(tabs[0] ?? "Servers");
+  const t = useT();
+  const tabs = [live && isOn("wordpress") && "Live site", isOn("remote") && "Servers", isOn("git") && "Git"].filter(Boolean) as string[];
+  const [tab, setTab] = useState(liveAsk ? "Live site" : (tabs[0] ?? "Servers"));
+  useEffect(() => {
+    if (liveAsk) setTab("Live site");
+  }, [liveAsk]);
   if (tabs.length === 0) {
     return <p className="muted small">Turn on Remote servers or Git in Settings › Modules.</p>;
   }
   const shown = tabs.includes(tab) ? tab : tabs[0];
+  const label = (x: string) => (x === "Live site" ? t("Live site") : x);
   return (
     <div className="stack remote-panel">
       {tabs.length > 1 && (
         <div className="wp-tabs" role="tablist" aria-label="Connect with">
-          {tabs.map((t) => (
-            <button key={t} type="button" role="tab" className="wp-tab" aria-selected={shown === t} onClick={() => setTab(t)}>
-              {t}
+          {tabs.map((x) => (
+            <button key={x} type="button" role="tab" className="wp-tab" aria-selected={shown === x} onClick={() => setTab(x)}>
+              {label(x)}
             </button>
           ))}
         </div>
       )}
       {shown === "Servers" && (site.framework === "WordPress" || site.framework === "WooCommerce") && (
         <p className="muted small">
-          Upload and Download copy files only, and leave each side's wp-config.php alone. Posts, pages and settings are in the
-          database: to bring them from a live site this copy was cloned from, use WordPress › Pull from live.
+          {live && isOn("wordpress")
+            ? "Upload and Download copy files only, and leave each side's wp-config.php alone. Posts, pages and settings are in the database: to bring them from the live site, use Live site."
+            : "Upload and Download copy files only, and leave each side's wp-config.php alone. Posts, pages and settings are in the database."}
         </p>
       )}
-      {shown === "Servers" ? <Servers site={site} /> : <Git site={site} />}
+      {shown === "Live site" && live ? (
+        <LiveSiteTab domain={site.domain} live={live} ask={liveAsk} />
+      ) : shown === "Servers" ? (
+        <Servers site={site} />
+      ) : (
+        <Git site={site} />
+      )}
     </div>
   );
 }

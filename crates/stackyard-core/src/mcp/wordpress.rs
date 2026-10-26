@@ -84,7 +84,7 @@ pub(super) fn environments(ctx: &Ctx, args: &Args) -> Result<Value, String> {
     }
     Ok(json!({
         "sites": out,
-        "note": "Pushing to and pulling from the live site is done by the user in Stackyard › Sites › Manage › WordPress › Environments.",
+        "note": "Pushing to and pulling from the live site is done by the user in Stackyard › Sites › Manage › Servers & Git › Live site.",
     }))
 }
 
@@ -208,7 +208,7 @@ pub(super) fn merge_staging(ctx: &Ctx, args: &Args) -> Result<Value, String> {
     Ok(json!({
         "target": target,
         "merged": merged,
-        "undo": "The user can undo it in Stackyard › Sites › Manage › WordPress › Environments › Snapshots.",
+        "undo": "The user can undo it in Stackyard › Sites › Manage › WordPress › Staging › Snapshots.",
     }))
 }
 

@@ -15,9 +15,9 @@ import {
   type WpOverview,
   type WpReplaced,
   type WpUser,
+  type WpWay,
 } from "../../lib/wordpress";
-import { EnvironmentsTab } from "./Environments";
-import type { LiveAsk } from "./Live";
+import { StagingTab } from "./Staging";
 import { Icon } from "../Icon";
 import { AutostartCheck, SiteDatabaseNotice, useSiteDatabase } from "../SiteDatabase";
 import "../site-views.css";
@@ -72,13 +72,13 @@ function useAction() {
   return { busy, run, status, setError };
 }
 
-const TABS = ["Overview", "Plugins", "Themes", "Users", "Environments", "Database", "Debug", "Search and replace", "WooCommerce"] as const;
+const TABS = ["Overview", "Plugins", "Themes", "Users", "Staging", "Database", "Debug", "Search and replace", "WooCommerce"] as const;
 type Tab = (typeof TABS)[number];
 
 function tabLabel(t: T, tab: Tab) {
   return {
     Overview: t("Overview"),
-    Environments: t("Environments"),
+    Staging: t("Staging"),
     Plugins: t("Plugins"),
     Themes: t("Themes"),
     Users: t("Users"),
@@ -97,14 +97,12 @@ const lastTab = new Map<string, Tab>();
  * site's picture and its main buttons on top, then tabs for everyday jobs
  * without opening wp-admin.
  */
-export function WordPressTools({ site }: { site: Site }) {
+export function WordPressTools({ site, onLive }: { site: Site; onLive?: (way: WpWay) => void }) {
   const t = useT();
   const [overview, setOverview] = useState<WpOverview | null>(null);
   const [env, setEnv] = useState<WpEnvironment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTabState] = useState<Tab>(() => lastTab.get(site.domain) ?? "Overview");
-  // Set by the hero's Pull and Push buttons: opens the live panel that way.
-  const [liveAsk, setLiveAsk] = useState<LiveAsk | null>(null);
   const database = useSiteDatabase(site.domain);
   const setTab = (x: Tab) => {
     lastTab.set(site.domain, x);
@@ -163,16 +161,13 @@ export function WordPressTools({ site }: { site: Site }) {
             <button type="button" className="btn" onClick={() => api.openLocalPage(`${site.url}/wp-admin/`)}>
               {t("WP Admin")}
             </button>
-            {env?.live && env.live.route !== "files" && (
+            {env?.live && env.live.route !== "files" && onLive && (
               <>
                 <button
                   type="button"
                   className="btn"
                   title={t("Bring the live site's changes here: files, plugins, settings and, if you pick it, its database")}
-                  onClick={() => {
-                    setLiveAsk({ way: "pull", at: Date.now() });
-                    setTab("Environments");
-                  }}
+                  onClick={() => onLive("pull")}
                 >
                   {t("Pull from live")}
                 </button>
@@ -180,10 +175,7 @@ export function WordPressTools({ site }: { site: Site }) {
                   type="button"
                   className="btn"
                   title={t("Send this copy's changes to the live site")}
-                  onClick={() => {
-                    setLiveAsk({ way: "push", at: Date.now() });
-                    setTab("Environments");
-                  }}
+                  onClick={() => onLive("push")}
                 >
                   {t("Push to live")}
                 </button>
@@ -211,11 +203,11 @@ export function WordPressTools({ site }: { site: Site }) {
         ) : (
           <>
             {shown === "Overview" && <OverviewTab site={site} overview={overview} env={env} database={database} onTab={setTab} />}
-            {shown === "Environments" && <EnvironmentsTab site={site} liveAsk={liveAsk} />}
+            {shown === "Staging" && <StagingTab site={site} />}
             {shown === "Plugins" && <ExtensionsTab site={site} kind="plugin" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />}
             {shown === "Themes" && <ExtensionsTab site={site} kind="theme" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />}
             {shown === "Users" && <UsersTab site={site} />}
-            {shown === "Debug" && <DebugTab site={site} overview={overview} onChanged={setOverview} />}
+            {shown === "Debug" && <DebugTab site={site} overview={overview} live={env?.live ? env.live.url : null} onChanged={setOverview} />}
             {shown === "Search and replace" && <ReplaceTab site={site} />}
             {shown === "Database" && <DatabaseTab site={site} overview={overview} onChanged={setOverview} />}
             {shown === "WooCommerce" && <WooTab site={site} />}
@@ -850,7 +842,18 @@ function UsersTab({ site }: { site: Site }) {
   );
 }
 
-function DebugTab({ site, overview, onChanged }: { site: Site; overview: WpOverview; onChanged: (o: WpOverview) => void }) {
+function DebugTab({
+  site,
+  overview,
+  live,
+  onChanged,
+}: {
+  site: Site;
+  overview: WpOverview;
+  /** The live site's address, for a copy of one. */
+  live: string | null;
+  onChanged: (o: WpOverview) => void;
+}) {
   const t = useT();
   const [log, setLog] = useState<WpLog | null>(null);
   const [follow, setFollow] = useState(true);
@@ -879,19 +882,44 @@ function DebugTab({ site, overview, onChanged }: { site: Site; overview: WpOverv
     ["scripts", "SCRIPT_DEBUG", t("Load full, unminified scripts and styles")],
     ["queries", "SAVEQUERIES", t("Keep every database query for the page (slower)")],
   ];
+  const liveDebug = overview.live_debug;
+  const sameAsLive = liveDebug !== null && flags.every(([key]) => overview.debug[key] === liveDebug[key]);
   return (
     <div className="stack">
+      {live && (
+        <p className="muted small">
+          {t(
+            "These are only for this copy: Push to live never sends wp-config.php, so {site} keeps its own. Each one starts the way the live site has it.",
+            { site: live.replace(/^https?:\/\//, "") },
+          )}
+        </p>
+      )}
       {flags.map(([key, name, label]) => (
-        <label key={key} className="check">
-          <input
-            type="checkbox"
-            checked={overview.debug[key]}
-            disabled={action.busy !== null || (key !== "debug" && key !== "scripts" && key !== "queries" && !overview.debug.debug)}
-            onChange={(e) => set({ [key]: e.target.checked })}
-          />
-          <span className="mono small">{name}</span> <span className="small">{label}</span>
-        </label>
+        <div key={key} className="row between centered wrap">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={overview.debug[key]}
+              disabled={action.busy !== null || (key !== "debug" && key !== "scripts" && key !== "queries" && !overview.debug.debug)}
+              onChange={(e) => set({ [key]: e.target.checked })}
+            />
+            <span className="mono small">{name}</span> <span className="small">{label}</span>
+          </label>
+          {liveDebug && (
+            <span className={`small ${liveDebug[key] === overview.debug[key] ? "muted" : "warn"}`}>
+              {liveDebug[key] ? t("On on live") : t("Off on live")}
+            </span>
+          )}
+        </div>
       ))}
+      {liveDebug && !sameAsLive && (
+        <div className="row centered wrap">
+          <button type="button" className="btn small" disabled={action.busy !== null} onClick={() => set(liveDebug)}>
+            {t("Set back to how live has it")}
+          </button>
+          <span className="muted small">{t("Only this copy changes.")}</span>
+        </div>
+      )}
       {action.status}
       <div className="row between centered wrap">
         <span className="muted small mono">{log?.path}</span>

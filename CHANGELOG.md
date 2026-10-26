@@ -6,6 +6,16 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Push and pull moved to Servers & Git.** A copy of a live WordPress site has a **Live site** tab
+  in Manage › Servers & Git with Pull from live, Push to live and the live backups. The Pull and Push
+  buttons at the top of the WordPress view stay, and open that tab.
+- **WordPress › Environments is now Staging**: make a staging copy of the local site to try something
+  out, then **Merge into** the site (a button beside each staging) or **Delete** it. Stagings are made
+  from the local site or another staging.
+- **Debug settings stay on this computer.** The Debug tab of a copy of a live site shows beside each
+  setting whether it is on or off on the live site, and **Set back to how live has it** copies the live
+  ones. Switching them changes only the copy's `wp-config.php`, which a push never sends. The live
+  `wp-config.php` kept beside the copy is read again on each compare, push and pull.
 - **Fixed: Pull from live and Push to live stopped with "This Stackyard helper has expired and
   removed itself."** The helper Stackyard puts on the live server counted its 30 minutes from this
   computer's clock, so a clock running behind the server's made it expire before it started. It now

@@ -620,7 +620,7 @@ fn sync_command(way: sync::Way, args: SyncArgs) -> Result<()> {
 
 fn undo_hint(domain: &str, push: bool, id: &str) -> String {
     if push {
-        format!("A backup of the live site was taken first ({id}); put it back in Stackyard › Sites › {domain} › WordPress › Environments.")
+        format!("A backup of the live site was taken first ({id}); put it back in Stackyard › Sites › {domain} › Servers & Git › Live site.")
     } else {
         format!("Undo with `stackyard wp snapshots {domain} --undo {id}`.")
     }

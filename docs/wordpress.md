@@ -86,16 +86,15 @@ may need their addresses changed under Network Admin › Sites.
 
 ## Stagings
 
-A staging is a full copy of a site, next to it, for trying a change before it goes to the main
-site: a new checkout, a plugin update, a redesign. Open the site's **WordPress** tab, then
-**Environments**.
+A staging is a full copy of a local site, next to it, for trying something out without touching
+the site itself: a new checkout, a plugin update, a redesign. When you are done, merge it back into
+the site or delete it. Open the site's **WordPress** tab, then **Staging**.
 
-<img src="images/wordpress.png" alt="The Environments tab of a WordPress site: one staging, the New staging form and the live site's push and pull choices" width="900">
+<img src="images/wordpress.png" alt="The Staging tab of a WordPress site: one staging and the New staging form" width="900">
 
 1. Type a name, e.g. `checkout`. The staging's address is that name in front of the main site's:
    `checkout.shop.stack`.
-2. Pick what it is a copy of: the main site, one of its stagings, or (for a site cloned from a live
-   server) **The live site**, which downloads a fresh copy the same way a clone does.
+2. Pick what it is a copy of: the local site or one of its stagings.
 3. Choose whether to **copy the media too** (`wp-content/uploads`). Left out, the staging copies
    each image from the site it was made from the first time a page shows it: faster to make and
    much smaller for big shops.
@@ -119,14 +118,15 @@ A staging is a site like any other: it shows under Sites, has its own tools, and
 link (Manage › Public link) when someone else needs to look at it. Public links are off unless you
 switch them on, for each staging.
 
-**Destroy…** moves a staging to the **Trash**: its folder, database and snapshots are kept for
+**Delete…** moves a staging to the **Trash**: its folder, database and snapshots are kept for
 7 days. **Bring back** puts it back as it was; **Delete now** removes it for good. Only stagings can
-be destroyed this way; the main site is removed under Sites as before.
+be deleted this way; the main site is removed under Sites as before.
 
 ### Merging a staging
 
-When the work on a staging is done, open the **staging's** WordPress tab, then **Environments**.
-**Merge into another copy** takes it into the main site or another staging (**Into**).
+When the work on a staging is done, click **Merge into shop.stack…** beside it in the site's
+**Staging** tab, or open the **staging's** own WordPress tab, then **Staging**. **Merge into another
+copy** takes it into the main site or another staging (**Into**).
 
 **Changes since the staging was made** compares the staging, and the copy it goes into, with the
 staging's starting point. **Find the changes** lists:
@@ -178,8 +178,9 @@ changed safely** instead of guessing: those values are copied as they are, for y
 
 ## Push and pull
 
-A copy cloned from a live server has a **Live site** part in **WordPress › Environments**, to send
-your work up (**Push to live**) or bring the live site's changes down (**Pull from live**). Stackyard
+A copy cloned from a live server has a **Live site** tab in **Manage › Servers & Git**, to send
+your work up (**Push to live**) or bring the live site's changes down (**Pull from live**). The
+**Pull from live** and **Push to live** buttons at the top of the WordPress tab open it. Stackyard
 keeps a record of both sides each time they are in step (after the clone, and after each push or
 pull), so it can tell which side changed what since then.
 
@@ -221,7 +222,7 @@ pull takes a snapshot of the copy.
 ### Snapshots
 
 Before Stackyard changes a copy (merges and pulls), it takes a snapshot: the whole database
-and every file the step is about to change. The Environments tab lists the last 5 snapshots of the
+and every file the step is about to change. The WordPress › Staging tab lists the last 5 snapshots of the
 site you are looking at. **Undo…** puts the database and those files back and removes files the step
 added; a snapshot of how things were just before is taken first, so the undo can itself be undone.
 Files the step never touched are left alone.
@@ -235,6 +236,15 @@ changed, `--posts 12,40` moves just those posts and pages, and `--level everythi
 `--confirm <site name>`. Any other command goes to WP-CLI, in the site of the folder you are in, or
 in another with `--site=shop.stack`, for example `stackyard wp plugin list`. See
 [the terminal guide](cli.md).
+
+### Debug settings on a copy of a live site
+
+The **Debug** tab (`WP_DEBUG`, `WP_DEBUG_LOG`, `WP_DEBUG_DISPLAY`, `SCRIPT_DEBUG`, `SAVEQUERIES`)
+changes only this copy's `wp-config.php`. A push never sends `wp-config.php`, and neither does a
+plain Upload under Servers, so whatever you switch on locally stays local and the live site keeps its
+own. Each setting starts the way the live site has it, and shows **On on live** or **Off on live**
+beside it (read again from the live `wp-config.php` on each compare, push and pull). **Set back to
+how live has it** puts this copy's settings back to the live ones.
 
 AI coding tools connected to Stackyard's [MCP server](mcp.md) can list the environments, and once
 you allow each one, make a staging, run WP-CLI in a local site, merge a staging and destroy one.

@@ -19,7 +19,7 @@ import { size } from "./WordPressTools";
 type Live = NonNullable<WpEnvironment["live"]>;
 
 /** A request from the WordPress view's Pull and Push buttons to open the
- * live panel one way; `at` tells two presses apart. */
+ * live panel in Servers & Git one way; `at` tells two presses apart. */
 export type LiveAsk = { way: WpWay; at: number };
 
 /** Progress of the push, pull or live read running for this copy. */
@@ -67,6 +67,19 @@ function Progress({ progress, onStop }: { progress: WpSyncProgress | null; onSto
       </div>
     </div>
   );
+}
+
+/** The Live site part of a WordPress copy's Servers & Git tab; it waits
+ * to learn which site is the main one (this, or the one it is a staging of). */
+export function LiveSiteTab({ domain, live, ask }: { domain: string; live: Live; ask?: LiveAsk | null }) {
+  const [main, setMain] = useState<string | null>(null);
+  useEffect(() => {
+    wp.stagings(domain)
+      .then((envs) => setMain(envs.main))
+      .catch(() => setMain(domain));
+  }, [domain]);
+  if (!main) return null;
+  return <LivePanel key={ask?.at ?? 0} domain={domain} main={main} live={live} ask={ask ?? undefined} />;
 }
 
 /** Push to and pull from the live site this copy was cloned from: changes
