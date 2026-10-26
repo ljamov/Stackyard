@@ -57,6 +57,49 @@ function listen() {
   }).catch(() => {
     listening = false;
   });
+  // A clone this window took over from a closed one ends here.
+  wp.onCloneEnded((e) => {
+    if (!clones.some((c) => c.id === e.job && c.state === "running")) return;
+    change(e.job, e.result ? { state: "done", result: e.result } : { state: "failed", error: e.error });
+  }).catch(() => {});
+}
+
+let restored = false;
+
+/**
+ * Brings back the clones from before the app last quit, minimized: one
+ * that was running (the app updated or quit under it) starts again and
+ * continues where it stopped; a stopped or failed one waits for Continue.
+ */
+export async function restoreClones() {
+  if (restored) return;
+  restored = true;
+  let saved;
+  try {
+    saved = await wp.clonesSaved();
+  } catch {
+    return;
+  }
+  const known = new Set(clones.map((c) => c.id));
+  const back: Clone[] = saved
+    .filter((s) => !known.has(s.job))
+    .map((s) => ({
+      id: s.job,
+      state: s.state === "running" ? "running" : "failed",
+      open: false,
+      name: s.options.name,
+      from: s.from,
+      source: s.source,
+      options: s.options,
+      progress: null,
+      result: null,
+      error: s.state === "running" ? null : s.error,
+    }));
+  if (!back.length) return;
+  listen();
+  set([...clones, ...back]);
+  // Ones still running in the app just show again; the others start again.
+  for (const s of saved) if (s.state === "running" && !s.active && !known.has(s.job)) void run(s.job);
 }
 
 /** Opens a new, empty clone form on the Sites screen; returns its id. */
@@ -72,7 +115,7 @@ async function run(id: string) {
   listen();
   change(id, { state: "running", error: null, progress: null, result: null });
   try {
-    change(id, { state: "done", result: await wp.clone(id, clone.source, clone.options) });
+    change(id, { state: "done", result: await wp.clone(id, clone.source, clone.options, clone.from) });
   } catch (e) {
     change(id, { state: "failed", error: errorText(e) });
   }

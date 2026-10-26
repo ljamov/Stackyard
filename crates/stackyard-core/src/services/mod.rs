@@ -30,7 +30,7 @@ use crate::platform::{Os, Platform};
 use crate::runtimes::RuntimeManager;
 use crate::settings::Settings;
 use crate::supervisor::{ProcessSpec, ProcessState, Supervisor};
-use crate::system::Wanted;
+use crate::system::{self, Wanted};
 use crate::web::{self, Ports, ServedSite};
 use crate::{paths, Error, Result};
 
@@ -324,11 +324,15 @@ impl ServiceManager {
     }
 
     /// The sites the user made or parked, without the ones Stackyard adds
-    /// itself (phpMyAdmin), for lists.
+    /// itself (phpMyAdmin), for lists: in the order the user put them in.
     pub fn user_sites(&self) -> Result<Vec<ServedSite>> {
         let builtin = crate::phpmyadmin::dir(&self.home);
         let mut sites = self.sites()?;
         sites.retain(|s| s.site.path != builtin);
+        // A damaged order file shouldn't hide the sites.
+        if let Ok(order) = crate::siteorder::SiteOrder::load(&self.home) {
+            order.sort(&mut sites, |s| s.site.domain());
+        }
         Ok(sites)
     }
 
@@ -400,6 +404,17 @@ impl ServiceManager {
             &domains,
             &self.root_certificate(),
         ))
+    }
+
+    /// What system setup should cover and what is left of it, after
+    /// bringing the hosts file up to date when setup allowed that.
+    pub fn system_status(&self) -> Result<(Wanted, system::Status)> {
+        let wanted = self.system_wanted()?;
+        if let Err(e) = system::sync_hosts(&self.home, &wanted) {
+            eprintln!("{e}");
+        }
+        let status = wanted.status(&system::applied(&self.home));
+        Ok((wanted, status))
     }
 
     /// Where Caddy keeps its local certificate authority's root.

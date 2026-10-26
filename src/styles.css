@@ -104,6 +104,28 @@ button, input, select { font: inherit; color: inherit; }
 .item-name { margin: 0; font: inherit; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-open { display: block; max-width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
 .site-cell { display: flex; align-items: center; gap: 10px; }
+/* Sites: groups and the order, moved by a handle (components/SiteList.tsx). */
+.drag-handle {
+  flex: none; display: grid; place-items: center; width: 20px; height: 32px; padding: 0; border: 0; border-radius: 4px;
+  background: none; color: var(--muted); cursor: grab; touch-action: none;
+}
+.drag-handle:hover { color: var(--text-strong); background: color-mix(in srgb, var(--text) 7%, transparent); }
+.drag-handle:active { cursor: grabbing; }
+.drag-handle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+.site-list-tools td { padding-top: 8px; padding-bottom: 8px; }
+.site-list-tools .btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.group-row td { background: color-mix(in srgb, var(--text) 3%, var(--surface)); }
+.group-head { display: flex; align-items: center; gap: 8px; }
+.group-head .grow { flex: 1; }
+.group-name.disclosure { width: auto; min-height: 32px; padding: 0 8px; border: 0; background: none; }
+.group-name strong { color: var(--text-strong); }
+.group-name-input { width: 18em; max-width: 100%; }
+.group-empty { padding: 4px 0 2px 28px; }
+tr[data-in-group] > td:first-child { padding-left: 32px; }
+tr[data-dragged] { opacity: 0.5; }
+tr[data-drop-at="before"] > td { box-shadow: inset 0 2px 0 var(--accent); }
+tr[data-drop-at="after"] > td { box-shadow: inset 0 -2px 0 var(--accent); }
+tr[data-drop-at="into"] > td { box-shadow: inset 0 0 0 2px var(--accent); }
 .card.dashed { background: none; border-style: dashed; border-color: var(--border-strong); }
 .card.empty { color: var(--muted); }
 .table-wrap { padding: 0; overflow-x: auto; position: relative; }
@@ -369,6 +391,11 @@ details summary { cursor: pointer; color: var(--text-2); }
 .sites-top > .parked { flex: 1 1 260px; min-width: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
+/* Clone from a live server: protocol 20% · address 60% · port 20%, then halves */
+.server-grid { display: grid; gap: 14px 16px; }
+.server-grid > .row-wide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr) minmax(0, 1fr); gap: 14px 16px; align-items: start; }
+.server-grid > .row-half { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; align-items: start; }
+@media (max-width: 720px) { .server-grid > .row-wide, .server-grid > .row-half { grid-template-columns: 1fr; } }
 
 /* Sites: a site's servers and Git, opened under its row */
 .nowrap { white-space: nowrap; }
@@ -599,6 +626,11 @@ details summary { cursor: pointer; color: var(--text-2); }
 .clone-item:last-child { border-bottom: 0; padding-bottom: 0; }
 .clone-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clone-progress-text { overflow-wrap: anywhere; }
+.clone-progress { max-width: 420px; }
+.clone-progress .progress { max-width: none; }
+.clone-progress-head { display: flex; justify-content: space-between; gap: 12px; }
+.clone-progress-amount { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.clone-progress-file { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* A narrow window keeps the screen: the side bar narrows to its icons. */
 @media (max-width: 720px) {

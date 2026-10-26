@@ -6,6 +6,11 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Your own order for sites, and groups.** On the Sites screen, drag a site by its handle to move it,
+  or put sites in a group (one per client, say) with **New group**, and drag groups around too. A
+  group folds away with a click on its name and is renamed with the pencil. The order is kept and
+  every list of sites follows it: the side bar, the command palette, Home, the tray and
+  `stackyard sites`. The handle also moves with the arrow keys.
 - **See how big a live site's files are before cloning it.** Clone from a live server now shows,
   next to the database, the size of WordPress core, themes, plugins, media (uploads), other files
   and all files together, with file counts, plus how much in caches and backups is left out. The
@@ -14,6 +19,23 @@ Update button, and the app shows its own version's section after it updates.
   core, themes, plugins, media, other files, caches and backups, and the total. It is measured in
   the background when the tab opens (again after an hour, or with **Measure again**), and the Sites
   list shows each site's last measured total.
+- **Local domains stay set up.** On Windows, new sites (and clones and stagings) used to bring back
+  "Finish setting up local domains" with a password prompt each time. Setup now lets Stackyard keep
+  its own lines in the hosts file up to date, so it is asked for once. Click **Set up** one more
+  time after this update, and new sites get their address by themselves from then on.
+- **Clones go on after an update.** A clone from a live server that was running when Stackyard
+  updated or quit starts again by itself and continues where it stopped. Stopped or failed clones
+  are shown again too, with their Try again button. The update notice says so while a clone runs.
+- **Clone from a live server: tidier server form.** Connect with, Server address and Port share
+  the first row (20/60/20), User name and Password the second, Folder on the server and Private
+  key the third.
+- **The live login is saved once.** The server typed into Clone from a live server is kept with
+  the new site under Manage › Servers & Git as Live (password in the system's password store),
+  ready for live pull and push and editable there. Cloning the same site again from the same
+  server, user and folder updates that connection instead of adding a second one.
+- **Clone progress stays put.** The downloaded amount and percent (e.g. 50.2 MB / 562.4 MB · 8%)
+  now sit at a fixed spot above the bar, and the file being copied goes on its own line below it,
+  so a long path no longer pushes the numbers around.
 - **AI tools can do more through the MCP server.** New tools that only look: `wordpress_overview`
   (versions, plugins, themes, debug settings, snapshots and live backups of a WordPress site),
   `read_wordpress_log` (the site's `debug.log`), `list_backups` and `list_tasks` (scheduled tasks,

@@ -6,6 +6,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { arrange, flatten, type SiteItem } from "./siteGroups";
 
 export type LanguageFile = { code: string; name: string; strings: Record<string, string> };
 export type LanguageFiles = {
@@ -625,7 +626,12 @@ export interface Api {
   pickThemeFile(title: string): Promise<string | null>;
   listModules(): Promise<Module[]>;
   setModule(id: string, enabled: boolean): Promise<Module[]>;
+  /** Sites in the order the user put them in. */
   listSites(): Promise<Site[]>;
+  /** The groups and order of the sites, for the Sites screen. */
+  siteLayout(): Promise<SiteItem[]>;
+  /** Saves the groups and order; every list of sites follows it. */
+  setSiteLayout(items: SiteItem[]): Promise<SiteItem[]>;
   /** Picks a runtime version for a site; null goes back to the default. */
   setSiteVersion(domain: string, kind: RuntimeKind, version: string | null): Promise<Site[]>;
   addSite(site: NewSite): Promise<Site[]>;
@@ -847,6 +853,8 @@ const tauriApi: Api = {
   listModules: () => invoke("list_modules"),
   setModule: (id, enabled) => invoke("set_module", { id, enabled }),
   listSites: () => invoke("list_sites"),
+  siteLayout: () => invoke("site_layout"),
+  setSiteLayout: (items) => invoke("set_site_layout", { items }),
   setSiteVersion: (domain, kind, version) => invoke("set_site_version", { domain, kind, version }),
   addSite: (site) => invoke("add_site", site),
   listStarters: () => invoke("list_starters"),
@@ -1281,6 +1289,7 @@ function browserApi(): Api {
     sample("shop", "Node 22 · dev server on port 5173", "Vite", true),
     sample("legacy", "PHP 7.4", "WordPress", false, "PHP 7.4 is not installed"),
   ];
+  let siteLayout: SiteItem[] = [];
   let parked = ["~/Code"];
   const autostart = new Set<string>();
   /** The sample WordPress site keeps its database in MySQL; the others have none. */
@@ -1476,7 +1485,17 @@ function browserApi(): Api {
       modules = modules.map((m) => (m.id === id && m.available ? { ...m, enabled } : m));
       return modules;
     },
-    listSites: async () => (sites = sites.map(withVersions)),
+    listSites: async () => {
+      const at = new Map(flatten(arrange(siteLayout, sites.map((s) => s.domain))).map((d, i) => [d, i]));
+      sites = sites.map(withVersions).sort((a, b) => (at.get(a.domain) ?? 0) - (at.get(b.domain) ?? 0));
+      return sites;
+    },
+    siteLayout: async () => arrange(siteLayout, sites.map((s) => s.domain)),
+    setSiteLayout: async (items) => {
+      siteLayout = items;
+      sitesChanged();
+      return arrange(siteLayout, sites.map((s) => s.domain));
+    },
     setSiteVersion: async (domain, kind, version) => {
       sites = sites.map((site) => {
         if (site.domain !== domain) return site;

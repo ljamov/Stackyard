@@ -24,6 +24,7 @@ use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::setup;
 use stackyard_core::shell::{self, path as user_path, shims};
+use stackyard_core::siteorder::{self, SiteOrder};
 use stackyard_core::sites::{Site, SiteRuntime, SiteStore};
 use stackyard_core::supervisor::{ProcessState, Supervisor};
 use stackyard_core::system::{self, Elevate, Resolver};
@@ -1337,6 +1338,31 @@ fn list_sites() -> CmdResult<Vec<SiteView>> {
     site_views()
 }
 
+/// The sites' groups and order, for the Sites screen.
+#[tauri::command]
+fn site_layout() -> CmdResult<Vec<siteorder::Item>> {
+    let manager = ServiceManager::open();
+    let order = SiteOrder::load(manager.home()).map_err(err)?;
+    let domains: Vec<String> = manager
+        .user_sites()
+        .map_err(err)?
+        .iter()
+        .map(|s| s.site.domain())
+        .collect();
+    Ok(order.arranged(&domains))
+}
+
+/// Saves the groups and order the user arranged; every list follows it.
+#[tauri::command]
+fn set_site_layout(app: AppHandle, items: Vec<siteorder::Item>) -> CmdResult<Vec<siteorder::Item>> {
+    let mut order = SiteOrder::load(&paths::home()).map_err(err)?;
+    order.set(items).map_err(err)?;
+    order.save().map_err(err)?;
+    // Only the lists change; the web server needn't restart.
+    let _ = app.emit("sites-changed", ());
+    site_layout()
+}
+
 #[tauri::command]
 fn add_site(
     app: AppHandle,
@@ -1863,8 +1889,7 @@ struct SystemView {
 
 fn system_view(app: &AppHandle) -> CmdResult<SystemView> {
     let manager = ServiceManager::open();
-    let wanted = manager.system_wanted().map_err(err)?;
-    let status = wanted.status(&system::applied(manager.home()));
+    let (wanted, status) = manager.system_status().map_err(err)?;
     Ok(SystemView {
         needed: status.needed,
         waiting_for_certificate: status.waiting_for_certificate,
@@ -2047,6 +2072,7 @@ pub fn run() {
             wordpress::wp_clone_stop,
             wordpress::wp_clone_forget,
             wordpress::wp_clone_unfinished,
+            wordpress::wp_clones_saved,
             wordpress::wp_environment,
             wordpress::wp_stagings,
             wordpress::wp_staging_create,
@@ -2133,6 +2159,8 @@ pub fn run() {
             remove_theme,
             open_themes_folder,
             list_sites,
+            site_layout,
+            set_site_layout,
             set_site_version,
             add_site,
             remove_site,
@@ -2252,6 +2280,7 @@ pub fn run() {
         RunEvent::Reopen { .. } => show_window(handle),
         // Never leave services running after Stackyard quits.
         RunEvent::Exit => {
+            wordpress::set_quitting(true);
             handle.state::<Control>().0.lock().unwrap().take();
             handle.state::<Arc<Engine>>().shutdown();
         }
