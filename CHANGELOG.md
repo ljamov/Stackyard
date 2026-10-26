@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.14.0
 
 - **Push and pull moved to Servers & Git.** A copy of a live WordPress site has a **Live site** tab
   in Manage › Servers & Git with Pull from live, Push to live and the live backups. The Pull and Push
