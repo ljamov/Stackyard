@@ -36,6 +36,11 @@ Update button, and the app shows its own version's section after it updates.
 - **Clone progress stays put.** The downloaded amount and percent (e.g. 50.2 MB / 562.4 MB · 8%)
   now sit at a fixed spot above the bar, and the file being copied goes on its own line below it,
   so a long path no longer pushes the numbers around.
+- **More in the tray menu.** Start and stop each service on its own (a tick shows which run), open a
+  site in the browser, make a new site or app, open the sites folder, open a terminal with
+  Stackyard Shell, open phpMyAdmin, or go straight to a screen. The menu and the icon's tooltip
+  follow the services as they start, stop or crash, without checking on a timer, and Stop all no
+  longer holds up the menu while services shut down.
 - **AI tools can do more through the MCP server.** New tools that only look: `wordpress_overview`
   (versions, plugins, themes, debug settings, snapshots and live backups of a WordPress site),
   `read_wordpress_log` (the site's `debug.log`), `list_backups` and `list_tasks` (scheduled tasks,
