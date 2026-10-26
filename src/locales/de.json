@@ -809,5 +809,21 @@
   "Trying again continues where it stopped; files already downloaded are kept.": "Ein neuer Versuch macht dort weiter, wo er stoppte; bereits geladene Dateien bleiben erhalten.",
   "{count} clones ready": "{count} Klone fertig",
   "{count} clones stopped": "{count} Klone angehalten",
-  "{domain} was not cloned": "{domain} wurde nicht geklont"
+  "{domain} was not cloned": "{domain} wurde nicht geklont",
+  "Check connection": "Verbindung prüfen",
+  "Connection check": "Verbindungsprüfung",
+  "Everything works.": "Alles funktioniert.",
+  "Only do this if you know the server was rebuilt or moved.": "Nur tun, wenn du weißt, dass der Server neu aufgesetzt oder umgezogen wurde.",
+  "Tries each step and shows where it stops and what to do.": "Probiert jeden Schritt und zeigt, wo es hängt und was zu tun ist.",
+  "Trust the new key": "Dem neuen Schlüssel vertrauen",
+  "Trust this certificate": "Diesem Zertifikat vertrauen",
+  "Find the server": "Server finden",
+  "Reach the port": "Port erreichen",
+  "Secure handshake": "Sicherer Verbindungsaufbau",
+  "Log in": "Anmelden",
+  "Open a session": "Sitzung öffnen",
+  "Open the files": "Dateien öffnen",
+  "Run commands": "Befehle ausführen",
+  "Internet or firewall": "Internet oder Firewall",
+  "Login or settings": "Anmeldung oder Einstellungen"
 }

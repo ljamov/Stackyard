@@ -23,6 +23,7 @@ import { useT } from "../lib/i18n";
 import type { WpEnvironment } from "../lib/wordpress";
 import { LiveSiteTab, type LiveAsk } from "./wordpress/Live";
 import { Tip, TipMark } from "./Tip";
+import { ConnectionCheck } from "./ConnectionCheck";
 
 type WpLive = NonNullable<WpEnvironment["live"]>;
 
@@ -602,7 +603,7 @@ function ConnectionCard({
       </div>
 
       {test && test !== "testing" && (
-        <TestResult test={test} onTrust={(fp) => trust(fp)} onForgetKey={() => trust(null)} />
+        <TestResult id={c.id} test={test} onTrust={(fp) => trust(fp)} onForgetKey={() => trust(null)} />
       )}
 
       {job?.kind === "planning" && (
@@ -660,10 +661,12 @@ function ConnectionCard({
 }
 
 function TestResult({
+  id,
   test,
   onTrust,
   onForgetKey,
 }: {
+  id: string;
   test: RemoteTest;
   onTrust: (fingerprint: string) => void;
   onForgetKey: () => void;
@@ -678,6 +681,7 @@ function TestResult({
   return (
     <div className="stack tight" role="alert">
       <p className="error small">{test.error}</p>
+      <ConnectionCheck run={() => api.remoteCheck(id)} onTrust={onTrust} onForgetKey={onForgetKey} />
       {test.certificate && (
         <div className="row wrap centered">
           <span className="muted small">

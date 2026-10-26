@@ -4,6 +4,17 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Clear connection errors.** When connecting to a server fails, Stackyard now says what failed,
+  whose side the problem is on (internet or firewall, the server, the login or settings, or
+  Stackyard), the server's own reason when it gave one, and what to try. "could not open a
+  session: Disconnected" now reads, for example, that the server accepted the login and then closed
+  the connection, and to check that SSH/SFTP is on for the user and that no other program is
+  connected. **Check connection** under a failed clone or Test goes through each step (find the
+  server, reach the port, handshake, log in, open a session, open the files, run commands) and shows
+  where it stops.
+
 ## 0.15.0
 
 - **Clone several live sites at once.** Clone from a live server no longer waits for the clone
