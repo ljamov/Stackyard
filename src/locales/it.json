@@ -1,4 +1,12 @@
 {
+  "Drag a site by its handle to change the order or put it in a group.": "Trascina un sito dalla maniglia per cambiare l’ordine o metterlo in un gruppo.",
+  "Drag sites here to add them to this group.": "Trascina qui i siti per aggiungerli a questo gruppo.",
+  "Drag to move {name}, or use the arrow keys": "Trascina per spostare {name} o usa i tasti freccia",
+  "Group name": "Nome del gruppo",
+  "Move {name}": "Sposta {name}",
+  "New group": "Nuovo gruppo",
+  "Rename {name}": "Rinomina {name}",
+  "Ungroup {name}": "Sciogli il gruppo {name}",
   "_name": "Italiano",
   "(no title)": "(senza titolo)",
   "1 file": "1 file",

@@ -106,6 +106,8 @@ pub enum Error {
     Ai(String),
     #[error("{0}")]
     WordPress(String),
+    #[error("{0}")]
+    SiteOrder(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
