@@ -4,6 +4,16 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Clone from a live server: tidier server form.** Connect with, Server address and Port share
+  the first row (20/60/20), User name and Password the second, Folder on the server and Private
+  key the third.
+- **The live login is saved once.** The server typed into Clone from a live server is kept with
+  the new site under Manage › Servers & Git as Live (password in the system's password store),
+  ready for live pull and push and editable there. Cloning the same site again from the same
+  server, user and folder updates that connection instead of adding a second one.
+
 ## 0.15.0
 
 - **Clone several live sites at once.** Clone from a live server no longer waits for the clone

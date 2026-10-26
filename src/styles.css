@@ -369,6 +369,11 @@ details summary { cursor: pointer; color: var(--text-2); }
 .sites-top > .parked { flex: 1 1 260px; min-width: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
+/* Clone from a live server: protocol 20% · address 60% · port 20%, then halves */
+.server-grid { display: grid; gap: 14px 16px; }
+.server-grid > .row-wide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr) minmax(0, 1fr); gap: 14px 16px; align-items: start; }
+.server-grid > .row-half { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; align-items: start; }
+@media (max-width: 720px) { .server-grid > .row-wide, .server-grid > .row-half { grid-template-columns: 1fr; } }
 
 /* Sites: a site's servers and Git, opened under its row */
 .nowrap { white-space: nowrap; }

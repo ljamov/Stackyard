@@ -509,6 +509,7 @@
   "Stackyard has no record of when this copy was last in step, so every difference is marked; you decide.": "Stackyard no sabe cuándo se sincronizó esta copia por última vez, así que cada diferencia queda marcada; tú decides.",
   "Stackyard is updated to {version}": "Stackyard se actualizó a {version}",
   "Stackyard looks for WordPress in it and the folders below.": "Stackyard busca WordPress en ella y en las carpetas de debajo.",
+  "The new site keeps this login under Manage › Servers & Git as Live, for live pull and push; change it there any time. Cloning again from the same server updates it instead of adding another.": "El nuevo sitio guarda este acceso en Gestionar › Servidores y Git como Live, para traer y enviar a producción; puedes cambiarlo allí cuando quieras. Clonar de nuevo desde el mismo servidor lo actualiza en lugar de añadir otro.",
   "Stackyard updated": "Stackyard actualizado",
   "Stackyard {version} is available": "Stackyard {version} está disponible",
   "Staging": "Staging",
