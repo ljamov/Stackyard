@@ -36,6 +36,11 @@ Update button, and the app shows its own version's section after it updates.
 - **Clone progress stays put.** The downloaded amount and percent (e.g. 50.2 MB / 562.4 MB · 8%)
   now sit at a fixed spot above the bar, and the file being copied goes on its own line below it,
   so a long path no longer pushes the numbers around.
+- **More in the tray menu.** Start and stop each service on its own (a tick shows which run), open a
+  site in the browser, make a new site or app, open the sites folder, open a terminal with
+  Stackyard Shell, open phpMyAdmin, or go straight to a screen. The menu and the icon's tooltip
+  follow the services as they start, stop or crash, without checking on a timer, and Stop all no
+  longer holds up the menu while services shut down.
 - **Clear connection errors.** When connecting to a server fails, Stackyard now says what failed,
   whose side the problem is on (internet or firewall, the server, the login or settings, or
   Stackyard), the server's own reason when it gave one, and what to try. "could not open a

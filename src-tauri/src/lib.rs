@@ -32,7 +32,7 @@ use stackyard_core::web::{self, Backend, Ports, ServedSite};
 use stackyard_core::{
     domain, images, interface, languages, paths, phpmyadmin, starters, themes, videos,
 };
-use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 mod ai;
 mod console;
@@ -40,6 +40,7 @@ mod perf;
 mod remote;
 mod sitepics;
 mod sitetools;
+mod tray;
 mod updates;
 mod wordpress;
 
@@ -412,6 +413,7 @@ async fn install_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceVie
     .await;
     app.state::<Installs>().0.lock().unwrap().remove(&key);
     result.map_err(|e| e.to_string())?.map_err(err)?;
+    tray::changed(&app);
     Ok(service_views(
         app.state::<Arc<Engine>>().supervisor(),
         &app.state::<Installs>(),
@@ -420,12 +422,14 @@ async fn install_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceVie
 
 #[tauri::command]
 fn uninstall_service(
+    app: AppHandle,
     id: String,
     engine: State<'_, Arc<Engine>>,
     installs: State<'_, Installs>,
 ) -> CmdResult<Vec<ServiceView>> {
     engine.stop(&id).map_err(err)?;
     engine.manager().uninstall(&id).map_err(err)?;
+    tray::changed(&app);
     Ok(service_views(engine.supervisor(), &installs))
 }
 
@@ -1067,6 +1071,7 @@ fn list_modules() -> CmdResult<Vec<ModuleView>> {
 
 #[tauri::command]
 fn set_module(
+    app: AppHandle,
     id: String,
     enabled: bool,
     engine: State<'_, Arc<Engine>>,
@@ -1080,6 +1085,7 @@ fn set_module(
     if id == "shell" && !enabled {
         terminal_off().map_err(err)?;
     }
+    tray::changed(&app);
     Ok(module_views(&settings))
 }
 
@@ -1360,6 +1366,7 @@ fn set_site_layout(app: AppHandle, items: Vec<siteorder::Item>) -> CmdResult<Vec
     order.save().map_err(err)?;
     // Only the lists change; the web server needn't restart.
     let _ = app.emit("sites-changed", ());
+    tray::changed(&app);
     site_layout()
 }
 
@@ -1828,6 +1835,7 @@ pub(crate) fn ensure_web(engine: &Engine) -> CmdResult<()> {
 pub(crate) fn sites_changed(app: &AppHandle) {
     // Every list of sites in the window (the side bar, tabs, Home) reloads.
     let _ = app.emit("sites-changed", ());
+    tray::changed(app);
     let engine = app.state::<Arc<Engine>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         if let Err(e) = engine.sites_changed() {
@@ -1955,9 +1963,6 @@ fn first_copy(home: &std::path::Path) -> Option<Option<std::fs::File>> {
 
 /// The connection that lets the CLI reach this app's services.
 struct Control(Mutex<Option<ControlServer>>);
-
-/// Whether the tray icon is up; without one, closing the window quits.
-struct Tray(bool);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -2237,18 +2242,13 @@ pub fn run() {
             remote::git_fetch,
             remote::git_pull,
             remote::git_push,
-            remote::git_commit
+            remote::git_commit,
+            tray::take_tray_action
         ])
         .setup(move |app| {
             perf::mark("setup");
-            let tray = match build_tray(app.handle()) {
-                Ok(()) => true,
-                Err(e) => {
-                    eprintln!("no tray icon: {e}");
-                    false
-                }
-            };
-            app.manage(Tray(tray));
+            app.manage(tray::build(app.handle()));
+            tray::follow(app.handle());
             // Quit cleanly, stopping services, when the system asks (logout, `kill`).
             let handle = app.handle().clone();
             let _ = ctrlc::set_handler(move || handle.exit(0));
@@ -2264,6 +2264,7 @@ pub fn run() {
             let handle = app.handle().clone();
             Engine::watch_parked(&app.state::<Arc<Engine>>(), &paths::home(), move || {
                 let _ = handle.emit("sites-changed", ());
+                tray::changed(&handle);
             });
             perf::mark("setup_done");
             Ok(())
@@ -2276,7 +2277,7 @@ pub fn run() {
         // Stackyard keeps running in the tray until Quit.
         RunEvent::ExitRequested {
             api, code: None, ..
-        } if handle.state::<Tray>().0 => api.prevent_exit(),
+        } if handle.state::<tray::Tray>().up => api.prevent_exit(),
         // macOS: clicking the Dock icon with no window open.
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => show_window(handle),
@@ -2340,6 +2341,7 @@ fn answer_cli(app: &AppHandle, request: Request) -> Response {
             let response = app.state::<Arc<Engine>>().handle(Request::SitesChanged);
             // A terminal or an AI tool changed the sites: show them.
             let _ = app.emit("sites-changed", ());
+            tray::changed(app);
             response
         }
         other => app.state::<Arc<Engine>>().handle(other),
@@ -2363,93 +2365,6 @@ fn show_window(app: &AppHandle) {
         }
         Err(e) => eprintln!("could not open the window: {e}"),
     }
-}
-
-/// The tray menu, with an item for the update when one is available.
-fn tray_menu<R: Runtime>(
-    app: &AppHandle<R>,
-    update: Option<&str>,
-) -> tauri::Result<tauri::menu::Menu<R>> {
-    use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
-
-    let item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
-    let open = item("open", "Open Stackyard")?;
-    let update = update
-        .map(|version| item("update", &format!("Update to {version}…")))
-        .transpose()?;
-    let start = item("start-all", "Start all services")?;
-    let stop = item("stop-all", "Stop all services")?;
-    let quit = item("quit", "Quit Stackyard")?;
-    let (gap1, gap2) = (
-        PredefinedMenuItem::separator(app)?,
-        PredefinedMenuItem::separator(app)?,
-    );
-    let mut items: Vec<&dyn IsMenuItem<R>> = vec![&open];
-    if let Some(update) = &update {
-        items.push(update);
-    }
-    items.extend([&gap1 as &dyn IsMenuItem<R>, &start, &stop, &gap2, &quit]);
-    Menu::with_items(app, &items)
-}
-
-/// Shows or removes the tray's update item.
-pub(crate) fn set_tray_update<R: Runtime>(app: &AppHandle<R>, version: Option<&str>) {
-    let Some(tray) = app.tray_by_id("main") else {
-        return;
-    };
-    match tray_menu(app, version) {
-        Ok(menu) => {
-            let _ = tray.set_menu(Some(menu));
-            if let Some(version) = version {
-                let _ = tray.set_tooltip(Some(format!("Stackyard: {version} is available")));
-            }
-        }
-        Err(e) => eprintln!("could not update the tray menu: {e}"),
-    }
-}
-
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-
-    let menu = tray_menu(app, None)?;
-    let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("Stackyard")
-        .menu(&menu)
-        // macOS shows the menu on a click; elsewhere a click opens the window.
-        .show_menu_on_left_click(cfg!(target_os = "macos"))
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            // The window's notice has the update and its Update button.
-            "open" | "update" => show_window(app),
-            "start-all" => {
-                let engine = app.state::<Arc<Engine>>().inner().clone();
-                std::thread::spawn(move || {
-                    let (_, problems) = engine.start_all();
-                    for problem in problems {
-                        eprintln!("{problem}");
-                    }
-                });
-            }
-            "stop-all" => app.state::<Arc<Engine>>().stop_all(),
-            "quit" => app.exit(0),
-            _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                if !cfg!(target_os = "macos") {
-                    show_window(tray.app_handle());
-                }
-            }
-        });
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
-    }
-    tray.build(app)?;
-    Ok(())
 }
 
 #[cfg(test)]

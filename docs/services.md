@@ -118,8 +118,21 @@ undone. Nothing is read until you ask, and project folders are never counted or 
 One process at a time runs services, and every other part of Stackyard talks to it:
 
 - **The app.** Closing the window keeps Stackyard in the tray (menu bar on macOS) and frees the
-  window's memory; the tray menu opens it again, starts or stops every service, or quits. Quitting
-  stops all services. Opening the app a second time brings the first window forward.
+  window's memory. Quitting stops all services. Opening the app a second time brings the first
+  window forward. The tray menu has:
+  - **Open Stackyard**, and **Update to …** when a new version is out.
+  - **Start all services** and **Stop all services**.
+  - **Services**: each installed service with a tick while it runs; click one to start or stop
+    it. The title says how many are running, and so does the icon's tooltip.
+  - **Open site**: opens a site in the browser (starting the web server if it is stopped).
+  - **New site or app…** opens the window on the New site form; **Open sites folder**.
+  - **Open terminal**: Stackyard Shell in the sites folder, where `php`, `node` and the rest use
+    each project's versions (when the Stackyard Shell module is on).
+  - **Open phpMyAdmin** when it is installed, **Go to** a screen, and **Quit Stackyard**.
+
+  The menu follows the services as they start, stop or crash, from the app, the tray or
+  `stackyard` in a terminal, without checking on a timer. Something that fails from the tray shows
+  a system notification.
 - **`stackyard start`** when the app is closed: it starts a small background process
   (`stackyard daemon`) that keeps services running after the terminal closes. `stackyard stop`
   stops everything and ends it; opening the app takes its services over.
