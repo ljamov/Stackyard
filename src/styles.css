@@ -716,6 +716,8 @@ details summary { cursor: pointer; color: var(--text-2); }
 .facts-grid dt { color: var(--muted); }
 .facts-grid dd { margin: 0; min-width: 0; }
 .facts-grid .site-versions { margin-top: 0; }
+.site-size { gap: 4px; }
+.site-size-parts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 
 /* Check connection (components/ConnectionCheck.tsx): one row per step */
 .conn-check { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }

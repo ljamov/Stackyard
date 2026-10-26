@@ -8,6 +8,7 @@ import { closeTab, setLayout, siteTab, type TabId } from "../lib/layout";
 import { BrandIcon } from "../components/BrandIcon";
 import { Icon } from "../components/Icon";
 import { SiteActions } from "../components/SiteActions";
+import { SiteSizeFacts } from "../components/SiteSize";
 import { SiteThumb } from "../components/SiteThumb";
 import { SiteTools } from "../components/SiteTools";
 import { SiteVersions } from "../components/SiteVersions";
@@ -111,6 +112,7 @@ export function SitePage({ domain }: { domain: string }) {
               }}
             />
           </dd>
+          <SiteSizeFacts site={site} />
         </dl>
       </section>
 

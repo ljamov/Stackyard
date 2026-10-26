@@ -10,6 +10,7 @@ import {
   type WpProtocol,
   type WpRoute,
   type WpSavedConnection,
+  type WpSizes,
 } from "../../lib/wordpress";
 import { size } from "./WordPressTools";
 import { closeClone, editClone, minimizeClone, retryClone, startClone, stopClone, useClones } from "../../lib/clones";
@@ -56,6 +57,50 @@ export function stageText(t: T, stage: WpCloneProgress["stage"]) {
     loading: t("Loading"),
     finishing: t("Finishing"),
   }[stage];
+}
+
+/** How much the live site's files hold: WordPress core, themes, plugins, media and all of them. */
+function FileSizes({ sizes }: { sizes: WpSizes }) {
+  const t = useT();
+  const n = (count: number) => count.toLocaleString();
+  const all = ["core", "themes", "plugins", "uploads", "other"] as const;
+  const total = all.reduce((sum, k) => ({ files: sum.files + sizes[k].files, bytes: sum.bytes + sizes[k].bytes }), { files: 0, bytes: 0 });
+  const more = sizes.complete ? "" : `${t("at least")} `;
+  const rows: [string, string][] = [
+    [t("WordPress core"), `${t("{count} files", { count: n(sizes.core.files) })} · ${size(sizes.core.bytes)}`],
+    [t("Themes"), `${t("{count} themes", { count: n(sizes.themes.items) })} · ${size(sizes.themes.bytes)}`],
+    [t("Plugins"), `${t("{count} plugins", { count: n(sizes.plugins.items) })} · ${size(sizes.plugins.bytes)}`],
+    [t("Media (uploads)"), `${t("{count} files", { count: n(sizes.uploads.files) })} · ${size(sizes.uploads.bytes)}`],
+  ];
+  if (sizes.other.files > 0) rows.push([t("Other files"), `${t("{count} files", { count: n(sizes.other.files) })} · ${size(sizes.other.bytes)}`]);
+  return (
+    <>
+      {rows.map(([label, value]) => (
+        <div key={label} className="list-row">
+          <dt className="muted small">{label}</dt>
+          <dd className="small">
+            {more}
+            {value}
+          </dd>
+        </div>
+      ))}
+      <div className="list-row">
+        <dt className="small">{t("All files")}</dt>
+        <dd className="small">
+          <strong>
+            {more}
+            {t("{count} files", { count: n(total.files) })} · {size(total.bytes)}
+          </strong>
+          {sizes.skipped.files > 0 && (
+            <span className="muted">
+              {" "}
+              · {t("{size} of caches and backups inside the site are left out", { size: size(sizes.skipped.bytes) })}
+            </span>
+          )}
+        </dd>
+      </div>
+    </>
+  );
 }
 
 /** New site › Clone from a live server: find WordPress, choose, clone. Each form is one clone of many. */
@@ -367,11 +412,15 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
                 {size(found.database_bytes)}
               </dd>
             </div>
+            {found.files && <FileSizes sizes={found.files} />}
             <div className="list-row">
               <dt className="muted small">{t("How")}</dt>
               <dd className="small">{routeText(t, found.route)}</dd>
             </div>
           </dl>
+          {found.files && !found.files.complete && (
+            <p className="muted small">{t("Counting the files on the server took too long, so the sizes above are what was counted before it stopped.")}</p>
+          )}
           {found.notes.map((n) => (
             <p key={n} className="muted small">
               {n}
@@ -397,6 +446,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
                 <label className="row centered small">
                   <input type="radio" checked={media === "download"} onChange={() => setMedia("download")} />
                   {t("Download it all")}
+                  {found.files ? ` (${size(found.files.uploads.bytes)})` : ""}
                 </label>
                 <label className="row centered small">
                   <input type="radio" checked={media === "from-live"} onChange={() => setMedia("from-live")} />
