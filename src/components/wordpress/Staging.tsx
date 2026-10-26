@@ -305,7 +305,7 @@ function NewStaging({
       )}
       <div className="row">
         {making ? (
-          <button type="button" className="btn" onClick={() => wp.cloneStop()}>
+          <button type="button" className="btn" onClick={() => wp.stagingStop()}>
             {t("Stop")}
           </button>
         ) : (

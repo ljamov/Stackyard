@@ -4,6 +4,13 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Clone several live sites at once.** Clone from a live server no longer waits for the clone
+  already running: start as many as you like. **Minimize** puts a clone away while it keeps going,
+  and the status bar shows every clone with its stage and how many MB are downloaded. A clone that
+  stops or fails can be tried again from where it stopped.
+
 ## 0.14.0
 
 - **Push and pull moved to Servers & Git.** A copy of a live WordPress site has a **Live site** tab

@@ -7,6 +7,7 @@ import { useT } from "../lib/i18n";
 import { SERVICE_STATE } from "./ServiceCard";
 import { Icon } from "./Icon";
 import { withKey } from "../lib/keybindings";
+import { ClonesStatus } from "./wordpress/Clones";
 
 /** The bar along the bottom: live state, each item opening where it is managed. */
 export function StatusBar({
@@ -68,6 +69,7 @@ export function StatusBar({
           <span aria-hidden="true">⚠</span> {problemCount === 1 ? t("1 problem") : t("{count} problems", { count: problemCount })}
         </button>
       )}
+      <ClonesStatus onOpenSites={() => onOpen("Sites")} />
       <div className="status-spacer" />
       {update?.available && (
         <button type="button" className="status-item highlight" onClick={() => onOpen("Settings")}>

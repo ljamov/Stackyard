@@ -8,6 +8,8 @@ import { SiteVersions } from "../components/SiteVersions";
 import { SiteThumb } from "../components/SiteThumb";
 import { SiteDatabaseLine } from "../components/SiteDatabase";
 import { CloneSite } from "../components/wordpress/CloneSite";
+import { ClonesList } from "../components/wordpress/Clones";
+import { newClone, showClone, useClones } from "../lib/clones";
 import { useT } from "../lib/i18n";
 import { Progress, packState, type ProgressState } from "../components/Progress";
 import { SiteActions } from "../components/SiteActions";
@@ -54,7 +56,7 @@ export function Sites() {
   const { isOn } = useModules();
   const options = runtimeOptions(runtimes.data, isOn);
   const [importing, setImporting] = useState<{ path: string; file: SiteFile } | null>(null);
-  const [cloning, setCloning] = useState(false);
+  const clones = useClones();
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
   // What was typed, as typed; `name` is the address it makes. Rewriting the
@@ -215,7 +217,7 @@ export function Sites() {
         </div>
         <div className="row">
           {isOn("wordpress") && isOn("remote") && (
-            <button type="button" className="btn" onClick={() => setCloning(true)}>
+            <button type="button" className="btn" onClick={() => newClone()}>
               {t("Clone from a live server…")}
             </button>
           )}
@@ -226,16 +228,24 @@ export function Sites() {
           )}
         </div>
       </header>
-      {cloning && (
-        <CloneSite
-          onClose={() => setCloning(false)}
-          onCloned={(domain) => {
-            setCloning(false);
-            openTab(siteTab(domain));
-            sites.reload();
-          }}
-        />
+      {clones.some((c) => c.state !== "new" && !c.open) && (
+        <section className="card stack" aria-labelledby="clones-h">
+          <h2 id="clones-h">{t("Clones running in the background")}</h2>
+          <ClonesList minimized onShow={showClone} />
+        </section>
       )}
+      {clones
+        .filter((c) => c.open)
+        .map((c) => (
+          <CloneSite
+            key={c.id}
+            id={c.id}
+            onCloned={(domain) => {
+              openTab(siteTab(domain));
+              sites.reload();
+            }}
+          />
+        ))}
       {importing && (
         <ImportSite
           path={importing.path}

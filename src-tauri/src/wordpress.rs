@@ -1,9 +1,11 @@
 //! Commands for the WordPress tab of a site's tools. Each runs on a worker
 //! thread: WP-CLI and database dumps can take a while.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use stackyard_core::engine::Engine;
@@ -276,14 +278,31 @@ pub async fn wp_woo_create(domain: String, kind: String, count: u32) -> CmdResul
 // ---------------------------------------------------------------------------
 // Clone from a live server
 
-/// The live server being cloned from: its login, and the Stop switch.
+/// Clones from live servers, any number at once, each named by the id of
+/// the form that started it; and the staging being made.
 #[derive(Default)]
 pub struct CloneState {
     sessions: Sessions,
-    /// A connection typed in for the clone, logged in but not saved yet.
-    draft: Mutex<Option<Connection>>,
-    stop: Arc<AtomicBool>,
-    busy: AtomicBool,
+    /// Connections typed in, logged in but not saved yet, by clone.
+    drafts: Mutex<HashMap<String, Connection>>,
+    /// The clones running now, by clone: the site name and the Stop switch.
+    running: Mutex<HashMap<String, (String, Arc<AtomicBool>)>>,
+    staging_stop: Arc<AtomicBool>,
+    staging_busy: AtomicBool,
+}
+
+/// Two clones can finish at once; the database and web server are started
+/// by one at a time.
+static STARTING: Mutex<()> = Mutex::new(());
+
+fn ensure_database(engine: &Engine) -> CmdResult<()> {
+    let _one = STARTING.lock().unwrap_or_else(|e| e.into_inner());
+    crate::ensure_database(engine)
+}
+
+fn ensure_web(engine: &Engine) -> CmdResult<()> {
+    let _one = STARTING.lock().unwrap_or_else(|e| e.into_inner());
+    crate::ensure_web(engine)
 }
 
 /// Where to clone from, as the New site form fills it in.
@@ -310,6 +329,8 @@ pub struct SavedConnection {
 
 #[derive(Clone, Serialize)]
 struct CloneEvent {
+    /// The clone this is about; empty for a staging.
+    job: String,
     name: String,
     #[serde(flatten)]
     progress: live::Progress,
@@ -321,7 +342,12 @@ fn require_clone() -> CmdResult<()> {
     settings.require_module("remote").map_err(err)
 }
 
-fn source(state: &CloneState, input: SourceInput, inspecting: bool) -> CmdResult<live::Source> {
+fn source(
+    state: &CloneState,
+    job: &str,
+    input: SourceInput,
+    inspecting: bool,
+) -> CmdResult<live::Source> {
     match input {
         SourceInput::Saved { id } => {
             let connection = RemoteStore::load()
@@ -330,17 +356,19 @@ fn source(state: &CloneState, input: SourceInput, inspecting: bool) -> CmdResult
             Ok(live::Source::Server(Box::new(connection)))
         }
         SourceInput::New { mut connection } => {
-            let draft = state.draft.lock().unwrap().clone();
+            let draft = state.drafts.lock().unwrap().get(job).cloned();
             match draft {
                 Some(draft) if !inspecting => Ok(live::Source::Server(Box::new(draft))),
                 _ => {
                     let password = connection.password.take();
                     let mut draft = remote::draft(connection).map_err(err)?;
-                    if let Some(old) = state.draft.lock().unwrap().take() {
-                        state.sessions.forget(&old.id);
-                    }
+                    forget_draft(state, job);
                     draft.server_key = state.sessions.login(&draft, password).map_err(err)?;
-                    *state.draft.lock().unwrap() = Some(draft.clone());
+                    state
+                        .drafts
+                        .lock()
+                        .unwrap()
+                        .insert(job.to_string(), draft.clone());
                     Ok(live::Source::Server(Box::new(draft)))
                 }
             }
@@ -348,6 +376,14 @@ fn source(state: &CloneState, input: SourceInput, inspecting: bool) -> CmdResult
         SourceInput::Files { files } => Ok(live::Source::Files(
             files.into_iter().map(PathBuf::from).collect(),
         )),
+    }
+}
+
+/// Logs out of the connection typed in for this clone.
+fn forget_draft(state: &CloneState, job: &str) {
+    let old = state.drafts.lock().unwrap().remove(job);
+    if let Some(old) = old {
+        state.sessions.forget(&old.id);
     }
 }
 
@@ -373,6 +409,7 @@ pub fn wp_saved_connections() -> CmdResult<Vec<SavedConnection>> {
 #[tauri::command]
 pub async fn wp_clone_inspect(
     app: AppHandle,
+    job: String,
     source: SourceInput,
     root: Option<String>,
     url: Option<String>,
@@ -380,7 +417,7 @@ pub async fn wp_clone_inspect(
     require_clone()?;
     blocking(move || {
         let state = app.state::<CloneState>();
-        let source = self::source(&state, source, true)?;
+        let source = self::source(&state, &job, source, true)?;
         live::inspect(
             &paths::home(),
             &state.sessions,
@@ -394,65 +431,100 @@ pub async fn wp_clone_inspect(
 }
 
 /// Clones the live site into a new site, starting MySQL or MariaDB first
-/// and the web server after. Progress comes as `wp-clone-progress` events.
+/// and the web server after. Other clones can run at the same time, each
+/// under its own `job`. Progress comes as `wp-clone-progress` events.
 #[tauri::command]
 pub async fn wp_clone(
     app: AppHandle,
+    job: String,
     source: SourceInput,
     options: live::CloneOptions,
 ) -> CmdResult<live::Cloned> {
     require_clone()?;
+    let stop = Arc::new(AtomicBool::new(false));
     {
         let state = app.state::<CloneState>();
-        if state.busy.swap(true, Ordering::SeqCst) {
-            return Err("a clone is already running; wait for it or stop it first".into());
+        let mut running = state.running.lock().unwrap();
+        let name = options.name.trim();
+        if running.contains_key(&job) {
+            return Err("this clone is already running".into());
         }
-        state.stop.store(false, Ordering::SeqCst);
+        if running.values().any(|(n, _)| n == name) {
+            return Err(format!(
+                "a clone named {name} is already running; wait for it or pick another name"
+            ));
+        }
+        running.insert(job.clone(), (name.to_string(), stop.clone()));
     }
     let worker = app.clone();
+    let id = job.clone();
     let result = blocking(move || {
         let state = worker.state::<CloneState>();
         let engine = worker.state::<Arc<Engine>>().inner().clone();
-        crate::ensure_database(&engine)?;
-        let source = self::source(&state, source, false)?;
+        ensure_database(&engine)?;
+        let source = self::source(&state, &id, source, false)?;
         let name = options.name.clone();
-        let stop = state.stop.clone();
+        let mut last: Option<(live::Stage, Instant)> = None;
         let cloned = live::clone(
             &paths::home(),
             &state.sessions,
             &source,
             &options,
             &mut |progress| {
-                let _ = worker.emit(
-                    "wp-clone-progress",
-                    CloneEvent {
-                        name: name.clone(),
-                        progress,
-                    },
-                );
+                // Ten updates a second at most, and every new stage.
+                let now = Instant::now();
+                let due = match last {
+                    Some((stage, at)) => {
+                        stage != progress.stage
+                            || now.duration_since(at) >= Duration::from_millis(100)
+                    }
+                    None => true,
+                };
+                if due {
+                    last = Some((progress.stage, now));
+                    let _ = worker.emit(
+                        "wp-clone-progress",
+                        CloneEvent {
+                            job: id.clone(),
+                            name: name.clone(),
+                            progress,
+                        },
+                    );
+                }
                 !stop.load(Ordering::SeqCst)
             },
         )
         .map_err(err)?;
-        if let Some(draft) = state.draft.lock().unwrap().take() {
-            state.sessions.forget(&draft.id);
-        }
-        crate::ensure_web(&engine)?;
+        forget_draft(&state, &id);
+        ensure_web(&engine)?;
         Ok(cloned)
     })
     .await;
     app.state::<CloneState>()
-        .busy
-        .store(false, Ordering::SeqCst);
+        .running
+        .lock()
+        .unwrap()
+        .remove(&job);
     if result.is_ok() {
         crate::sites_changed(&app);
     }
     result
 }
 
+/// Stops one clone; it can be continued later.
 #[tauri::command]
-pub fn wp_clone_stop(state: State<'_, CloneState>) {
-    state.stop.store(true, Ordering::SeqCst);
+pub fn wp_clone_stop(state: State<'_, CloneState>, job: String) {
+    if let Some((_, stop)) = state.running.lock().unwrap().get(&job) {
+        stop.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Logs out of the server typed in for a clone the app is done with.
+#[tauri::command]
+pub fn wp_clone_forget(state: State<'_, CloneState>, job: String) {
+    if !state.running.lock().unwrap().contains_key(&job) {
+        forget_draft(&state, &job);
+    }
 }
 
 /// Whether a clone with this name stopped halfway and can be continued.
@@ -501,22 +573,23 @@ pub async fn wp_staging_create(app: AppHandle, new: staging::NewStaging) -> CmdR
     open(&new.parent)?;
     {
         let state = app.state::<CloneState>();
-        if state.busy.swap(true, Ordering::SeqCst) {
+        if state.staging_busy.swap(true, Ordering::SeqCst) {
             return Err("a copy is already being made; wait for it or stop it first".into());
         }
-        state.stop.store(false, Ordering::SeqCst);
+        state.staging_stop.store(false, Ordering::SeqCst);
     }
     let worker = app.clone();
     let result = blocking(move || {
         let state = worker.state::<CloneState>();
         let engine = worker.state::<Arc<Engine>>().inner().clone();
-        crate::ensure_database(&engine)?;
-        let stop = state.stop.clone();
+        ensure_database(&engine)?;
+        let stop = state.staging_stop.clone();
         let name = new.name.clone();
         let site = staging::create(&paths::home(), &state.sessions, &new, &mut |progress| {
             let _ = worker.emit(
                 "wp-staging-progress",
                 CloneEvent {
+                    job: String::new(),
                     name: name.clone(),
                     progress,
                 },
@@ -524,17 +597,23 @@ pub async fn wp_staging_create(app: AppHandle, new: staging::NewStaging) -> CmdR
             !stop.load(Ordering::SeqCst)
         })
         .map_err(err)?;
-        crate::ensure_web(&engine)?;
+        ensure_web(&engine)?;
         Ok(site)
     })
     .await;
     app.state::<CloneState>()
-        .busy
+        .staging_busy
         .store(false, Ordering::SeqCst);
     if result.is_ok() {
         crate::sites_changed(&app);
     }
     result
+}
+
+/// Stops the staging being made.
+#[tauri::command]
+pub fn wp_staging_stop(state: State<'_, CloneState>) {
+    state.staging_stop.store(true, Ordering::SeqCst);
 }
 
 /// Moves a staging to the trash.

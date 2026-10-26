@@ -587,6 +587,18 @@ details summary { cursor: pointer; color: var(--text-2); }
 .status-item:focus-visible { outline-offset: -2px; }
 .status-item.highlight { color: var(--accent-ink); }
 .status-spacer { flex: 1; }
+/* The clones item opens a list of every clone above the bar. */
+.statusbar:has(.status-pop) { overflow: visible; }
+.status-pop { position: relative; height: 100%; }
+.status-popover {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30; width: min(440px, 90vw); max-height: 60vh; overflow: auto;
+  color: var(--text); font-size: 13px; box-shadow: 0 8px 24px var(--shadow);
+}
+.clone-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.clone-item { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.clone-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.clone-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clone-progress-text { overflow-wrap: anywhere; }
 
 /* A narrow window keeps the screen: the side bar narrows to its icons. */
 @media (max-width: 720px) {

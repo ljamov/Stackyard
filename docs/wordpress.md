@@ -34,8 +34,15 @@ as a new site: files, database and settings. Nothing on the live site is changed
    - **Leave it on the live site**: nothing in `wp-content/uploads` is downloaded now. The first
      time a page asks for a file, the copy fetches it from the live site once and keeps it. Good for
      sites with many gigabytes of images.
-4. Click **Clone** and follow the progress. **Stop** stops it; clicking **Clone** again with the
-   same name continues where it stopped.
+4. Click **Clone** and follow the progress. **Stop** stops it; **Try again** (or clicking **Clone**
+   again with the same name) continues where it stopped.
+
+Any number of clones can run at the same time: click **Clone from a live server…** again for each
+one. **Minimize** puts a running clone away; it keeps going while you use the rest of the app. The
+status bar shows how many clones are running and how far they are; click it for a list of every
+clone with its stage, the file it is downloading and how many MB of how many are done, and **Show**,
+**Stop** or **Close** for each. Minimized clones are also listed on the Sites screen. Two clones
+can't use the same name at once.
 
 ### How Stackyard reaches the live site
 

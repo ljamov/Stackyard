@@ -5,7 +5,6 @@ import {
   wp,
   type WpCloneProgress,
   type WpCloneSource,
-  type WpCloned,
   type WpFound,
   type WpMedia,
   type WpProtocol,
@@ -13,6 +12,8 @@ import {
   type WpSavedConnection,
 } from "../../lib/wordpress";
 import { size } from "./WordPressTools";
+import { closeClone, editClone, minimizeClone, retryClone, startClone, stopClone, useClones } from "../../lib/clones";
+import { CloneProgress } from "./Clones";
 
 type T = ReturnType<typeof useT>;
 type From = "saved" | "new" | "files";
@@ -56,9 +57,10 @@ export function stageText(t: T, stage: WpCloneProgress["stage"]) {
   }[stage];
 }
 
-/** New site › Clone from a live server: find WordPress, choose, clone. */
-export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned: (domain: string) => void }) {
+/** New site › Clone from a live server: find WordPress, choose, clone. Each form is one clone of many. */
+export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: string) => void }) {
   const t = useT();
+  const job = useClones().find((c) => c.id === id);
   const [from, setFrom] = useState<From>("new");
   const [saved, setSaved] = useState<WpSavedConnection[]>([]);
   const [savedId, setSavedId] = useState("");
@@ -76,10 +78,8 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
   const [name, setName] = useState("");
   const [media, setMedia] = useState<WpMedia>("download");
   const [busy, setBusy] = useState<string | null>(null);
-  const [progress, setProgress] = useState<WpCloneProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [unfinished, setUnfinished] = useState(false);
-  const [cloned, setCloned] = useState<WpCloned | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
   const [replace, setReplace] = useState(false);
   const urlInput = useRef<HTMLInputElement>(null);
@@ -104,15 +104,6 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
         if (list.length) setSavedId(list[0].id);
       })
       .catch(() => setSaved([]));
-  }, []);
-  useEffect(() => {
-    let off: (() => void) | undefined;
-    let cancelled = false;
-    wp.onCloneProgress(setProgress).then((u) => (cancelled ? u() : (off = u)));
-    return () => {
-      cancelled = true;
-      off?.();
-    };
   }, []);
   useEffect(() => {
     if (!name) return;
@@ -146,7 +137,7 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
     setError(null);
     setFound(null);
     try {
-      const result = await wp.cloneInspect(source(), root || null, url.trim() || null);
+      const result = await wp.cloneInspect(id, source(), root || null, url.trim() || null);
       setFound(result);
       setRoot(result.root);
       if (result.url && !url) setUrl(result.url);
@@ -158,26 +149,18 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
     }
   }
 
-  async function clone() {
-    setBusy(t("Cloning…"));
+  function clone() {
     setError(null);
-    setProgress(null);
-    try {
-      const result = await wp.clone(source(), {
-        name,
-        folder: null,
-        root: root || null,
-        url: url.trim() || null,
-        media,
-        https: true,
-        replace: !!existing && replace,
-      });
-      setCloned(result);
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(null);
-    }
+    const live = url.trim() || found?.url || "";
+    const label =
+      live.replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "") ||
+      (from === "files" ? files.map((f) => f.split(/[\\/]/).pop()).join(", ") : host.trim() || saved.find((c) => c.id === savedId)?.host || "");
+    void startClone(
+      id,
+      source(),
+      { name, folder: null, root: root || null, url: url.trim() || null, media, https: true, replace: !!existing && replace },
+      label,
+    );
   }
 
   async function pickFiles() {
@@ -193,42 +176,14 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
     if (picked) setKeyFile(picked);
   }
 
-  if (cloned) {
-    const domain = `${cloned.site.name}${cloned.site.tld}`;
-    return (
-      <section className="card stack" aria-labelledby="clone-done-h">
-        <h2 id="clone-done-h">{t("{domain} is ready", { domain })}</h2>
-        <p className="muted small">
-          {t("Cloned from {live}; the address was changed in {count} places.", {
-            live: cloned.live,
-            count: cloned.replaced,
-          })}{" "}
-          {t("Mail goes to Mailpit, search engines are kept away, and scheduled tasks can't call outside services.")}
-        </p>
-        {cloned.notes.map((n) => (
-          <p key={n} className="warn small">
-            {n}
-          </p>
-        ))}
-        <div className="row">
-          <button type="button" className="btn" onClick={() => api.openLocalPage(cloned.url)}>
-            {t("Open site")}
-          </button>
-          <button type="button" className="btn primary" onClick={() => onCloned(domain)}>
-            {t("Done")}
-          </button>
-        </div>
-      </section>
-    );
-  }
+  if (job && job.state !== "new") return <CloneJob id={id} onCloned={onCloned} />;
 
-  const cloning = progress !== null && busy === t("Cloning…");
   const ready = from === "files" ? files.length > 0 : from === "saved" ? !!savedId : !!host.trim() && !!user.trim();
   return (
-    <section className="card stack" aria-labelledby="clone-h">
+    <section className="card stack" aria-labelledby={`${id}-h`}>
       <div className="row between centered">
-        <h2 id="clone-h">{t("Clone from a live server")}</h2>
-        <button type="button" className="btn ghost" onClick={onClose} disabled={busy !== null}>
+        <h2 id={`${id}-h`}>{t("Clone from a live server")}</h2>
+        <button type="button" className="btn ghost" onClick={() => closeClone(id)} disabled={busy !== null}>
           {t("Cancel")}
         </button>
       </div>
@@ -449,7 +404,7 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
               </div>
             )}
           </div>
-          {existing && !unfinished && !cloned && (
+          {existing && !unfinished && (
             <div className="notice small stack">
               <span>{t("A site named {domain} already exists.", { domain: existing.domain })}</span>
               <label className="row centered">
@@ -466,42 +421,114 @@ export function CloneSite({ onClose, onCloned }: { onClose: () => void; onCloned
           {unfinished && !busy && (
             <p className="notice small">{t("An earlier clone with this name stopped halfway; cloning again continues where it stopped.")}</p>
           )}
-          {cloning && progress && (
-            <div className="stack" role="status">
-              <div className="progress" aria-hidden="true">
-                <div
-                  className={`progress-fill${progress.total ? "" : " busy"}`}
-                  style={{ width: progress.total ? `${Math.round((progress.done / progress.total) * 100)}%` : "30%" }}
-                />
-              </div>
-              <p className="muted small">
-                {stageText(t, progress.stage)}: {progress.message}
-              </p>
-            </div>
-          )}
           <div className="row">
-            {cloning ? (
-              <button type="button" className="btn" onClick={() => wp.cloneStop()}>
-                {t("Stop")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={`btn ${existing && replace ? "danger" : "primary"}`}
-                disabled={!name || busy !== null || (!!existing && !unfinished && !replace)}
-                onClick={clone}
-              >
-                {unfinished ? t("Continue the clone") : existing && replace ? t("Replace and clone") : t("Clone")}
-              </button>
-            )}
+            <button
+              type="button"
+              className={`btn ${existing && replace ? "danger" : "primary"}`}
+              disabled={!name || busy !== null || (!!existing && !unfinished && !replace)}
+              onClick={clone}
+            >
+              {unfinished ? t("Continue the clone") : existing && replace ? t("Replace and clone") : t("Clone")}
+            </button>
           </div>
         </div>
       )}
-      {busy && !cloning && busy !== t("Looking for WordPress…") && <p className="muted small">{busy}</p>}
       {error && !needsAddress && (
         <p className="error small" role="alert">
           {error}
         </p>
+      )}
+    </section>
+  );
+}
+
+/** A clone that was started: how far it is, then the new site or what went wrong. */
+function CloneJob({ id, onCloned }: { id: string; onCloned: (domain: string) => void }) {
+  const t = useT();
+  const job = useClones().find((c) => c.id === id);
+  if (!job) return null;
+  const domain = job.result ? `${job.result.site.name}${job.result.site.tld}` : `${job.name}.stack`;
+  const minimize = (
+    <button type="button" className="btn ghost" onClick={() => minimizeClone(id)} title={t("Keeps cloning; the status bar shows every clone")}>
+      {t("Minimize")}
+    </button>
+  );
+
+  if (job.state === "done" && job.result) {
+    const cloned = job.result;
+    return (
+      <section className="card stack" aria-labelledby={`${id}-h`}>
+        <div className="row between centered">
+          <h2 id={`${id}-h`}>{t("{domain} is ready", { domain })}</h2>
+          {minimize}
+        </div>
+        <p className="muted small">
+          {t("Cloned from {live}; the address was changed in {count} places.", {
+            live: cloned.live,
+            count: cloned.replaced,
+          })}{" "}
+          {t("Mail goes to Mailpit, search engines are kept away, and scheduled tasks can't call outside services.")}
+        </p>
+        {cloned.notes.map((n) => (
+          <p key={n} className="warn small">
+            {n}
+          </p>
+        ))}
+        <div className="row">
+          <button type="button" className="btn" onClick={() => api.openLocalPage(cloned.url)}>
+            {t("Open site")}
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => {
+              closeClone(id);
+              onCloned(domain);
+            }}
+          >
+            {t("Done")}
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card stack" aria-labelledby={`${id}-h`}>
+      <div className="row between centered">
+        <h2 id={`${id}-h`}>
+          {job.state === "running" ? t("Cloning {domain}", { domain }) : t("{domain} was not cloned", { domain })}
+        </h2>
+        {minimize}
+      </div>
+      {job.from && <p className="muted small mono">{t("From {live}", { live: job.from })}</p>}
+      {job.state === "running" && <CloneProgress clone={job} />}
+      {job.error && (
+        <p className="error small" role="alert">
+          {job.error}
+        </p>
+      )}
+      <div className="row">
+        {job.state === "running" ? (
+          <button type="button" className="btn" onClick={() => stopClone(id)}>
+            {t("Stop")}
+          </button>
+        ) : (
+          <>
+            <button type="button" className="btn primary" onClick={() => retryClone(id)}>
+              {t("Try again")}
+            </button>
+            <button type="button" className="btn" onClick={() => editClone(id)}>
+              {t("Change settings")}
+            </button>
+            <button type="button" className="btn ghost" onClick={() => closeClone(id)}>
+              {t("Close")}
+            </button>
+          </>
+        )}
+      </div>
+      {job.state === "failed" && (
+        <p className="muted small">{t("Trying again continues where it stopped; files already downloaded are kept.")}</p>
       )}
     </section>
   );

@@ -103,7 +103,8 @@ export type WpCloneOptions = {
   replace?: boolean;
 };
 export type WpCloneStage = "connecting" | "files" | "database" | "loading" | "finishing";
-export type WpCloneProgress = { name: string; stage: WpCloneStage; message: string; done: number; total: number };
+/** `job` is the clone this is about (empty for a staging). */
+export type WpCloneProgress = { job: string; name: string; stage: WpCloneStage; message: string; done: number; total: number };
 export type WpCloned = { url: string; live: string; replaced: number; notes: string[]; site: { name: string; tld: string } };
 export type WpEnvironment = {
   kind: "local" | "staging";
@@ -220,15 +221,19 @@ export interface WpApi {
   wooTestMode(domain: string, gateway: string, on: boolean): Promise<WooView>;
   wooCreate(domain: string, kind: "customers" | "orders", count: number): Promise<string[]>;
   savedConnections(): Promise<WpSavedConnection[]>;
-  cloneInspect(source: WpCloneSource, root: string | null, url: string | null): Promise<WpFound>;
-  clone(source: WpCloneSource, options: WpCloneOptions): Promise<WpCloned>;
-  cloneStop(): Promise<void>;
+  /** `job` names one clone; any number can run at once. */
+  cloneInspect(job: string, source: WpCloneSource, root: string | null, url: string | null): Promise<WpFound>;
+  clone(job: string, source: WpCloneSource, options: WpCloneOptions): Promise<WpCloned>;
+  cloneStop(job: string): Promise<void>;
+  /** Logs out of the server typed in for a clone that is closed. */
+  cloneForget(job: string): Promise<void>;
   cloneUnfinished(name: string): Promise<boolean>;
   onCloneProgress(handler: (p: WpCloneProgress) => void): Promise<() => void>;
   environment(domain: string): Promise<WpEnvironment | null>;
   stagings(domain: string): Promise<WpEnvironments>;
   createStaging(staging: WpNewStaging): Promise<{ name: string; tld: string }>;
   onStagingProgress(handler: (p: WpCloneProgress) => void): Promise<() => void>;
+  stagingStop(): Promise<void>;
   destroyStaging(domain: string): Promise<WpTrashed>;
   trash(): Promise<WpTrashed[]>;
   restoreTrashed(id: string): Promise<void>;
@@ -287,15 +292,17 @@ const tauriWp: WpApi = {
   wooTestMode: (domain, gateway, on) => invoke("wp_woo_test_mode", { domain, gateway, on }),
   wooCreate: (domain, kind, count) => invoke("wp_woo_create", { domain, kind, count }),
   savedConnections: () => invoke("wp_saved_connections"),
-  cloneInspect: (source, root, url) => invoke("wp_clone_inspect", { source, root, url }),
-  clone: (source, options) => invoke("wp_clone", { source, options }),
-  cloneStop: () => invoke("wp_clone_stop"),
+  cloneInspect: (job, source, root, url) => invoke("wp_clone_inspect", { job, source, root, url }),
+  clone: (job, source, options) => invoke("wp_clone", { job, source, options }),
+  cloneStop: (job) => invoke("wp_clone_stop", { job }),
+  cloneForget: (job) => invoke("wp_clone_forget", { job }),
   cloneUnfinished: (name) => invoke("wp_clone_unfinished", { name }),
   onCloneProgress: (handler) => listen<WpCloneProgress>("wp-clone-progress", (e) => handler(e.payload)),
   environment: (domain) => invoke("wp_environment", { domain }),
   stagings: (domain) => invoke("wp_stagings", { domain }),
   createStaging: (staging) => invoke("wp_staging_create", { new: staging }),
   onStagingProgress: (handler) => listen<WpCloneProgress>("wp-staging-progress", (e) => handler(e.payload)),
+  stagingStop: () => invoke("wp_staging_stop"),
   destroyStaging: (domain) => invoke("wp_staging_destroy", { domain }),
   trash: () => invoke("wp_trash"),
   restoreTrashed: (id) => invoke("wp_trash_restore", { id }),
@@ -446,7 +453,7 @@ function mockWp(): WpApi {
     savedConnections: async () => [
       { id: "k3j9x2ab", name: "Production", site: "legacy.stack", host: "203.0.113.10", user: "master", protocol: "sftp" },
     ],
-    cloneInspect: async (source) => {
+    cloneInspect: async (_job, source) => {
       await wait(900);
       const files = source.kind === "files";
       return {
@@ -467,7 +474,7 @@ function mockWp(): WpApi {
         ],
       };
     },
-    clone: async (_source, options) => {
+    clone: async (job, _source, options) => {
       const steps: [WpCloneStage, string][] = [
         ["connecting", "Finding WordPress on the server…"],
         ["files", "Downloading wp-content/uploads/2025/06/hero.jpg (812 of 9,410)"],
@@ -476,12 +483,13 @@ function mockWp(): WpApi {
         ["finishing", "Switching payments to test mode…"],
       ];
       for (const [i, [stage, message]] of steps.entries()) {
-        if (cloneStopped) {
-          cloneStopped = false;
+        if (cloneStopped.delete(job)) {
           throw "stopped; clone again with the same name to continue where it stopped";
         }
-        for (const h of cloneHandlers) h({ name: options.name, stage, message, done: i + 1, total: steps.length });
-        await wait(700);
+        // The files stage counts bytes, like the app's.
+        const [done, total] = stage === "files" ? [2.1e8, 4.6e8] : [i + 1, steps.length];
+        for (const h of cloneHandlers) h({ job, name: options.name, stage, message, done, total });
+        await wait(stage === "files" ? 6000 : 1500);
       }
       return {
         url: `https://${options.name}.stack`,
@@ -491,9 +499,8 @@ function mockWp(): WpApi {
         site: { name: options.name, tld: ".stack" },
       };
     },
-    cloneStop: async () => {
-      cloneStopped = true;
-    },
+    cloneStop: async (job) => void cloneStopped.add(job),
+    cloneForget: async () => {},
     cloneUnfinished: async () => false,
     onCloneProgress: async (handler) => {
       cloneHandlers.push(handler);
@@ -526,7 +533,7 @@ function mockWp(): WpApi {
         ["finishing", "Taking the base snapshot…"],
       ];
       for (const [i, [stage, message]] of steps.entries()) {
-        for (const h of stagingHandlers) h({ name: n.name, stage, message, done: i + 1, total: steps.length });
+        for (const h of stagingHandlers) h({ job: "", name: n.name, stage, message, done: i + 1, total: steps.length });
         await wait(500);
       }
       const domain = `${n.name}.${n.parent}`;
@@ -543,6 +550,7 @@ function mockWp(): WpApi {
       stagingHandlers.push(handler);
       return () => stagingHandlers.splice(stagingHandlers.indexOf(handler), 1);
     },
+    stagingStop: async () => {},
     destroyStaging: async (domain) => {
       const i = stagings.findIndex((s) => s.domain === domain);
       const [name, ...rest] = domain.split(".");
@@ -729,7 +737,7 @@ const snapshots: WpSnapshot[] = [
 ];
 const stagingHandlers: ((p: WpCloneProgress) => void)[] = [];
 
-let cloneStopped = false;
+const cloneStopped = new Set<string>();
 const cloneHandlers: ((p: WpCloneProgress) => void)[] = [];
 
 const mock = mockWp();
