@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, errorText, type CleanupOutcome, type CleanupReport } from "../lib/api";
+import { useBusy } from "../lib/tabLife";
 
 /** How much Stackyard's data folder takes, and cleaning up what can go.
  * Nothing is read from disk until the person asks. */
@@ -7,6 +8,7 @@ export function DiskSpace() {
   const [report, setReport] = useState<CleanupReport | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<"scan" | "clean" | null>(null);
+  useBusy(busy !== null);
   const [confirming, setConfirming] = useState(false);
   const [outcome, setOutcome] = useState<CleanupOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);

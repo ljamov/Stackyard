@@ -6,6 +6,13 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Work keeps going in the background.** Every open tab stays alive while another one is shown, and
+  so does every section and inner tab of a site. A sync check, pull, push, backup, image or video
+  job keeps running when you switch tabs or sections, and its progress and result are still there
+  when you come back, at the same scroll position. While something runs in the shown tab, picking a
+  screen in the side bar opens it in a new tab beside it instead of in its place.
+- **Sites open where you left them.** A site's tab comes back on the section and inner tab you last
+  picked (for example Servers & Git › Live site), also after Stackyard restarts.
 - **Fixed: the window disappeared right after opening.** An empty site group (one made with
   **New group** and left empty) broke the Sites screen, and since the window is see-through, it
   looked like Stackyard closed while it kept running in the tray. Empty groups now show as

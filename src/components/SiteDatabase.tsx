@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorText, type Site, type SiteDb } from "../lib/api";
 import { useT } from "../lib/i18n";
 import "./site-views.css";
+import { useBusy, useShown } from "../lib/tabLife";
 
 /**
  * The database a site uses and whether its server runs, checked again every
@@ -10,16 +11,19 @@ import "./site-views.css";
 export function useSiteDatabase(domain: string, every = 4000) {
   const [db, setDb] = useState<SiteDb | null>(null);
   const [busy, setBusy] = useState(false);
+  useBusy(busy);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     api.siteDatabase(domain).then(setDb).catch(() => {});
   }, [domain]);
+  const shown = useShown();
   useEffect(() => {
+    if (!shown) return;
     reload();
     const timer = setInterval(reload, every);
     return () => clearInterval(timer);
-  }, [reload, every]);
+  }, [reload, every, shown]);
 
   async function run(work: () => Promise<SiteDb | null>) {
     setBusy(true);

@@ -1,5 +1,6 @@
 import "./site-views.css";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { Keep, useBusy, useRememberedTab } from "../lib/tabLife";
 import {
   api,
   errorText,
@@ -52,7 +53,7 @@ export function SiteRemote({ site, live, liveAsk }: { site: Site; live?: WpLive 
   const { isOn } = useModules();
   const t = useT();
   const tabs = [live && isOn("wordpress") && "Live site", isOn("remote") && "Servers", isOn("git") && "Git"].filter(Boolean) as string[];
-  const [tab, setTab] = useState(liveAsk ? "Live site" : (tabs[0] ?? "Servers"));
+  const [tab, setTab] = useRememberedTab(`remote:${site.domain}`, liveAsk ? "Live site" : "");
   useEffect(() => {
     if (liveAsk) setTab("Live site");
   }, [liveAsk]);
@@ -79,12 +80,20 @@ export function SiteRemote({ site, live, liveAsk }: { site: Site; live?: WpLive 
             : "Upload and Download copy files only, and leave each side's wp-config.php alone. Posts, pages and settings are in the database."}
         </p>
       )}
-      {shown === "Live site" && live ? (
-        <LiveSiteTab domain={site.domain} live={live} ask={liveAsk} />
-      ) : shown === "Servers" ? (
-        <Servers site={site} />
-      ) : (
-        <Git site={site} />
+      {tabs.includes("Live site") && live && (
+        <Keep shown={shown === "Live site"}>
+          <LiveSiteTab domain={site.domain} live={live} ask={liveAsk} />
+        </Keep>
+      )}
+      {tabs.includes("Servers") && (
+        <Keep shown={shown === "Servers"}>
+          <Servers site={site} />
+        </Keep>
+      )}
+      {tabs.includes("Git") && (
+        <Keep shown={shown === "Git"}>
+          <Git site={site} />
+        </Keep>
       )}
     </div>
   );
@@ -195,6 +204,7 @@ function ConnectionForm({
   const [skipText, setSkipText] = useState((existing?.skip ?? DEFAULT_SKIP).join(", "));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  useBusy(saving);
   const set = <K extends keyof RemoteInput>(key: K, value: RemoteInput[K]) => setForm((f) => ({ ...f, [key]: value }));
   const id = existing?.id ?? "new";
   const defaultPort = form.protocol === "sftp" ? 22 : 21;
@@ -478,6 +488,7 @@ function ConnectionCard({
 }) {
   const [test, setTest] = useState<RemoteTest | "testing" | null>(null);
   const [job, setJob] = useState<Job | null>(null);
+  useBusy(job !== null || test === "testing");
   const [progress, setProgress] = useState<RemoteProgress | null>(null);
   const [browsing, setBrowsing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -1057,6 +1068,7 @@ function Git({ site }: { site: Site }) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [url, setUrl] = useState("");
   const [relinking, setRelinking] = useState(false);
   const [message, setMessage] = useState("");

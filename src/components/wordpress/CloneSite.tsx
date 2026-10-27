@@ -16,6 +16,7 @@ import { size } from "./WordPressTools";
 import { closeClone, editClone, minimizeClone, retryClone, startClone, stopClone, useClones } from "../../lib/clones";
 import { CloneProgress } from "./Clones";
 import { ConnectionCheck } from "../ConnectionCheck";
+import { useBusy } from "../../lib/tabLife";
 
 type T = ReturnType<typeof useT>;
 type From = "saved" | "new" | "files";
@@ -124,6 +125,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
   const [name, setName] = useState("");
   const [media, setMedia] = useState<WpMedia>("download");
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [error, setError] = useState<string | null>(null);
   const [unfinished, setUnfinished] = useState(false);
   const [sites, setSites] = useState<Site[]>([]);

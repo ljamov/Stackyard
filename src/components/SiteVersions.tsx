@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, errorText, type RuntimeFamily, type Site, type SiteVersion } from "../lib/api";
+import { useBusy } from "../lib/tabLife";
 
 const NAMES: Record<SiteVersion["kind"], string> = {
   php: "PHP",
@@ -36,6 +37,7 @@ export function SiteVersions({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [error, setError] = useState<string | null>(null);
 
   async function pick(v: SiteVersion, value: string) {
