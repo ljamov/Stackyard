@@ -108,7 +108,36 @@ The client secret expires (two years at most); make a new one in step 7 and repl
 - **A code signing certificate from a certificate authority** (DigiCert, Sectigo, SSL.com,
   Certum), roughly $150 to $300 a year, available to individuals anywhere. Since 2023 the key must
   live on a hardware token or in the authority's cloud, so pick one with cloud signing that works
-  from GitHub Actions; that also needs a small change to this workflow.
+  from GitHub Actions; that also needs a small change to this workflow. Certum also sells an
+  **Open Source Code Signing** certificate to individuals for much less, with cloud signing
+  (SimplySign).
+
+## When an antivirus flags Stackyard
+
+Microsoft Defender (and others) sometimes report a new unsigned program as a trojan, with names
+such as `Trojan:Win32/Bearfoos.B!ml`, `Trojan:Win32/Wacatac.B!ml` or `Trojan:Win32/Sabsik`. The `!ml` ending means a machine
+learning guess, not a match with known malware. Every release is a new file that nobody has seen
+before, and unsigned files with no history get these guesses most often; signing (above) is what
+stops them for good.
+
+To get a file cleared, report it to Microsoft. It is free and usually takes a day or two, after
+which Defender updates itself on every PC:
+
+1. Download the flagged file again from the release page (Defender may need to be told to allow it
+   first: **Windows Security › Virus & threat protection › Protection history**, open the entry,
+   **Actions › Allow on device**).
+2. Open <https://www.microsoft.com/en-us/wdsi/filesubmission>, choose **Software developer**, and
+   sign in with a Microsoft account.
+3. Product: **Microsoft Defender Antivirus (Windows 10/11)**. Upload the file (the setup `.exe`;
+   for the installed `stackyard-app.exe`, zip it first).
+4. Choose **Incorrectly detected as malware/malicious**, type the detection name Defender showed,
+   and in the comments say it is Stackyard, an open-source app built on GitHub Actions, with a link
+   to the release.
+5. Submit. The submission page shows the result; when it says **Not malware**, restore or reinstall
+   the app.
+
+Submit both the setup `.exe` and the `.msi` of each release if Defender flags them; other antivirus
+makers have similar forms (VirusTotal's results page links to them).
 
 ## After adding secrets
 
