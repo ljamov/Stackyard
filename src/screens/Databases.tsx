@@ -12,6 +12,7 @@ import {
 import { PhpMyAdminCard } from "../components/PhpMyAdminCard";
 import { useT } from "../lib/i18n";
 import { Progress } from "../components/Progress";
+import { useBusy } from "../lib/tabLife";
 
 const PAGE = 100;
 type Tab = "Tables" | "Query" | "Backups";
@@ -312,6 +313,7 @@ function Query({ kind, database, onChange }: { kind: DbKind; database: string; o
   const [results, setResults] = useState<ResultSet[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useBusy(busy);
 
   async function run() {
     if (!sql.trim() || busy) return;
@@ -383,6 +385,7 @@ function Backups({
   const t = useT();
   const [all, setAll] = useState<DbBackup[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   /** The file the last backup made. */

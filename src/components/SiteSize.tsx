@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, errorText, type Site, type SiteSize as Size } from "../lib/api";
 import { useT } from "../lib/i18n";
+import { useBusy } from "../lib/tabLife";
 
 function size(bytes: number) {
   if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -20,6 +21,7 @@ export function SiteSizeFacts({ site }: { site: Site }) {
   const t = useT();
   const [sizes, setSizes] = useState<Size | null>(null);
   const [busy, setBusy] = useState(false);
+  useBusy(busy);
   const [error, setError] = useState<string | null>(null);
 
   async function measure() {

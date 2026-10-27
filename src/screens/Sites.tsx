@@ -14,6 +14,7 @@ import { useT } from "../lib/i18n";
 import { Progress, packState, type ProgressState } from "../components/Progress";
 import { SiteActions } from "../components/SiteActions";
 import { SiteList, type RowParts } from "../components/SiteList";
+import { useBusy } from "../lib/tabLife";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
 
@@ -75,6 +76,7 @@ export function Sites() {
   const starters = useLoad(api.listStarters, []);
   const [starter, setStarter] = useState("");
   const [making, setMaking] = useState<string | null>(null);
+  useBusy(making !== null);
   const [made, setMade] = useState<Site | null>(null);
   // The address being made, for the progress box.
   const [makingDomain, setMakingDomain] = useState("");
@@ -609,6 +611,7 @@ function ImportSite({
   const [name, setName] = useState(file.name);
   const [folder, setFolder] = useState("");
   const [busy, setBusy] = useState(false);
+  useBusy(busy);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<{ domain: string; text: string } | null>(null);
   const [progress, setProgress] = useState<PackProgress | null>(null);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { McpPermissions } from "../components/McpPermissions";
 import { api, errorText, type McpActivity, type McpStatus, type McpTool } from "../lib/api";
 import { useT } from "../lib/i18n";
+import { useShown } from "../lib/tabLife";
 
 export function McpServer() {
   const t = useT();
@@ -19,11 +20,13 @@ export function McpServer() {
   }, []);
 
   // AI tools work while this screen is open; show what they do as they do it.
+  const shown = useShown();
   useEffect(() => {
+    if (!shown) return;
     reload();
     const timer = setInterval(reload, 5000);
     return () => clearInterval(timer);
-  }, [reload]);
+  }, [reload, shown]);
 
   async function toggle(tool: McpTool) {
     try {

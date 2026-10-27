@@ -42,6 +42,16 @@ import { TerminalPane } from "./TerminalPane";
 import { TERMINAL_COMMANDS } from "../lib/terminal";
 import { useT } from "../lib/i18n";
 import { rovingGroup, rovingKeys } from "../lib/focus";
+import { TabContext } from "../lib/tabLife";
+
+// One value per tab and state, so a tab's screen doesn't redraw for nothing.
+const contexts = new Map<string, { tab: TabId; shown: boolean }>();
+function tabContext(tab: TabId, shown: boolean) {
+  const key = `${shown ? 1 : 0}${tab}`;
+  let value = contexts.get(key);
+  if (!value) contexts.set(key, (value = { tab, shown }));
+  return value;
+}
 
 const tabId = (s: TabId) => `tab-${s.replace(/\W+/g, "-")}`;
 
@@ -420,19 +430,24 @@ export function Workbench() {
                 </div>
               )}
               {active ? (
-                <main
-                  id="editor-content"
-                  className="content"
-                  role={showTabs ? "tabpanel" : undefined}
-                  aria-labelledby={showTabs ? tabId(active) : undefined}
-                  aria-label={showTabs ? undefined : tabTitle(active)}
-                  tabIndex={-1}
-                >
-                  <UpdateNotice />
-                  <Crashed key={active} where={`screen ${active}`}>
-                    {screen(active)}
-                  </Crashed>
-                </main>
+                // Every open tab stays mounted, the others hidden, so work in them goes on.
+                tabs.map((s) => (
+                  <main
+                    key={s}
+                    id={s === active ? "editor-content" : undefined}
+                    className="content"
+                    hidden={s !== active}
+                    role={showTabs ? "tabpanel" : undefined}
+                    aria-labelledby={showTabs ? tabId(s) : undefined}
+                    aria-label={showTabs ? undefined : tabTitle(s)}
+                    tabIndex={-1}
+                  >
+                    {s === active && <UpdateNotice />}
+                    <TabContext.Provider value={tabContext(s, s === active)}>
+                      <Crashed where={`screen ${s}`}>{screen(s)}</Crashed>
+                    </TabContext.Provider>
+                  </main>
+                ))
               ) : (
                 <main className="editor-empty" tabIndex={-1}>
                   <Logo size={64} />

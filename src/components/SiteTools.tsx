@@ -20,6 +20,7 @@ import { rovingGroup, rovingKeys } from "../lib/focus";
 import { WordPressTools } from "./wordpress/WordPressTools";
 import type { LiveAsk } from "./wordpress/Live";
 import { wp, type WpEnvironment } from "../lib/wordpress";
+import { Keep, useBusy, useRememberedTab } from "../lib/tabLife";
 
 function size(bytes: number) {
   if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -84,12 +85,13 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
     isOn("share") && { id: "Public link", label: t("Public link"), icon: "link" },
     (isOn("remote") || isOn("git") || live) && { id: "Servers & Git", label: t("Servers & Git"), icon: "git" },
   ].filter(Boolean) as Section[];
-  const [tab, setTab] = useState(sections[0]?.id ?? "Settings");
+  const [tab, setTab] = useRememberedTab(`sections:${site.domain}`, "");
   if (sections.length === 0) {
     return <p className="muted small">Turn on site tools in Settings › Modules.</p>;
   }
   const shown = sections.some((x) => x.id === tab) ? tab : sections[0].id;
-  const tabId = (id: string) => `site-section-${id.replace(/\W+/g, "-").toLowerCase()}`;
+  const has = (id: string) => sections.some((x) => x.id === id);
+  const tabId = (id: string) => `site-section-${site.domain}-${id}`.replace(/\W+/g, "-").toLowerCase();
   return (
     <div className="stack remote-panel">
       <div
@@ -108,7 +110,7 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
             data-roving
             className="site-section-tab"
             aria-selected={shown === x.id}
-            aria-controls="site-section-panel"
+            aria-controls={`site-section-panel-${site.domain}`}
             onClick={() => {
               setTab(x.id);
               setLiveAsk(null);
@@ -125,20 +127,38 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
           </button>
         ))}
       </div>
-      <section id="site-section-panel" role="tabpanel" aria-labelledby={tabId(shown)} className="card stack site-section-panel">
-        {shown === "WordPress" && (
-          <WordPressTools
-            site={site}
-            onLive={(way) => {
-              setLiveAsk({ way, at: Date.now() });
-              setTab("Servers & Git");
-            }}
-          />
+      <section id={`site-section-panel-${site.domain}`} role="tabpanel" aria-labelledby={tabId(shown)} className="card stack site-section-panel">
+        {has("WordPress") && (
+          <Keep shown={shown === "WordPress"}>
+            <WordPressTools
+              site={site}
+              onLive={(way) => {
+                setLiveAsk({ way, at: Date.now() });
+                setTab("Servers & Git");
+              }}
+            />
+          </Keep>
         )}
-        {shown === "Settings" && <SettingsTab site={site} onChanged={onChanged} />}
-        {shown === "Backups" && <BackupsTab site={site} onChanged={onChanged} />}
-        {shown === "Public link" && <ShareTab site={site} />}
-        {shown === "Servers & Git" && <SiteRemote site={site} live={live} liveAsk={liveAsk} />}
+        {has("Settings") && (
+          <Keep shown={shown === "Settings"}>
+            <SettingsTab site={site} onChanged={onChanged} />
+          </Keep>
+        )}
+        {has("Backups") && (
+          <Keep shown={shown === "Backups"}>
+            <BackupsTab site={site} onChanged={onChanged} />
+          </Keep>
+        )}
+        {has("Public link") && (
+          <Keep shown={shown === "Public link"}>
+            <ShareTab site={site} />
+          </Keep>
+        )}
+        {has("Servers & Git") && (
+          <Keep shown={shown === "Servers & Git"}>
+            <SiteRemote site={site} live={live} liveAsk={liveAsk} />
+          </Keep>
+        )}
       </section>
     </div>
   );
@@ -155,6 +175,7 @@ function SettingsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
   const [dbName, setDbName] = useState("");
   const [dbServer, setDbServer] = useState<"mysql" | "postgres">("mysql");
   const [saving, setSaving] = useState(false);
+  useBusy(saving);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -358,6 +379,7 @@ function BackupsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
   const { isOn } = useModules();
   const [list, setList] = useState<SiteBackup[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [progress, setProgress] = usePackProgress(site.domain);
   /** What finished, and the file it made when it is in the backups folder. */
   const [done, setDone] = useState<{ text: string; saved: string | null } | null>(null);
@@ -538,6 +560,7 @@ function ShareTab({ site }: { site: Site }) {
   const t = useT();
   const [status, setStatus] = useState<ShareStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [progress, setProgress] = useState<ShareProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);

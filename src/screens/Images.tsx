@@ -9,6 +9,7 @@ import {
 } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useT } from "../lib/i18n";
+import { useBusy, useShown } from "../lib/tabLife";
 
 const FORMATS: { id: ImageFormat; label: string; hint: string }[] = [
   { id: "webp", label: "WebP", hint: "Works in every browser" },
@@ -61,6 +62,10 @@ export function Images() {
   const [outDir, setOutDir] = useState("");
   const [replace, setReplace] = useState(false);
   const [running, setRunning] = useState(false);
+  useBusy(running);
+  const shown = useShown();
+  const shownNow = useRef(shown);
+  shownNow.current = shown;
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [results, setResults] = useState<ImageResult[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +80,8 @@ export function Images() {
         setProgress({ done: p.done, total: p.total });
         setResults((r) => [...r, p.result]);
       }),
-      api.onDrop((dropped) => setPaths((current) => [...new Set([...current, ...dropped])])),
+      // Files dropped on the window go to the screen that is shown.
+      api.onDrop((dropped) => shownNow.current && setPaths((current) => [...new Set([...current, ...dropped])])),
     ]).then((list) => (cancelled ? list.forEach((off) => off()) : (offs = list)));
     return () => {
       cancelled = true;
