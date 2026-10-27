@@ -184,7 +184,7 @@ fn announce<R: Runtime>(app: &AppHandle<R>, version: &str) {
         .body("Open Stackyard to see what's new and update.")
         .show();
     if let Err(e) = shown {
-        eprintln!("could not show the update notification: {e}");
+        crate::applog::error(&format!("could not show the update notification: {e}"));
     }
 }
 

@@ -760,3 +760,8 @@ details summary { cursor: pointer; color: var(--text-2); }
 .conn-step.warning .conn-mark { background: var(--warn); }
 .conn-step.skipped { opacity: 0.6; }
 .conn-whose { margin-left: 8px; padding: 1px 6px; border-radius: 4px; font-size: 11px; background: var(--surface-2); color: var(--text-2); }
+
+/* Something failed to draw: shown in place of it (Crashed.tsx). */
+.crashed { margin: 16px; max-width: 760px; }
+.crashed-frame { padding: 24px; overflow: auto; }
+.crashed-text { margin: 0; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }

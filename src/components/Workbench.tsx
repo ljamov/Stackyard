@@ -25,6 +25,7 @@ import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 import { api } from "../lib/api";
 import { restoreClones } from "../lib/clones";
+import { Crashed } from "./Crashed";
 import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
@@ -428,7 +429,9 @@ export function Workbench() {
                   tabIndex={-1}
                 >
                   <UpdateNotice />
-                  {screen(active)}
+                  <Crashed key={active} where={`screen ${active}`}>
+                    {screen(active)}
+                  </Crashed>
                 </main>
               ) : (
                 <main className="editor-empty" tabIndex={-1}>

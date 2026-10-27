@@ -857,5 +857,11 @@
   "Open the files": "Отвори ги датотеките",
   "Run commands": "Изврши команди",
   "Internet or firewall": "Интернет или заштитен ѕид",
-  "Login or settings": "Најава или поставки"
+  "Login or settings": "Најава или поставки",
+  "Log file": "Лог-датотека",
+  "Open log file": "Отвори ја лог-датотеката",
+  "Reload the window": "Повторно вчитај го прозорецот",
+  "Something went wrong showing this": "Нешто тргна наопаку при прикажувањето",
+  "Stackyard keeps running. The error is in the log file; try again, or reload the window.": "Stackyard продолжува да работи. Грешката е во лог-датотеката; обидете се повторно или повторно вчитајте го прозорецот.",
+  "Stackyard writes what it does while starting, and any errors, to this file. If the window or a screen misbehaves, it shows what went wrong.": "Stackyard во оваа датотека запишува што прави при стартување и секоја грешка. Ако прозорецот или некој екран не работи како што треба, тука пишува што тргнало наопаку."
 }

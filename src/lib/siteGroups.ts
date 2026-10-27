@@ -24,7 +24,7 @@ export function arrange(items: SiteItem[], domains: string[]): SiteItem[] {
   const take = (d: string) => known.has(d) && !placed.has(d) && (placed.add(d), true);
   const out: SiteItem[] = [];
   for (const i of items) {
-    if (isGroup(i)) out.push({ ...i, sites: i.sites.filter(take) });
+    if (isGroup(i)) out.push({ ...i, sites: (i.sites ?? []).filter(take) });
     else if (take(i.site)) out.push({ site: i.site });
   }
   for (const d of domains) if (take(d)) out.push({ site: d });

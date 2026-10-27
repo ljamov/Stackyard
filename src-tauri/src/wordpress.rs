@@ -402,7 +402,15 @@ pub struct SavedClone {
     /// Still running in this app (the window was closed and opened again).
     #[serde(default, skip_deserializing)]
     active: bool,
+    /// How many times in a row the app started it again by itself after
+    /// quitting under it.
+    #[serde(default)]
+    starts: u32,
 }
+
+/// A clone the app closed under this many times in a row (it may be what
+/// closes the app) waits for Try again instead of starting by itself.
+const MAX_STARTS: u32 = 2;
 
 /// How a clone ended, for a window that did not start it.
 #[derive(Clone, Serialize)]
@@ -426,11 +434,77 @@ fn clones_file() -> PathBuf {
     paths::home().join("wordpress").join("clones.json")
 }
 
+/// The saved clones. One the app can't read is left out; a file it can't
+/// read at all is kept beside as `clones.json.bad` and the list starts
+/// empty, so a bad entry never stops the window from opening.
 fn saved_clones() -> Vec<SavedClone> {
-    std::fs::read(clones_file())
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+    let file = clones_file();
+    let Ok(bytes) = std::fs::read(&file) else {
+        return Vec::new();
+    };
+    let list: Vec<serde_json::Value> = match serde_json::from_slice(&bytes) {
+        Ok(list) => list,
+        Err(e) => {
+            let bad = file.with_extension("json.bad");
+            let _ = std::fs::rename(&file, &bad);
+            crate::applog::error(&format!(
+                "the saved clones could not be read ({e}); kept as {}",
+                bad.display()
+            ));
+            return Vec::new();
+        }
+    };
+    list.into_iter()
+        .filter_map(|entry| match serde_json::from_value(entry) {
+            Ok(clone) => Some(clone),
+            Err(e) => {
+                crate::applog::error(&format!("a saved clone was left out: {e}"));
+                None
+            }
+        })
+        .collect()
+}
+
+/// At start-up: counts one more start for each clone that was running
+/// when the app last quit; one the app has quit under too often is marked
+/// failed, for Try again, instead of starting by itself.
+pub fn count_restarts() {
+    let _guard = SAVED_CLONES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut list = saved_clones();
+    let mut changed = false;
+    for clone in list.iter_mut().filter(|c| c.state == "running") {
+        changed = true;
+        clone.starts += 1;
+        if clone.starts > MAX_STARTS {
+            crate::applog::error(&format!(
+                "clone {} of {}: the app closed under it {} times, so it waits for Try again",
+                clone.job, clone.options.name, MAX_STARTS
+            ));
+            clone.state = "failed".into();
+            clone.starts = 0;
+            clone.error = Some(format!(
+                "Stackyard closed while cloning this site {MAX_STARTS} times in a row, so it was not started again. Press Try again to continue where it stopped."
+            ));
+        } else {
+            crate::applog::info(&format!(
+                "clone {} of {} starts again where it stopped",
+                clone.job, clone.options.name
+            ));
+        }
+    }
+    if changed {
+        write_clones(&list);
+    }
+}
+
+fn write_clones(list: &[SavedClone]) {
+    let file = clones_file();
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_vec_pretty(list) {
+        let _ = std::fs::write(file, json);
+    }
 }
 
 /// Puts `clone` in the saved list in place of its job's old entry, or
@@ -440,13 +514,7 @@ fn save_clone(job: &str, clone: Option<SavedClone>) {
     let mut list = saved_clones();
     list.retain(|c| c.job != job);
     list.extend(clone);
-    let file = clones_file();
-    if let Some(dir) = file.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(json) = serde_json::to_vec_pretty(&list) {
-        let _ = std::fs::write(file, json);
-    }
+    write_clones(&list);
 }
 
 fn clone_secret(job: &str) -> String {
@@ -583,6 +651,19 @@ pub async fn wp_clone(
             let _ = remote::secrets::set(&clone_secret(&job), password);
         }
     }
+    // Started again by the app after it quit under it: keep the count.
+    let starts = {
+        let _guard = SAVED_CLONES.lock().unwrap_or_else(|e| e.into_inner());
+        saved_clones()
+            .iter()
+            .find(|c| c.job == job && c.state == "running")
+            .map_or(0, |c| c.starts)
+    };
+    crate::applog::info(&format!(
+        "clone {job} of {} from {} starts",
+        options.name,
+        from.as_deref().unwrap_or("")
+    ));
     let mut saved = SavedClone {
         job: job.clone(),
         from: from.unwrap_or_default(),
@@ -591,6 +672,7 @@ pub async fn wp_clone(
         state: "running".into(),
         error: None,
         active: false,
+        starts,
     };
     save_clone(&job, Some(saved.clone()));
     let stopped = stop.clone();
@@ -645,11 +727,13 @@ pub async fn wp_clone(
         .remove(&job);
     match &result {
         Ok(_) => {
+            crate::applog::info(&format!("clone {job} of {} is done", saved.options.name));
             forget_clone(&job);
             crate::sites_changed(&app);
         }
         Err(_) if QUITTING.load(Ordering::SeqCst) => return result,
         Err(e) => {
+            crate::applog::error(&format!("clone {job} of {}: {e}", saved.options.name));
             saved.state = if stopped.load(Ordering::SeqCst) {
                 "stopped"
             } else {

@@ -4,6 +4,23 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Fixed: the window disappeared right after opening.** An empty site group (one made with
+  **New group** and left empty) broke the Sites screen, and since the window is see-through, it
+  looked like Stackyard closed while it kept running in the tray. Empty groups now show as
+  "0 sites". If a screen ever fails to draw again, it shows the error with **Try again**,
+  **Reload the window** and **Open log file** instead of an empty window.
+- **A log file for when something goes wrong.** Stackyard writes its start-up steps, errors, crashes
+  and errors from the window to `stackyard.log`. On Windows it is in the folder Stackyard is
+  installed in (next to the uninstaller); elsewhere, or when that folder can't be written, in the
+  `logs` folder of the data home. It starts over after 1 MB and keeps the two before it. Open it
+  from **Settings › Log file** or the tray menu (**Open log file**).
+- **Fixed: Continue on a clone that stopped in its last steps** said "a site named … already exists".
+  It now carries on with that site, and downloads the files again if its folder lost them.
+- A saved clone the app can't read no longer stops the others from showing, and a clone that the app
+  closed under twice in a row waits for **Try again** instead of starting by itself again.
+
 ## 0.16.0
 
 - **Your own order for sites, and groups.** On the Sites screen, drag a site by its handle to move it,
