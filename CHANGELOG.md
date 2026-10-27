@@ -4,6 +4,16 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Work keeps going in the background.** Every open tab stays alive while another one is shown, and
+  so does every section and inner tab of a site. A sync check, pull, push, backup, image or video
+  job keeps running when you switch tabs or sections, and its progress and result are still there
+  when you come back, at the same scroll position. While something runs in the shown tab, picking a
+  screen in the side bar opens it in a new tab beside it instead of in its place.
+- **Sites open where you left them.** A site's tab comes back on the section and inner tab you last
+  picked (for example Servers & Git › Live site), also after Stackyard restarts.
+
 ## 0.16.0
 
 - **Your own order for sites, and groups.** On the Sites screen, drag a site by its handle to move it,

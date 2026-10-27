@@ -138,7 +138,7 @@ try {
   for (const name of names) {
     const shot = SHOTS[name];
     await open(page, shot.screen);
-    await page.evaluate(() => document.querySelector(".content")?.scrollTo(0, 0));
+    await page.evaluate(() => document.querySelector(".content:not([hidden])")?.scrollTo(0, 0));
     await sleep(400);
     if (shot.prep) await shot.prep(page);
     await sleep(shot.wait ?? 400);

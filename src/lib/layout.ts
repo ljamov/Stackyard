@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { isTabScreen, type TabScreen } from "./screens";
+import { isTabBusy } from "./tabLife";
 
 /**
  * What a tab shows: a screen, one service ("service:mysql") or one site
@@ -112,12 +113,17 @@ export function openTab(screen: TabId) {
 /**
  * Shows a screen in place of the shown one, the way the side bar opens them:
  * a screen that already has a tab is just shown. openTab() keeps the shown one
- * open beside it instead.
+ * open beside it instead, and so does this while something runs in the shown one.
  */
 export function showScreen(screen: TabId) {
   setLayout(({ tabs, active }) => {
     if (tabs.includes(screen)) return { active: screen };
     if (!active || !tabs.includes(active)) return { tabs: [...tabs, screen], active: screen };
+    // Work running in the shown tab goes on: the screen opens beside it.
+    if (isTabBusy(active)) {
+      const at = tabs.indexOf(active) + 1;
+      return { tabs: [...tabs.slice(0, at), screen, ...tabs.slice(at)], active: screen };
+    }
     return { tabs: tabs.map((s) => (s === active ? screen : s)), active: screen };
   });
 }

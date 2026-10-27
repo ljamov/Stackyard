@@ -5,6 +5,7 @@ import { useServices } from "../lib/useServices";
 import { ServiceCard } from "../components/ServiceCard";
 import { BrandIcon } from "../components/BrandIcon";
 import { useT } from "../lib/i18n";
+import { useBusy } from "../lib/tabLife";
 
 export function Services() {
   const t = useT();
@@ -60,6 +61,7 @@ function DisabledCard({ module: m, service }: { module: Module; service?: Servic
   const t = useT();
   const { setModule } = useModules();
   const [busy, setBusy] = useState(false);
+  useBusy(busy);
   const [error, setError] = useState<string | null>(null);
 
   async function turnOn() {
