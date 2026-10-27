@@ -863,5 +863,13 @@
   "Reload the window": "Повторно вчитај го прозорецот",
   "Something went wrong showing this": "Нешто тргна наопаку при прикажувањето",
   "Stackyard keeps running. The error is in the log file; try again, or reload the window.": "Stackyard продолжува да работи. Грешката е во лог-датотеката; обидете се повторно или повторно вчитајте го прозорецот.",
-  "Stackyard writes what it does while starting, and any errors, to this file. If the window or a screen misbehaves, it shows what went wrong.": "Stackyard во оваа датотека запишува што прави при стартување и секоја грешка. Ако прозорецот или некој екран не работи како што треба, тука пишува што тргнало наопаку."
+  "Stackyard writes what it does while starting, and any errors, to this file. If the window or a screen misbehaves, it shows what went wrong.": "Stackyard во оваа датотека запишува што прави при стартување и секоја грешка. Ако прозорецот или некој екран не работи како што треба, тука пишува што тргнало наопаку.",
+  "{domain} is paused": "{domain} е паузиран",
+  "Pause": "Паузирај",
+  "Resume": "Продолжи",
+  "Paused": "Паузиран",
+  "1 clone paused": "1 клон е паузиран",
+  "{count} clones paused": "{count} клонови се паузирани",
+  "Stops downloading for now, so other clones get the full speed; Resume goes on from here": "Го запира преземањето засега, за другите клонови да ја добијат целата брзина; Продолжи продолжува од тука",
+  "Resume continues where it stopped; files already downloaded are kept, also after Stackyard restarts.": "Продолжи продолжува од каде што застанало; веќе преземените датотеки се чуваат, и по рестарт на Stackyard."
 }

@@ -1356,7 +1356,7 @@ impl Work {
             .and_then(|b| serde_json::from_slice(&b).ok())
             .is_some_and(|state: State| {
                 state.source == source
-                    && state.folder == folder
+                    && same_folder(&state.folder, folder)
                     && (state.files_done || !state.tables.is_empty())
             })
     }
@@ -1528,7 +1528,7 @@ pub fn clone(
     // A clone that stopped after adding its site (in its last steps)
     // continues with that site instead of refusing the name.
     let own = existing.as_ref().is_some_and(|old| {
-        old.path == folder && Work::cut_short(home, &work_name, &source_key, &folder)
+        same_folder(&old.path, &folder) && Work::cut_short(home, &work_name, &source_key, &folder)
     });
     let replaced_note = match existing {
         Some(_) if own => None,
@@ -2710,11 +2710,20 @@ mod server_tests {
         }
         let cloned = match first {
             Ok(cloned) => cloned,
-            Err(_) => clone(home, &sessions, source, &options, &mut |p| {
-                seen.push(p.stage);
-                true
-            })
-            .unwrap(),
+            Err(_) => {
+                // Stopped again in the last steps, after its site was added:
+                // continuing goes on with that site, not "already exists".
+                let second = clone(home, &sessions, source, &options, &mut |p| {
+                    !p.message.starts_with("Noting where")
+                });
+                assert!(second.is_err());
+                assert!(unfinished(home, name));
+                clone(home, &sessions, source, &options, &mut |p| {
+                    seen.push(p.stage);
+                    true
+                })
+                .unwrap()
+            }
         };
         assert!(!unfinished(home, name));
         cloned

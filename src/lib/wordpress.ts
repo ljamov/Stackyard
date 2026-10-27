@@ -86,12 +86,12 @@ export type WpSavedClone = {
   from: string;
   source: WpCloneSource;
   options: WpCloneOptions;
-  state: "running" | "stopped" | "failed";
+  state: "running" | "paused" | "stopped" | "failed";
   error: string | null;
   /** Still running in the app: the window was closed and opened again. */
   active: boolean;
 };
-export type WpCloneEnded = { job: string; result: WpCloned | null; error: string | null };
+export type WpCloneEnded = { job: string; result: WpCloned | null; error: string | null; paused: boolean };
 export type WpFound = {
   route: WpRoute | null;
   roots: string[];
@@ -257,6 +257,8 @@ export interface WpApi {
   /** Checks the server login step by step: where it stops and what to try. */
   cloneCheck(source: WpCloneSource): Promise<ConnectionReport>;
   cloneStop(job: string): Promise<void>;
+  /** Stops a clone to go on with later; its call then fails with "paused". */
+  clonePause(job: string): Promise<void>;
   /** Logs out of the server typed in for a clone that is closed. */
   cloneForget(job: string): Promise<void>;
   cloneUnfinished(name: string): Promise<boolean>;
@@ -330,6 +332,7 @@ const tauriWp: WpApi = {
   onCloneEnded: (handler) => listen<WpCloneEnded>("wp-clone-ended", (e) => handler(e.payload)),
   cloneCheck: (source) => invoke("wp_clone_check", { source }),
   cloneStop: (job) => invoke("wp_clone_stop", { job }),
+  clonePause: (job) => invoke("wp_clone_pause", { job }),
   cloneForget: (job) => invoke("wp_clone_forget", { job }),
   cloneUnfinished: (name) => invoke("wp_clone_unfinished", { name }),
   onCloneProgress: (handler) => listen<WpCloneProgress>("wp-clone-progress", (e) => handler(e.payload)),
@@ -531,6 +534,7 @@ function mockWp(): WpApi {
         ["finishing", "Switching payments to test mode…"],
       ];
       for (const [i, [stage, message]] of steps.entries()) {
+        if (clonePaused.delete(job)) throw "paused";
         if (cloneStopped.delete(job)) {
           throw "stopped; clone again with the same name to continue where it stopped";
         }
@@ -548,6 +552,7 @@ function mockWp(): WpApi {
       };
     },
     cloneStop: async (job) => void cloneStopped.add(job),
+    clonePause: async (job) => void clonePaused.add(job),
     cloneForget: async () => {},
     clonesSaved: async () => [],
     onCloneEnded: async () => () => {},
@@ -788,6 +793,7 @@ const snapshots: WpSnapshot[] = [
 const stagingHandlers: ((p: WpCloneProgress) => void)[] = [];
 
 const cloneStopped = new Set<string>();
+const clonePaused = new Set<string>();
 const cloneHandlers: ((p: WpCloneProgress) => void)[] = [];
 
 const mock = mockWp();

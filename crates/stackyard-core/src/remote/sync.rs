@@ -22,6 +22,10 @@ const MAX_FILES: usize = 200_000;
 const SLACK: i64 = 2;
 /// Failures in a row after which the server is taken to be gone.
 const MAX_FAILURES_IN_A_ROW: usize = 5;
+/// Downloads this small or smaller go several at a time, `BATCH` at once;
+/// server folders are listed `BATCH` at once too.
+const SMALL_FILE: u64 = 512 * 1024;
+const BATCH: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -442,39 +446,46 @@ pub(crate) fn walk_remote(
         }
     }
     let mut folders = vec![start.to_string()];
-    while let Some(rel) = folders.pop() {
+    while !folders.is_empty() {
+        // Several folders are listed at once (SFTP asks for them together).
+        let take = folders.len().min(BATCH);
+        let batch: Vec<String> = folders.split_off(folders.len() - take);
         if !progress(Progress::Scanning {
             side: Side::Server,
-            folder: rel.clone(),
+            folder: batch[0].clone(),
             found: found.len(),
             expected,
         }) {
             return Err(stopped());
         }
-        let entries = match remote.list(&join(root, &rel)) {
-            Ok(entries) => entries,
-            // Nothing uploaded yet: the folder is made on the first upload.
-            Err(_) if rel.is_empty() => return Ok(found),
-            Err(e) => return Err(e),
-        };
-        for entry in entries {
-            if entry.name == "." || entry.name == ".." || entry.name.contains('/') {
-                continue;
-            }
-            let child = rel_join(&rel, &entry.name);
-            if skipped(&child, skip) {
-                continue;
-            }
-            if entry.dir {
-                folders.push(child);
-            } else {
-                found.insert(
-                    child,
-                    FileInfo {
-                        size: entry.size,
-                        modified: entry.modified,
-                    },
-                );
+        let dirs: Vec<String> = batch.iter().map(|rel| join(root, rel)).collect();
+        let listed = remote.list_many(&dirs);
+        for (rel, listed) in batch.into_iter().zip(listed) {
+            let entries = match listed {
+                Ok(entries) => entries,
+                // Nothing uploaded yet: the folder is made on the first upload.
+                Err(_) if rel.is_empty() => return Ok(found),
+                Err(e) => return Err(e),
+            };
+            for entry in entries {
+                if entry.name == "." || entry.name == ".." || entry.name.contains('/') {
+                    continue;
+                }
+                let child = rel_join(&rel, &entry.name);
+                if skipped(&child, skip) {
+                    continue;
+                }
+                if entry.dir {
+                    folders.push(child);
+                } else {
+                    found.insert(
+                        child,
+                        FileInfo {
+                            size: entry.size,
+                            modified: entry.modified,
+                        },
+                    );
+                }
             }
         }
         if found.len() > MAX_FILES {
@@ -499,7 +510,7 @@ pub(crate) fn run(
     if files.iter().any(|f| f.action == Action::Upload) {
         make_remote_dirs(remote, remote_root, "", &mut made);
     }
-    for (index, file) in files.iter().enumerate() {
+    for file in files {
         let path = file.path.trim_matches('/');
         if path.is_empty() || !is_relative_inside(path) {
             return Err(Error::Remote(format!(
@@ -507,6 +518,89 @@ pub(crate) fn run(
                 file.path
             )));
         }
+    }
+    let small = |f: &PlannedFile| f.action == Action::Download && f.size <= SMALL_FILE;
+    let mut index = 0;
+    while index < files.len() {
+        let file = &files[index];
+        let path = file.path.trim_matches('/');
+        // Small downloads go several at a time.
+        let batch = files[index..]
+            .iter()
+            .take(BATCH)
+            .take_while(|f| small(f))
+            .count();
+        if batch > 1 {
+            if !progress(Progress::Transfer {
+                index,
+                total: files.len(),
+                path: path.to_string(),
+                done: 0,
+                size: file.size,
+            }) {
+                outcome.stopped = true;
+                break;
+            }
+            let group = &files[index..index + batch];
+            let mut jobs = Vec::new();
+            let mut results: Vec<Option<Result<()>>> = Vec::new();
+            for f in group {
+                let rel = f.path.trim_matches('/');
+                let local = local_root.join(rel);
+                match local
+                    .parent()
+                    .map(|p| std::fs::create_dir_all(p).map_err(super::io_error(p)))
+                {
+                    Some(Err(e)) => results.push(Some(Err(e))),
+                    _ => {
+                        jobs.push((join(remote_root, rel), local));
+                        results.push(None);
+                    }
+                }
+            }
+            let mut fetched = remote.download_many(&jobs).into_iter();
+            for (offset, (f, result)) in group.iter().zip(results).enumerate() {
+                let result = result.unwrap_or_else(|| {
+                    fetched
+                        .next()
+                        .unwrap_or_else(|| Err(Error::Remote("not downloaded".into())))
+                });
+                let rel = f.path.trim_matches('/');
+                let go = progress(Progress::Transfer {
+                    index: index + offset,
+                    total: files.len(),
+                    path: rel.to_string(),
+                    done: f.size,
+                    size: f.size,
+                });
+                match result {
+                    Ok(()) => {
+                        in_a_row = 0;
+                        outcome.done += 1;
+                        outcome.bytes += f.size;
+                    }
+                    Err(e) => {
+                        in_a_row += 1;
+                        outcome.failed.push(Failure {
+                            path: rel.to_string(),
+                            error: e.to_string(),
+                        });
+                    }
+                }
+                if !go {
+                    outcome.stopped = true;
+                }
+            }
+            index += batch;
+            if outcome.stopped || in_a_row >= MAX_FAILURES_IN_A_ROW {
+                outcome.stopped = true;
+                break;
+            }
+            continue;
+        }
+        // One file on its own, with its progress as it goes.
+        index += 1;
+        let index = index - 1;
         let mut stop = false;
         let mut report = |done: u64| {
             let go = progress(Progress::Transfer {
@@ -702,6 +796,84 @@ mod tests {
             .iter()
             .map(|f| (f.path.as_str(), f.action, f.reason))
             .collect()
+    }
+
+    #[test]
+    fn downloads_small_files_in_batches_and_stops_between_them() {
+        let mut server = Memory::default();
+        server.dirs.insert("/srv/site".into());
+        server.dirs.insert("/srv/site/a".into());
+        for i in 0..40 {
+            server.files.insert(
+                format!("/srv/site/a/f{i:02}.php"),
+                (vec![b'x'; 10], 1_700_000_000),
+            );
+        }
+        server.files.insert(
+            "/srv/site/big.zip".into(),
+            (vec![0; SMALL_FILE as usize + 1], 1_700_000_000),
+        );
+        let local = crate::testutil::tempdir();
+        let skip = Vec::new();
+        let plan = plan(
+            &mut server,
+            &sides(&local, &skip),
+            Direction::Download,
+            Compare::Changed,
+            false,
+            None,
+            &mut go,
+        )
+        .unwrap();
+        assert_eq!(plan.files.len(), 41);
+
+        // Stopped during the first batch: that batch finishes, nothing after.
+        let mut seen = 0;
+        let outcome = run(&mut server, &local, "/srv/site", &plan.files, &mut |p| {
+            if matches!(p, Progress::Transfer { done, .. } if done > 0) {
+                seen += 1;
+            }
+            seen < 3
+        })
+        .unwrap();
+        assert!(outcome.stopped);
+        assert_eq!(outcome.done, BATCH);
+
+        // Each file is reported done once, by its own index.
+        let mut done = vec![0; plan.files.len()];
+        let outcome = run(&mut server, &local, "/srv/site", &plan.files, &mut |p| {
+            if let Progress::Transfer {
+                index,
+                done: d,
+                size,
+                ..
+            } = p
+            {
+                if d == size {
+                    done[index] += 1;
+                }
+            }
+            true
+        })
+        .unwrap();
+        assert_eq!(outcome.done, 41, "{:?}", outcome.failed);
+        assert!(done.iter().all(|n| *n >= 1), "{done:?}");
+        assert_eq!(
+            std::fs::read(local.join("a/f39.php")).unwrap(),
+            vec![b'x'; 10]
+        );
+        assert!(local.join("big.zip").is_file());
+        let again = super::plan(
+            &mut server,
+            &sides(&local, &skip),
+            Direction::Download,
+            Compare::Changed,
+            false,
+            None,
+            &mut go,
+        )
+        .unwrap();
+        assert!(again.files.is_empty(), "{:?}", again.files);
     }
 
     #[test]

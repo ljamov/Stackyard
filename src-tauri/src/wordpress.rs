@@ -285,10 +285,18 @@ pub struct CloneState {
     sessions: Sessions,
     /// Connections typed in, logged in but not saved yet, by clone.
     drafts: Mutex<HashMap<String, Connection>>,
-    /// The clones running now, by clone: the site name and the Stop switch.
-    running: Mutex<HashMap<String, (String, Arc<AtomicBool>)>>,
+    /// The clones running now, by clone.
+    running: Mutex<HashMap<String, Running>>,
     staging_stop: Arc<AtomicBool>,
     staging_busy: AtomicBool,
+}
+
+/// A clone running now: its site name, its Stop switch, and whether it
+/// was stopped to pause it.
+struct Running {
+    name: String,
+    stop: Arc<AtomicBool>,
+    pause: Arc<AtomicBool>,
 }
 
 /// Two clones can finish at once; the database and web server are started
@@ -395,7 +403,7 @@ pub struct SavedClone {
     from: String,
     source: SourceInput,
     options: live::CloneOptions,
-    /// `running`, `stopped` or `failed`.
+    /// `running`, `paused`, `stopped` or `failed`.
     state: String,
     #[serde(default)]
     error: Option<String>,
@@ -418,6 +426,8 @@ struct CloneEnded {
     job: String,
     result: Option<live::Cloned>,
     error: Option<String>,
+    /// Paused, to go on with later; `error` is then empty.
+    paused: bool,
 }
 
 static SAVED_CLONES: Mutex<()> = Mutex::new(());
@@ -632,6 +642,7 @@ pub async fn wp_clone(
 ) -> CmdResult<live::Cloned> {
     require_clone()?;
     let stop = Arc::new(AtomicBool::new(false));
+    let pause = Arc::new(AtomicBool::new(false));
     {
         let state = app.state::<CloneState>();
         let mut running = state.running.lock().unwrap();
@@ -639,12 +650,19 @@ pub async fn wp_clone(
         if running.contains_key(&job) {
             return Err("this clone is already running".into());
         }
-        if running.values().any(|(n, _)| n == name) {
+        if running.values().any(|r| r.name == name) {
             return Err(format!(
                 "a clone named {name} is already running; wait for it or pick another name"
             ));
         }
-        running.insert(job.clone(), (name.to_string(), stop.clone()));
+        running.insert(
+            job.clone(),
+            Running {
+                name: name.to_string(),
+                stop: stop.clone(),
+                pause: pause.clone(),
+            },
+        );
     }
     if let SourceInput::New { connection } = &source {
         if let Some(password) = connection.password.as_deref().filter(|p| !p.is_empty()) {
@@ -732,6 +750,13 @@ pub async fn wp_clone(
             crate::sites_changed(&app);
         }
         Err(_) if QUITTING.load(Ordering::SeqCst) => return result,
+        Err(_) if pause.load(Ordering::SeqCst) => {
+            crate::applog::info(&format!("clone {job} of {} is paused", saved.options.name));
+            saved.state = "paused".into();
+            saved.error = None;
+            saved.starts = 0;
+            save_clone(&job, Some(saved));
+        }
         Err(e) => {
             crate::applog::error(&format!("clone {job} of {}: {e}", saved.options.name));
             saved.state = if stopped.load(Ordering::SeqCst) {
@@ -744,22 +769,41 @@ pub async fn wp_clone(
             save_clone(&job, Some(saved));
         }
     }
+    let paused = result.is_err() && pause.load(Ordering::SeqCst);
     let _ = app.emit(
         "wp-clone-ended",
         CloneEnded {
             job,
             result: result.as_ref().ok().cloned(),
-            error: result.as_ref().err().cloned(),
+            error: result.as_ref().err().cloned().filter(|_| !paused),
+            paused,
         },
     );
+    if paused {
+        return Err(PAUSED.into());
+    }
     result
 }
+
+/// What a paused clone's call answers, so the window shows it paused.
+const PAUSED: &str = "paused";
 
 /// Stops one clone; it can be continued later.
 #[tauri::command]
 pub fn wp_clone_stop(state: State<'_, CloneState>, job: String) {
-    if let Some((_, stop)) = state.running.lock().unwrap().get(&job) {
-        stop.store(true, Ordering::SeqCst);
+    if let Some(running) = state.running.lock().unwrap().get(&job) {
+        running.stop.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Pauses one clone: its download stops at once (a file cut off halfway is
+/// kept and goes on from there), so other clones get the connection's
+/// speed, and Resume continues where it stopped, also after a restart.
+#[tauri::command]
+pub fn wp_clone_pause(state: State<'_, CloneState>, job: String) {
+    if let Some(running) = state.running.lock().unwrap().get(&job) {
+        running.pause.store(true, Ordering::SeqCst);
+        running.stop.store(true, Ordering::SeqCst);
     }
 }
 

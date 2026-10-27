@@ -13,7 +13,7 @@ import {
   type WpSizes,
 } from "../../lib/wordpress";
 import { size } from "./WordPressTools";
-import { closeClone, editClone, minimizeClone, retryClone, startClone, stopClone, useClones } from "../../lib/clones";
+import { closeClone, editClone, minimizeClone, pauseClone, retryClone, startClone, stopClone, useClones } from "../../lib/clones";
 import { CloneProgress } from "./Clones";
 import { ConnectionCheck } from "../ConnectionCheck";
 
@@ -558,7 +558,11 @@ function CloneJob({ id, onCloned }: { id: string; onCloned: (domain: string) => 
     <section className="card stack" aria-labelledby={`${id}-h`}>
       <div className="row between centered">
         <h2 id={`${id}-h`}>
-          {job.state === "running" ? t("Cloning {domain}", { domain }) : t("{domain} was not cloned", { domain })}
+          {job.state === "running"
+            ? t("Cloning {domain}", { domain })
+            : job.state === "paused"
+              ? t("{domain} is paused", { domain })
+              : t("{domain} was not cloned", { domain })}
         </h2>
         {minimize}
       </div>
@@ -574,9 +578,28 @@ function CloneJob({ id, onCloned }: { id: string; onCloned: (domain: string) => 
       )}
       <div className="row">
         {job.state === "running" ? (
-          <button type="button" className="btn" onClick={() => stopClone(id)}>
-            {t("Stop")}
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => pauseClone(id)}
+              title={t("Stops downloading for now, so other clones get the full speed; Resume goes on from here")}
+            >
+              {t("Pause")}
+            </button>
+            <button type="button" className="btn" onClick={() => stopClone(id)}>
+              {t("Stop")}
+            </button>
+          </>
+        ) : job.state === "paused" ? (
+          <>
+            <button type="button" className="btn primary" onClick={() => retryClone(id)}>
+              {t("Resume")}
+            </button>
+            <button type="button" className="btn ghost" onClick={() => closeClone(id)}>
+              {t("Close")}
+            </button>
+          </>
         ) : (
           <>
             <button type="button" className="btn primary" onClick={() => retryClone(id)}>
@@ -593,6 +616,9 @@ function CloneJob({ id, onCloned }: { id: string; onCloned: (domain: string) => 
       </div>
       {job.state === "failed" && (
         <p className="muted small">{t("Trying again continues where it stopped; files already downloaded are kept.")}</p>
+      )}
+      {job.state === "paused" && (
+        <p className="muted small">{t("Resume continues where it stopped; files already downloaded are kept, also after Stackyard restarts.")}</p>
       )}
     </section>
   );
