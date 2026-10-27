@@ -553,8 +553,13 @@ mod tests {
         assert_eq!(installed.path, home.join("services/mailpit/1"));
 
         let spec = manager.spec("mailpit").unwrap();
-        assert_eq!(spec.ports, vec![1025, 8025]);
-        assert!(spec.args.contains(&"127.0.0.1:8025".to_string()));
+        // 1025 and 8025, or the next free ones when something on this
+        // computer (another test, say) holds them.
+        let [smtp, web] = spec.ports[..] else {
+            panic!("two ports expected: {:?}", spec.ports)
+        };
+        assert!(smtp >= 1025 && web >= 8025);
+        assert!(spec.args.contains(&format!("127.0.0.1:{web}")));
         assert!(home.join("data/mailpit").is_dir());
         assert!(spec.program.starts_with(&installed.path));
 
