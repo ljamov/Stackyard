@@ -12,6 +12,7 @@ import {
 import { stageText } from "./CloneSite";
 import { MergePanel } from "./Merge";
 import { size } from "./WordPressTools";
+import { useBusy } from "../../lib/tabLife";
 
 type T = ReturnType<typeof useT>;
 
@@ -34,6 +35,7 @@ export function StagingTab({ site }: { site: Site }) {
   const [trash, setTrash] = useState<WpTrashed[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDestroy, setConfirmDestroy] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
@@ -226,6 +228,7 @@ function NewStaging({
   const [copyMedia, setCopyMedia] = useState(true);
   const [progress, setProgress] = useState<WpCloneProgress | null>(null);
   const [making, setMaking] = useState(false);
+  useBusy(making);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -265,7 +268,7 @@ function NewStaging({
             placeholder="checkout"
             onChange={(e) => setName(e.target.value)}
             pattern="[a-z0-9-]+"
-            aria-describedby="staging-address"
+            aria-describedby={`staging-address-${envs.main}`}
           />
         </label>
         <label className="stack tight small">
@@ -279,7 +282,7 @@ function NewStaging({
           </select>
         </label>
       </div>
-      <p id="staging-address" className="muted small">
+      <p id={`staging-address-${envs.main}`} className="muted small">
         {clean ? t("Its address: {url}", { url: `https://${clean}.${envs.main}` }) : t("Its address is the name in front of {site}, e.g. checkout.{site}.", { site: envs.main })}
       </p>
       <label className="row small">
@@ -328,6 +331,7 @@ function SnapshotList({ domain }: { domain: string }) {
   const [snaps, setSnaps] = useState<WpSnapshots | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useBusy(busy);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const reload = useCallback(() => {

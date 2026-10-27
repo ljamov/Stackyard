@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText, type Service, type ServiceProgress } from "./api";
+import { useBusy, useShown } from "./tabLife";
 
 /**
  * Services with their live state. Refreshes every few seconds so a crash or
@@ -10,16 +11,20 @@ export function useServices() {
   const [progress, setProgress] = useState<Record<string, ServiceProgress>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  useBusy(Object.keys(busy).length > 0);
 
   const reload = useCallback(() => {
     api.listServices().then(setServices).catch(() => {});
   }, []);
 
+  // Behind another tab it rests, and catches up when shown again.
+  const shown = useShown();
   useEffect(() => {
+    if (!shown) return;
     reload();
     const timer = setInterval(reload, 3000);
     return () => clearInterval(timer);
-  }, [reload]);
+  }, [reload, shown]);
 
   useEffect(() => {
     let off: (() => void) | undefined;

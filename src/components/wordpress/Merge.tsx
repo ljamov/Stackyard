@@ -15,6 +15,7 @@ import {
   type WpSettingChange,
   type WpSwitch,
 } from "../../lib/wordpress";
+import { useBusy } from "../../lib/tabLife";
 
 type T = ReturnType<typeof useT>;
 
@@ -48,6 +49,7 @@ export function Undo({ target, snapshot, onDone }: { target: string; snapshot: s
 export function UndoWith({ undo, onDone }: { undo: () => Promise<void>; onDone: () => void }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
+  useBusy(busy);
   const [error, setError] = useState<string | null>(null);
   return (
     <>
@@ -229,6 +231,7 @@ function MergeChanges({ source, target }: { source: string; target: string }) {
   const [level, setLevel] = useState<WpMergeLevel>("code");
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<WpMerged | null>(null);
   const [undone, setUndone] = useState(false);
@@ -412,6 +415,7 @@ export function MovePosts({ source, target, ops, intro }: { source: string; targ
   const [comments, setComments] = useState(false);
   const [plan, setPlan] = useState<WpMovePlan | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [error, setError] = useState<string | null>(null);
   const [moved, setMoved] = useState<Awaited<ReturnType<PostOps["move"]>> | null>(null);
   const [undone, setUndone] = useState(false);

@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { api, errorText, type PhpMyAdminStatus, type ServiceProgress } from "../lib/api";
 import { useT } from "../lib/i18n";
 import { Progress, downloadState } from "./Progress";
+import { useBusy } from "../lib/tabLife";
 
 /** Installs and opens phpMyAdmin, the full database manager. */
 export function PhpMyAdminCard() {
   const t = useT();
   const [status, setStatus] = useState<PhpMyAdminStatus | null>(null);
   const [busy, setBusy] = useState<"install" | "open" | "remove" | null>(null);
+  useBusy(busy !== null);
   const [progress, setProgress] = useState<ServiceProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
 

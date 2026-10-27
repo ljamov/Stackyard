@@ -20,6 +20,7 @@ import {
 import { StagingTab } from "./Staging";
 import { Icon } from "../Icon";
 import { AutostartCheck, SiteDatabaseNotice, useSiteDatabase } from "../SiteDatabase";
+import { Keep, useBusy, useRememberedTab, useShown } from "../../lib/tabLife";
 import "../site-views.css";
 
 export function size(bytes: number) {
@@ -33,6 +34,7 @@ type T = ReturnType<typeof useT>;
 /** Runs one action at a time, with its result or error shown under the buttons. */
 function useAction() {
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const run = useCallback(async <R,>(label: string, work: () => Promise<R>, message?: (r: R) => string | null) => {
@@ -89,8 +91,6 @@ function tabLabel(t: T, tab: Tab) {
   }[tab];
 }
 
-/** The tab each site was on, so coming back to a site opens where it was left. */
-const lastTab = new Map<string, Tab>();
 
 /**
  * The WordPress view of a site, laid out like Local or WordPress Studio: the
@@ -102,12 +102,10 @@ export function WordPressTools({ site, onLive }: { site: Site; onLive?: (way: Wp
   const [overview, setOverview] = useState<WpOverview | null>(null);
   const [env, setEnv] = useState<WpEnvironment | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTabState] = useState<Tab>(() => lastTab.get(site.domain) ?? "Overview");
+  // The tab each site was on, so coming back to a site opens where it was left.
+  const [picked, setTab] = useRememberedTab(`wordpress:${site.domain}`, "Overview");
+  const tab = picked as Tab;
   const database = useSiteDatabase(site.domain);
-  const setTab = (x: Tab) => {
-    lastTab.set(site.domain, x);
-    setTabState(x);
-  };
 
   const reload = useCallback(() => {
     setError(null);
@@ -202,15 +200,51 @@ export function WordPressTools({ site, onLive }: { site: Site; onLive?: (way: Wp
           !error && <p className="muted small">{t("Reading the site…")}</p>
         ) : (
           <>
-            {shown === "Overview" && <OverviewTab site={site} overview={overview} env={env} database={database} onTab={setTab} />}
-            {shown === "Staging" && <StagingTab site={site} />}
-            {shown === "Plugins" && <ExtensionsTab site={site} kind="plugin" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />}
-            {shown === "Themes" && <ExtensionsTab site={site} kind="theme" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />}
-            {shown === "Users" && <UsersTab site={site} />}
-            {shown === "Debug" && <DebugTab site={site} overview={overview} live={env?.live ? env.live.url : null} onChanged={setOverview} />}
-            {shown === "Search and replace" && <ReplaceTab site={site} />}
-            {shown === "Database" && <DatabaseTab site={site} overview={overview} onChanged={setOverview} />}
-            {shown === "WooCommerce" && <WooTab site={site} />}
+            {tabs.includes("Overview") && (
+              <Keep shown={shown === "Overview"}>
+                <OverviewTab site={site} overview={overview} env={env} database={database} onTab={setTab} />
+              </Keep>
+            )}
+            {tabs.includes("Staging") && (
+              <Keep shown={shown === "Staging"}>
+                <StagingTab site={site} />
+              </Keep>
+            )}
+            {tabs.includes("Plugins") && (
+              <Keep shown={shown === "Plugins"}>
+                <ExtensionsTab site={site} kind="plugin" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />
+              </Keep>
+            )}
+            {tabs.includes("Themes") && (
+              <Keep shown={shown === "Themes"}>
+                <ExtensionsTab site={site} kind="theme" wpCli={overview.wp_cli} blockTheme={overview.block_theme} />
+              </Keep>
+            )}
+            {tabs.includes("Users") && (
+              <Keep shown={shown === "Users"}>
+                <UsersTab site={site} />
+              </Keep>
+            )}
+            {tabs.includes("Debug") && (
+              <Keep shown={shown === "Debug"}>
+                <DebugTab site={site} overview={overview} live={env?.live ? env.live.url : null} onChanged={setOverview} />
+              </Keep>
+            )}
+            {tabs.includes("Search and replace") && (
+              <Keep shown={shown === "Search and replace"}>
+                <ReplaceTab site={site} />
+              </Keep>
+            )}
+            {tabs.includes("Database") && (
+              <Keep shown={shown === "Database"}>
+                <DatabaseTab site={site} overview={overview} onChanged={setOverview} />
+              </Keep>
+            )}
+            {tabs.includes("WooCommerce") && (
+              <Keep shown={shown === "WooCommerce"}>
+                <WooTab site={site} />
+              </Keep>
+            )}
           </>
         )}
       </div>
@@ -322,8 +356,8 @@ function OverviewTab({
 
   return (
     <div className="wp-overview">
-      <section className="wp-card" aria-labelledby="wp-details-h">
-        <h3 id="wp-details-h">{t("Site details")}</h3>
+      <section className="wp-card" aria-labelledby={`wp-details-h-${site.domain}`}>
+        <h3 id={`wp-details-h-${site.domain}`}>{t("Site details")}</h3>
         {overview.warnings.map((w) => (
           <p key={w} className="warn small">
             {w}
@@ -368,8 +402,8 @@ function OverviewTab({
         {action.status}
       </section>
       <div className="wp-side">
-        <section className="wp-card" aria-labelledby="wp-customize-h">
-          <h3 id="wp-customize-h">{t("Customize")}</h3>
+        <section className="wp-card" aria-labelledby={`wp-customize-h-${site.domain}`}>
+          <h3 id={`wp-customize-h-${site.domain}`}>{t("Customize")}</h3>
           <div className="wp-shortcuts">
             {shortcuts(t, overview.block_theme).map(([label, path]) => (
               <button key={path} type="button" className="wp-shortcut" onClick={() => api.openLocalPage(`${site.url}/wp-admin/${path}`)}>
@@ -379,8 +413,8 @@ function OverviewTab({
             ))}
           </div>
         </section>
-        <section className="wp-card" aria-labelledby="wp-tools-h">
-          <h3 id="wp-tools-h">{t("Tools")}</h3>
+        <section className="wp-card" aria-labelledby={`wp-tools-h-${site.domain}`}>
+          <h3 id={`wp-tools-h-${site.domain}`}>{t("Tools")}</h3>
           <div className="wp-shortcuts">
             <button type="button" className="wp-shortcut" onClick={() => onTab("Plugins")}>
               {t("Plugins")}
@@ -809,16 +843,16 @@ function UsersTab({ site }: { site: Site }) {
         <form className="card stack form" onSubmit={add}>
           <div className="form-grid">
             <div className="field">
-              <label htmlFor="wp-user-login">{t("User name")}</label>
-              <input id="wp-user-login" value={login} required onChange={(e) => setLogin(e.target.value)} />
+              <label htmlFor={`wp-user-login-${site.domain}`}>{t("User name")}</label>
+              <input id={`wp-user-login-${site.domain}`} value={login} required onChange={(e) => setLogin(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="wp-user-email">{t("E-mail")}</label>
-              <input id="wp-user-email" type="email" value={email} required onChange={(e) => setEmail(e.target.value)} />
+              <label htmlFor={`wp-user-email-${site.domain}`}>{t("E-mail")}</label>
+              <input id={`wp-user-email-${site.domain}`} type="email" value={email} required onChange={(e) => setEmail(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="wp-user-password">{t("Password")}</label>
-              <input id="wp-user-password" className="mono" value={password} minLength={8} required onChange={(e) => setPassword(e.target.value)} />
+              <label htmlFor={`wp-user-password-${site.domain}`}>{t("Password")}</label>
+              <input id={`wp-user-password-${site.domain}`} className="mono" value={password} minLength={8} required onChange={(e) => setPassword(e.target.value)} />
             </div>
           </div>
           <div className="row">
@@ -862,12 +896,14 @@ function DebugTab({
   const read = useCallback(() => {
     wp.log(site.domain).then(setLog).catch(() => {});
   }, [site.domain]);
+  const shown = useShown();
   useEffect(() => {
+    if (!shown) return;
     read();
     if (!follow) return;
     const timer = setInterval(read, 2000);
     return () => clearInterval(timer);
-  }, [read, follow]);
+  }, [read, follow, shown]);
 
   const set = (change: Partial<WpDebug>) =>
     action.run(t("Saving wp-config.php…"), () => wp.setDebug(site.domain, { ...overview.debug, ...change }), (o) => {
@@ -964,12 +1000,12 @@ function ReplaceTab({ site }: { site: Site }) {
       </p>
       <div className="form-grid">
         <div className="field">
-          <label htmlFor="wp-sr-from">{t("Find")}</label>
-          <input id="wp-sr-from" className="mono" value={from} placeholder="https://example.com" onChange={(e) => setFrom(e.target.value)} />
+          <label htmlFor={`wp-sr-from-${site.domain}`}>{t("Find")}</label>
+          <input id={`wp-sr-from-${site.domain}`} className="mono" value={from} placeholder="https://example.com" onChange={(e) => setFrom(e.target.value)} />
         </div>
         <div className="field">
-          <label htmlFor="wp-sr-to">{t("Replace with")}</label>
-          <input id="wp-sr-to" className="mono" value={to} placeholder={site.url} onChange={(e) => setTo(e.target.value)} />
+          <label htmlFor={`wp-sr-to-${site.domain}`}>{t("Replace with")}</label>
+          <input id={`wp-sr-to-${site.domain}`} className="mono" value={to} placeholder={site.url} onChange={(e) => setTo(e.target.value)} />
         </div>
       </div>
       <label className="check small">

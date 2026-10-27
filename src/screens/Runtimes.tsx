@@ -11,6 +11,7 @@ import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { useT } from "../lib/i18n";
 import { downloadState } from "../components/Progress";
+import { useBusy } from "../lib/tabLife";
 
 const key = (kind: string, version: string) => `${kind}/${version}`;
 
@@ -147,6 +148,7 @@ export function Runtimes() {
 function TerminalCard() {
   const status = useLoad<TerminalStatus | null>(api.terminalStatus, null);
   const [busy, setBusy] = useState(false);
+  useBusy(busy);
   const [error, setError] = useState<string | null>(null);
   const [shown, setShown] = useState<TerminalStatus | null>(null);
   useEffect(() => setShown(status.data), [status.data]);

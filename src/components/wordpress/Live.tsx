@@ -15,6 +15,7 @@ import {
 import { stageText } from "./CloneSite";
 import { FileGroups, MovePosts, SettingList, SwitchList, Undo, UndoWith, when } from "./Merge";
 import { size } from "./WordPressTools";
+import { useBusy } from "../../lib/tabLife";
 
 type Live = NonNullable<WpEnvironment["live"]>;
 
@@ -147,6 +148,7 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
   const [level, setLevel] = useState<WpMergeLevel>("code");
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [error, setError] = useState<string | null>(null);
   const [pushed, setPushed] = useState<WpPushed | null>(null);
   const [pulled, setPulled] = useState<WpPulled | null>(null);
@@ -370,6 +372,7 @@ function LivePosts({ domain, way }: { domain: string; way: WpWay }) {
   const t = useT();
   const [readAt, setReadAt] = useState<number | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  useBusy(busy);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useSyncProgress(domain);
   const [round, setRound] = useState(0);
@@ -447,6 +450,7 @@ function LiveBackups({ domain }: { domain: string }) {
   const t = useT();
   const [list, setList] = useState<WpLiveBackup[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  useBusy(busy !== null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [progress, setProgress] = useSyncProgress(domain);
