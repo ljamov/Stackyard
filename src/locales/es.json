@@ -857,5 +857,11 @@
   "Open the files": "Abrir los archivos",
   "Run commands": "Ejecutar comandos",
   "Internet or firewall": "Internet o cortafuegos",
-  "Login or settings": "Acceso o ajustes"
+  "Login or settings": "Acceso o ajustes",
+  "Log file": "Archivo de registro",
+  "Open log file": "Abrir archivo de registro",
+  "Reload the window": "Recargar la ventana",
+  "Something went wrong showing this": "Algo salió mal al mostrar esto",
+  "Stackyard keeps running. The error is in the log file; try again, or reload the window.": "Stackyard sigue funcionando. El error está en el archivo de registro; inténtelo de nuevo o recargue la ventana.",
+  "Stackyard writes what it does while starting, and any errors, to this file. If the window or a screen misbehaves, it shows what went wrong.": "Stackyard escribe en este archivo lo que hace al iniciarse y cualquier error. Si la ventana o una pantalla falla, ahí se ve qué salió mal."
 }

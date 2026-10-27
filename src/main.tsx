@@ -6,7 +6,10 @@ import { App } from "./App";
 import { startAppearance } from "./lib/appearance";
 import { startViewOptions } from "./lib/viewOptions";
 import { I18nProvider, loadLanguage, savedLanguage } from "./lib/i18n";
+import { catchPageErrors } from "./lib/applog";
+import { Crashed } from "./components/Crashed";
 
+catchPageErrors();
 startAppearance();
 startViewOptions();
 
@@ -15,7 +18,9 @@ loadLanguage(savedLanguage()).then((initial) =>
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <I18nProvider initial={initial}>
-        <App />
+        <Crashed where="the window" full>
+          <App />
+        </Crashed>
       </I18nProvider>
     </StrictMode>,
   ),

@@ -1348,6 +1348,19 @@ impl Work {
         Ok(work)
     }
 
+    /// Whether a clone of this source into this folder stopped halfway,
+    /// without opening its work folder.
+    fn cut_short(home: &Path, name: &str, source: &str, folder: &Path) -> bool {
+        std::fs::read(Self::dir(home, name).join("state.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .is_some_and(|state: State| {
+                state.source == source
+                    && state.folder == folder
+                    && (state.files_done || !state.tables.is_empty())
+            })
+    }
+
     /// Whether an earlier clone of this source into this folder was cut short.
     fn resuming(&self) -> bool {
         self.state.files_done || !self.state.tables.is_empty()
@@ -1484,23 +1497,6 @@ pub fn clone(
         .filter(|p| !p.as_os_str().is_empty())
         .map(|p| crate::paths::expand_home(&p))
         .unwrap_or_else(|| settings.sites_folder(home).join(&name));
-    let existing = store
-        .list()
-        .iter()
-        .find(|s| s.domain() == domain_name)
-        .cloned();
-    let replaced_note = match existing {
-        Some(old) if options.replace && parent.is_none() => Some(replace_site(
-            home,
-            &mut store,
-            &old,
-            &folder,
-            &crate::starters::database_name(&name),
-            progress,
-        )?),
-        Some(_) => return Err(Error::SiteExists(domain_name)),
-        None => None,
-    };
     let source_key = match source {
         Source::Server(c) => format!(
             "{}://{}@{}:{}{}",
@@ -1523,6 +1519,29 @@ pub fn clone(
     let work_name = match &parent {
         Some(_) => domain_name.replace('.', "-"),
         None => name.clone(),
+    };
+    let existing = store
+        .list()
+        .iter()
+        .find(|s| s.domain() == domain_name)
+        .cloned();
+    // A clone that stopped after adding its site (in its last steps)
+    // continues with that site instead of refusing the name.
+    let own = existing.as_ref().is_some_and(|old| {
+        old.path == folder && Work::cut_short(home, &work_name, &source_key, &folder)
+    });
+    let replaced_note = match existing {
+        Some(_) if own => None,
+        Some(old) if options.replace && parent.is_none() => Some(replace_site(
+            home,
+            &mut store,
+            &old,
+            &folder,
+            &crate::starters::database_name(&name),
+            progress,
+        )?),
+        Some(_) => return Err(Error::SiteExists(domain_name)),
+        None => None,
     };
     let mut work = Work::open(home, &work_name, &source_key, &folder)?;
     let has_files = folder
@@ -1633,6 +1652,10 @@ pub fn clone(
     let site = {
         let _one = SITES.lock().unwrap_or_else(|e| e.into_inner());
         let mut store = SiteStore::load_from(&home.join("sites.toml"))?;
+        if own {
+            // Added before the clone stopped: put it as this run made it.
+            let _ = store.remove(&site.domain());
+        }
         let site = store.add(site)?.clone();
         store.save()?;
         site
@@ -1790,8 +1813,8 @@ fn clone_from_server<'a>(
         work.save()?;
     }
 
-    // Files
-    if !work.state.files_done {
+    // Files (again if the folder lost them since, say it was emptied)
+    if !work.state.files_done || !folder.join("wp-config.php").is_file() {
         let mut skip = clone_skip();
         if let Some(h) = &s.helper {
             skip.push(h.file.clone());
@@ -2587,6 +2610,34 @@ mod tests {
         assert!(other.parts().is_empty());
         other.finish();
         assert!(!unfinished(&home, "shop"));
+    }
+
+    #[test]
+    fn knows_a_clone_cut_short_after_adding_its_site() {
+        let home = crate::testutil::tempdir();
+        let folder = home.join("www/shop");
+        let source = "sftp://a@b:22/public_html";
+        let mut work = Work::open(&home, "shop", source, &folder).unwrap();
+        // Only just started: nothing to continue yet.
+        assert!(!Work::cut_short(&home, "shop", source, &folder));
+        work.state.files_done = true;
+        work.save().unwrap();
+        assert!(Work::cut_short(&home, "shop", source, &folder));
+        // Another server or folder is another clone.
+        assert!(!Work::cut_short(
+            &home,
+            "shop",
+            "sftp://a@c:22/public_html",
+            &folder
+        ));
+        assert!(!Work::cut_short(
+            &home,
+            "shop",
+            source,
+            &home.join("www/other")
+        ));
+        work.finish();
+        assert!(!Work::cut_short(&home, "shop", source, &folder));
     }
 
     #[test]

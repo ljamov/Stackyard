@@ -25,6 +25,7 @@ import { CommandPalette } from "./CommandPalette";
 import { Logo } from "./Logo";
 import { api } from "../lib/api";
 import { restoreClones } from "../lib/clones";
+import { Crashed } from "./Crashed";
 import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
@@ -442,7 +443,9 @@ export function Workbench() {
                     tabIndex={-1}
                   >
                     {s === active && <UpdateNotice />}
-                    <TabContext.Provider value={tabContext(s, s === active)}>{screen(s)}</TabContext.Provider>
+                    <TabContext.Provider value={tabContext(s, s === active)}>
+                      <Crashed where={`screen ${s}`}>{screen(s)}</Crashed>
+                    </TabContext.Provider>
                   </main>
                 ))
               ) : (

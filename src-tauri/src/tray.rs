@@ -174,7 +174,7 @@ pub(crate) fn build(app: &AppHandle) -> Tray {
     let up = match build_icon(app) {
         Ok(()) => true,
         Err(e) => {
-            eprintln!("no tray icon: {e}");
+            crate::applog::error(&format!("no tray icon: {e}"));
             false
         }
     };
@@ -208,7 +208,9 @@ pub(crate) fn follow(app: &AppHandle) {
         Ok(_) => {
             let _ = tray.kick.try_send(());
         }
-        Err(e) => eprintln!("the tray menu will not follow service changes: {e}"),
+        Err(e) => crate::applog::error(&format!(
+            "the tray menu will not follow service changes: {e}"
+        )),
     }
 }
 
@@ -246,7 +248,7 @@ fn keep_up(app: AppHandle, wake: Receiver<()>) {
             // and a start that failed has to take the tick away again.
             Some(old) if old.model.same_items(&model) => {
                 if let Err(e) = update_states(old, &model) {
-                    eprintln!("could not update the tray menu: {e}");
+                    crate::applog::error(&format!("could not update the tray menu: {e}"));
                 }
                 if let Some(old) = shown.as_mut() {
                     old.model = model;
@@ -254,7 +256,7 @@ fn keep_up(app: AppHandle, wake: Receiver<()>) {
             }
             _ => match show(&app, model) {
                 Ok(new) => *shown = Some(new),
-                Err(e) => eprintln!("could not update the tray menu: {e}"),
+                Err(e) => crate::applog::error(&format!("could not update the tray menu: {e}")),
             },
         }
         if let (Some(icon), Some(shown)) = (app.tray_by_id("main"), shown.as_ref()) {
@@ -372,6 +374,7 @@ fn show(app: &AppHandle, model: Model) -> tauri::Result<Shown> {
     for screen in &model.screens {
         go.append(&item(&format!("screen:{screen}"), screen)?)?;
     }
+    let log = item("log", "Open log file")?;
     let quit = item("quit", "Quit Stackyard")?;
 
     let (gap1, gap2, gap3, gap4) = (gap()?, gap()?, gap()?, gap()?);
@@ -395,7 +398,7 @@ fn show(app: &AppHandle, model: Model) -> tauri::Result<Shown> {
     if let Some(phpmyadmin) = &phpmyadmin {
         all.push(phpmyadmin);
     }
-    all.extend([&gap3 as &dyn IsMenuItem<Wry>, &go, &gap4, &quit]);
+    all.extend([&gap3 as &dyn IsMenuItem<Wry>, &go, &log, &gap4, &quit]);
     let menu = Menu::with_items(app, &all)?;
     if let Some(icon) = app.tray_by_id("main") {
         icon.set_menu(Some(menu))?;
@@ -414,8 +417,12 @@ fn build_icon(app: &AppHandle) -> tauri::Result<()> {
 
     // A first menu at once; the worker fills in services and sites.
     let open = MenuItem::with_id(app, "open", "Open Stackyard", true, None::<&str>)?;
+    let log = MenuItem::with_id(app, "log", "Open log file", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Stackyard", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&open, &PredefinedMenuItem::separator(app)?, &log, &quit],
+    )?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Stackyard")
         .menu(&menu)
@@ -492,6 +499,11 @@ fn on_menu(app: &AppHandle, id: &str) {
                     tell(&app, "Could not open phpMyAdmin", &e);
                 }
             });
+        }
+        "log" => {
+            if let Err(e) = crate::applog::app_log_open() {
+                tell(app, "Could not open the log file", &e);
+            }
         }
         "quit" => app.exit(0),
         id => {
@@ -584,9 +596,9 @@ fn open_terminal() -> Result<(), String> {
 
 /// Says what went wrong, since a tray click has no window to show it in.
 fn tell(app: &AppHandle, title: &str, body: &str) {
-    eprintln!("{title}: {body}");
+    crate::applog::error(&format!("{title}: {body}"));
     let shown = app.notification().builder().title(title).body(body).show();
     if let Err(e) = shown {
-        eprintln!("could not show a notification: {e}");
+        crate::applog::error(&format!("could not show a notification: {e}"));
     }
 }

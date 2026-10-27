@@ -9,6 +9,7 @@ import { useT } from "../lib/i18n";
 import { AppearanceSettings } from "../components/AppearanceSettings";
 import { openTab } from "../lib/layout";
 import { setCodeEditor, useCodeEditors } from "../lib/editors";
+import { appLogPath, openAppLog } from "../lib/applog";
 
 const GROUPS: { group: Module["group"]; title: string }[] = [
   { group: "runtime", title: "Runtimes" },
@@ -24,6 +25,13 @@ export function Settings() {
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
   const [error, setError] = useState<string | null>(null);
+  const [logPath, setLogPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    appLogPath()
+      .then(setLogPath)
+      .catch(() => setLogPath(null));
+  }, []);
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
 
@@ -109,6 +117,21 @@ export function Settings() {
           </button>
         </div>
       </section>
+
+      {logPath && (
+        <section aria-labelledby="log-h" className="card stack">
+          <h2 id="log-h">{t("Log file")}</h2>
+          <p className="muted">
+            {t("Stackyard writes what it does while starting, and any errors, to this file. If the window or a screen misbehaves, it shows what went wrong.")}
+          </p>
+          <p className="mono small">{logPath}</p>
+          <div className="row wrap">
+            <button type="button" className="btn" onClick={() => openAppLog().catch((e) => setError(errorText(e)))}>
+              {t("Open log file")}
+            </button>
+          </div>
+        </section>
+      )}
 
       <section aria-labelledby="editor-h" className="card stack">
         <h2 id="editor-h">{t("Code editor")}</h2>

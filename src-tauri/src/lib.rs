@@ -35,6 +35,7 @@ use stackyard_core::{
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 mod ai;
+mod applog;
 mod console;
 mod perf;
 mod remote;
@@ -1141,7 +1142,7 @@ fn repoint_terminal(old: &std::path::Path, new: &std::path::Path) {
             user_path::add(&new_bin)
         });
         if let Err(e) = result {
-            eprintln!("could not move the terminal commands: {e}");
+            crate::applog::error(&format!("could not move the terminal commands: {e}"));
         }
     });
 }
@@ -1152,7 +1153,7 @@ fn refresh_terminal_commands() {
         let home = paths::home();
         if let Some(cli) = cli_program().filter(|cli| shims::outdated(&home, cli)) {
             if let Err(e) = shims::install(&home, &cli) {
-                eprintln!("could not update the terminal commands: {e}");
+                crate::applog::error(&format!("could not update the terminal commands: {e}"));
             }
         }
     });
@@ -1344,9 +1345,40 @@ fn list_sites() -> CmdResult<Vec<SiteView>> {
     site_views()
 }
 
+/// One entry of the Sites screen's order. A group always carries its
+/// `sites`, even none: `site-order.toml` leaves an empty list out, and a
+/// group without one broke the Sites screen (and with it the whole window).
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+enum LayoutItem {
+    Site {
+        site: String,
+    },
+    Group {
+        group: String,
+        sites: Vec<String>,
+        collapsed: bool,
+    },
+}
+
+impl From<siteorder::Item> for LayoutItem {
+    fn from(item: siteorder::Item) -> Self {
+        match item.group {
+            Some(group) => LayoutItem::Group {
+                group,
+                sites: item.sites,
+                collapsed: item.collapsed,
+            },
+            None => LayoutItem::Site {
+                site: item.site.unwrap_or_default(),
+            },
+        }
+    }
+}
+
 /// The sites' groups and order, for the Sites screen.
 #[tauri::command]
-fn site_layout() -> CmdResult<Vec<siteorder::Item>> {
+fn site_layout() -> CmdResult<Vec<LayoutItem>> {
     let manager = ServiceManager::open();
     let order = SiteOrder::load(manager.home()).map_err(err)?;
     let domains: Vec<String> = manager
@@ -1355,12 +1387,16 @@ fn site_layout() -> CmdResult<Vec<siteorder::Item>> {
         .iter()
         .map(|s| s.site.domain())
         .collect();
-    Ok(order.arranged(&domains))
+    Ok(order
+        .arranged(&domains)
+        .into_iter()
+        .map(LayoutItem::from)
+        .collect())
 }
 
 /// Saves the groups and order the user arranged; every list follows it.
 #[tauri::command]
-fn set_site_layout(app: AppHandle, items: Vec<siteorder::Item>) -> CmdResult<Vec<siteorder::Item>> {
+fn set_site_layout(app: AppHandle, items: Vec<siteorder::Item>) -> CmdResult<Vec<LayoutItem>> {
     let mut order = SiteOrder::load(&paths::home()).map_err(err)?;
     order.set(items).map_err(err)?;
     order.save().map_err(err)?;
@@ -1839,7 +1875,7 @@ pub(crate) fn sites_changed(app: &AppHandle) {
     let engine = app.state::<Arc<Engine>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         if let Err(e) = engine.sites_changed() {
-            eprintln!("could not restart the web server: {e}");
+            crate::applog::error(&format!("could not restart the web server: {e}"));
         }
     });
 }
@@ -1968,8 +2004,10 @@ struct Control(Mutex<Option<ControlServer>>);
 pub fn run() {
     perf::started();
     let mut home = paths::home();
+    applog::init(&home);
     // Held until this process ends.
     let Some(_first) = first_copy(&home) else {
+        applog::info("another copy is open; showed its window and quit");
         return;
     };
     // One process runs services at a time.
@@ -1979,15 +2017,24 @@ pub fn run() {
             // Already open: bring that window forward instead.
             Owner::App => {
                 let _ = client.send(Request::Show);
+                applog::info("another copy is open; showed its window and quit");
                 return;
             }
             // `stackyard start` or `stackyard up` runs them: take over.
-            Owner::Daemon | Owner::Up => resume = take_over(&home, &client),
+            Owner::Daemon | Owner::Up => {
+                applog::info("taking over from the background service");
+                resume = take_over(&home, &client)
+            }
         }
     }
     // First-run setup picked another folder: move everything there now,
     // before anything opens a file in it.
     if let Some((old, new)) = setup::move_if_pending() {
+        applog::info(&format!(
+            "moved the data from {} to {}",
+            old.display(),
+            new.display()
+        ));
         repoint_terminal(&old, &new);
         home = new;
     }
@@ -2000,16 +2047,19 @@ pub fn run() {
     refresh_terminal_commands();
     let engine = Arc::new(Engine::new(&home));
     if !resume.is_empty() {
+        applog::info(&format!("starting again: {}", resume.join(", ")));
         let engine = engine.clone();
         std::thread::spawn(move || {
             for id in resume {
                 if let Err(e) = engine.start(&id) {
-                    eprintln!("could not start {id} again: {e}");
+                    crate::applog::error(&format!("could not start {id} again: {e}"));
                 }
             }
         });
     }
     perf::mark("engine");
+    applog::info("services ready; opening the window");
+    wordpress::count_restarts();
     let app = tauri::Builder::default()
         .manage(engine.clone())
         .manage(Installs::default())
@@ -2025,12 +2075,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                applog::info(&format!("window page loaded ({})", webview.label()));
                 perf::page_loaded(webview);
             }
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Focused(true) => updates::on_focus(window.app_handle()),
-            tauri::WindowEvent::Destroyed => release_memory(),
+            tauri::WindowEvent::Destroyed => {
+                applog::info(&format!("window {} closed", window.label()));
+                release_memory()
+            }
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
@@ -2243,7 +2297,10 @@ pub fn run() {
             remote::git_pull,
             remote::git_push,
             remote::git_commit,
-            tray::take_tray_action
+            tray::take_tray_action,
+            applog::app_log,
+            applog::app_log_open,
+            applog::app_log_path
         ])
         .setup(move |app| {
             perf::mark("setup");
@@ -2258,7 +2315,9 @@ pub fn run() {
             });
             match server {
                 Ok(server) => *app.state::<Control>().0.lock().unwrap() = Some(server),
-                Err(e) => eprintln!("the stackyard command cannot reach this app: {e}"),
+                Err(e) => crate::applog::error(&format!(
+                    "the stackyard command cannot reach this app: {e}"
+                )),
             }
             updates::watch(app.handle());
             let handle = app.handle().clone();
@@ -2267,6 +2326,7 @@ pub fn run() {
                 tray::changed(&handle);
             });
             perf::mark("setup_done");
+            applog::info("tray and control connection ready");
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -2283,6 +2343,7 @@ pub fn run() {
         RunEvent::Reopen { .. } => show_window(handle),
         // Never leave services running after Stackyard quits.
         RunEvent::Exit => {
+            applog::info("quitting");
             wordpress::set_quitting(true);
             handle.state::<Control>().0.lock().unwrap().take();
             handle.state::<Arc<Engine>>().shutdown();
@@ -2363,7 +2424,7 @@ fn show_window(app: &AppHandle) {
         Ok(window) => {
             let _ = window.set_focus();
         }
-        Err(e) => eprintln!("could not open the window: {e}"),
+        Err(e) => crate::applog::error(&format!("could not open the window: {e}")),
     }
 }
 
@@ -2402,5 +2463,21 @@ mod tests {
         // An empty folder holds plain files.
         assert_eq!(parse("Auto").unwrap(), SiteRuntime::Static);
         assert!(parse("Ruby 3").is_err());
+    }
+
+    #[test]
+    fn empty_groups_keep_their_site_list() {
+        let json = serde_json::to_value(vec![
+            LayoutItem::from(siteorder::Item::group("New group", &[])),
+            LayoutItem::from(siteorder::Item::site("shop.stack")),
+        ])
+        .unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!([
+                { "group": "New group", "sites": [], "collapsed": false },
+                { "site": "shop.stack" }
+            ])
+        );
     }
 }

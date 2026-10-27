@@ -76,7 +76,7 @@ pub async fn site_thumbnail(
             match thumbnails::capture(&home, &browser, &domain, &url) {
                 Ok(path) => return Ok(read_url(&path)),
                 Err(e) => {
-                    eprintln!("picture of {domain}: {e}");
+                    crate::applog::error(&format!("picture of {domain}: {e}"));
                     e.to_string()
                 }
             }
