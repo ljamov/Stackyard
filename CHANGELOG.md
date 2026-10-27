@@ -27,6 +27,14 @@ Update button, and the app shows its own version's section after it updates.
   It now carries on with that site, and downloads the files again if its folder lost them.
 - A saved clone the app can't read no longer stops the others from showing, and a clone that the app
   closed under twice in a row waits for **Try again** instead of starting by itself again.
+- **Pause and Resume for clones from a live server.** Each running clone has **Pause** on its card
+  and in the status bar's clones list. Pausing stops its download at once, so the other clones get
+  the whole connection; what it downloaded is kept (a file cut off halfway goes on from where it
+  stopped), and **Resume** continues from there, also after Stackyard restarts.
+- **Much faster downloads over SFTP.** Small files now come 16 at a time over the same connection
+  instead of one after another, and server folders are listed 16 at a time. On a site with
+  thousands of small files (a usual WordPress site) the files come in about 15 times faster when
+  the server is far away. Push, pull and Remote downloads get faster the same way.
 
 ## 0.16.0
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../../lib/i18n";
-import { clonePercent, closeClone, showClone, stopClone, useClones, type Clone } from "../../lib/clones";
+import { clonePercent, closeClone, pauseClone, retryClone, showClone, stopClone, useClones, type Clone } from "../../lib/clones";
 import { stageText } from "./CloneSite";
 import { size } from "./WordPressTools";
 
@@ -59,8 +59,17 @@ export function ClonesList({ onShow, minimized = false }: { onShow: (id: string)
                 {t("Show")}
               </button>
               {c.state === "running" ? (
-                <button type="button" className="btn small" onClick={() => stopClone(c.id)}>
-                  {t("Stop")}
+                <>
+                  <button type="button" className="btn small" onClick={() => pauseClone(c.id)}>
+                    {t("Pause")}
+                  </button>
+                  <button type="button" className="btn small" onClick={() => stopClone(c.id)}>
+                    {t("Stop")}
+                  </button>
+                </>
+              ) : c.state === "paused" ? (
+                <button type="button" className="btn small primary" onClick={() => retryClone(c.id)}>
+                  {t("Resume")}
                 </button>
               ) : (
                 <button type="button" className="btn small ghost" onClick={() => closeClone(c.id)}>
@@ -70,6 +79,7 @@ export function ClonesList({ onShow, minimized = false }: { onShow: (id: string)
             </div>
           </div>
           {c.state === "running" && <CloneProgress clone={c} />}
+          {c.state === "paused" && <span className="small muted">{t("Paused")}</span>}
           {c.state === "done" && <span className="small ok">{t("Ready")}</span>}
           {c.state === "failed" && <span className="small error clone-progress-text">{c.error}</span>}
         </li>
@@ -87,6 +97,7 @@ export function ClonesStatus({ onOpenSites }: { onOpenSites: () => void }) {
   const running = clones.filter((c) => c.state === "running");
   const ready = clones.filter((c) => c.state === "done").length;
   const failed = clones.filter((c) => c.state === "failed").length;
+  const paused = clones.filter((c) => c.state === "paused").length;
 
   useEffect(() => {
     if (!open) return;
@@ -109,6 +120,7 @@ export function ClonesStatus({ onOpenSites }: { onOpenSites: () => void }) {
   const mean = known.length ? Math.floor(known.reduce((a, b) => a + b, 0) / known.length) : null;
   const words = [
     running.length && (running.length === 1 ? t("Cloning 1 site") : t("Cloning {count} sites", { count: running.length })),
+    paused && (paused === 1 ? t("1 clone paused") : t("{count} clones paused", { count: paused })),
     ready && (ready === 1 ? t("1 clone ready") : t("{count} clones ready", { count: ready })),
     failed && (failed === 1 ? t("1 clone stopped") : t("{count} clones stopped", { count: failed })),
   ].filter(Boolean);

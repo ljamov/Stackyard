@@ -2130,6 +2130,7 @@ pub fn run() {
             wordpress::wp_clone,
             wordpress::wp_clone_check,
             wordpress::wp_clone_stop,
+            wordpress::wp_clone_pause,
             wordpress::wp_clone_forget,
             wordpress::wp_clone_unfinished,
             wordpress::wp_clones_saved,

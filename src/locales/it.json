@@ -863,5 +863,13 @@
   "Reload the window": "Ricarica la finestra",
   "Something went wrong showing this": "Qualcosa è andato storto nel mostrare questo",
   "Stackyard keeps running. The error is in the log file; try again, or reload the window.": "Stackyard continua a funzionare. L'errore è nel file di log; riprova o ricarica la finestra.",
-  "Stackyard writes what it does while starting, and any errors, to this file. If the window or a screen misbehaves, it shows what went wrong.": "Stackyard scrive in questo file cosa fa all'avvio e ogni errore. Se la finestra o una schermata non funziona, lì si vede cosa è andato storto."
+  "Stackyard writes what it does while starting, and any errors, to this file. If the window or a screen misbehaves, it shows what went wrong.": "Stackyard scrive in questo file cosa fa all'avvio e ogni errore. Se la finestra o una schermata non funziona, lì si vede cosa è andato storto.",
+  "{domain} is paused": "{domain} è in pausa",
+  "Pause": "Pausa",
+  "Resume": "Riprendi",
+  "Paused": "In pausa",
+  "1 clone paused": "1 clone in pausa",
+  "{count} clones paused": "{count} cloni in pausa",
+  "Stops downloading for now, so other clones get the full speed; Resume goes on from here": "Ferma il download per ora, così gli altri cloni hanno tutta la velocità; Riprendi continua da qui",
+  "Resume continues where it stopped; files already downloaded are kept, also after Stackyard restarts.": "Riprendi continua da dove si è fermato; i file già scaricati restano, anche dopo il riavvio di Stackyard."
 }

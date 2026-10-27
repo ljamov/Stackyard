@@ -10,8 +10,8 @@ import { wp, type WpCloned, type WpCloneOptions, type WpCloneProgress, type WpCl
  */
 export type Clone = {
   id: string;
-  /** `new` is a form not cloning yet. */
-  state: "new" | "running" | "done" | "failed";
+  /** `new` is a form not cloning yet; `paused` waits for Resume. */
+  state: "new" | "running" | "paused" | "done" | "failed";
   /** Shown as a card on the Sites screen; false when minimized. */
   open: boolean;
   /** The local site's name, e.g. `shop`. */
@@ -60,7 +60,10 @@ function listen() {
   // A clone this window took over from a closed one ends here.
   wp.onCloneEnded((e) => {
     if (!clones.some((c) => c.id === e.job && c.state === "running")) return;
-    change(e.job, e.result ? { state: "done", result: e.result } : { state: "failed", error: e.error });
+    change(
+      e.job,
+      e.result ? { state: "done", result: e.result } : e.paused ? { state: "paused", error: null } : { state: "failed", error: e.error },
+    );
   }).catch(() => {});
 }
 
@@ -69,7 +72,8 @@ let restored = false;
 /**
  * Brings back the clones from before the app last quit, minimized: one
  * that was running (the app updated or quit under it) starts again and
- * continues where it stopped; a stopped or failed one waits for Continue.
+ * continues where it stopped; a paused one waits for Resume, a stopped or
+ * failed one for Try again.
  */
 export async function restoreClones() {
   if (restored) return;
@@ -85,7 +89,7 @@ export async function restoreClones() {
     .filter((s) => !known.has(s.job))
     .map((s) => ({
       id: s.job,
-      state: s.state === "running" ? "running" : "failed",
+      state: s.state === "running" ? "running" : s.state === "paused" ? "paused" : "failed",
       open: false,
       name: s.options.name,
       from: s.from,
@@ -93,7 +97,7 @@ export async function restoreClones() {
       options: s.options,
       progress: null,
       result: null,
-      error: s.state === "running" ? null : s.error,
+      error: s.state === "running" || s.state === "paused" ? null : s.error,
     }));
   if (!back.length) return;
   listen();
@@ -117,7 +121,8 @@ async function run(id: string) {
   try {
     change(id, { state: "done", result: await wp.clone(id, clone.source, clone.options, clone.from) });
   } catch (e) {
-    change(id, { state: "failed", error: errorText(e) });
+    const error = errorText(e);
+    change(id, error === "paused" ? { state: "paused", error: null } : { state: "failed", error });
   }
 }
 
@@ -126,13 +131,21 @@ export function startClone(id: string, source: WpCloneSource, options: WpCloneOp
   return run(id);
 }
 
-/** Runs a stopped or failed clone again; it continues where it stopped. */
+/** Runs a paused, stopped or failed clone again; it continues where it stopped. */
 export function retryClone(id: string) {
   return run(id);
 }
 
 export function stopClone(id: string) {
   return wp.cloneStop(id).catch(() => {});
+}
+
+/**
+ * Pauses a running clone: its download stops, so the other clones get the
+ * whole connection, and what it has is kept for Resume.
+ */
+export function pauseClone(id: string) {
+  return wp.clonePause(id).catch(() => {});
 }
 
 export function minimizeClone(id: string) {
@@ -143,7 +156,7 @@ export function showClone(id: string) {
   change(id, { open: true });
 }
 
-/** Closes a form or a finished clone; a running one can only be minimized or stopped. */
+/** Closes a form or a finished clone; a running one can only be minimized, paused or stopped. */
 export function closeClone(id: string) {
   if (clones.find((c) => c.id === id)?.state === "running") return;
   set(clones.filter((c) => c.id !== id));

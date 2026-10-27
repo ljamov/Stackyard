@@ -404,6 +404,20 @@ pub(crate) trait Remote: Send {
     /// Writes the file to `local`, replacing it only once complete, and
     /// gives it the server's modification time when known.
     fn download(&mut self, remote: &str, local: &Path, on_bytes: OnBytes) -> Result<()>;
+    /// Downloads several small files as [`Remote::download`] does, at the
+    /// same time where the protocol can (SFTP), so each file doesn't wait
+    /// for the one before it. A result for each file, in order.
+    fn download_many(&mut self, files: &[(String, PathBuf)]) -> Vec<Result<()>> {
+        files
+            .iter()
+            .map(|(remote, local)| self.download(remote, local, &mut |_| true))
+            .collect()
+    }
+    /// Lists several folders as [`Remote::list`] does, at the same time
+    /// where the protocol can. A result for each folder, in order.
+    fn list_many(&mut self, dirs: &[String]) -> Vec<Result<Vec<Entry>>> {
+        dirs.iter().map(|dir| self.list(dir)).collect()
+    }
     /// Uploads the file and, where the server allows, keeps its local
     /// modification time, so later comparisons see the two as the same.
     fn upload(&mut self, local: &Path, remote: &str, on_bytes: OnBytes) -> Result<()>;

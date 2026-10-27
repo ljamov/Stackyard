@@ -3,7 +3,7 @@
 //! The server's key is trusted on first connect and remembered with the
 //! connection; a different key later is refused, as OpenSSH does.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -77,7 +77,7 @@ impl client::Handler for Client {
 pub(crate) struct Sftp {
     runtime: tokio::runtime::Runtime,
     ssh: Handle<Client>,
-    sftp: SftpSession,
+    sftp: Arc<SftpSession>,
     connection: Connection,
     goodbye: Goodbye,
 }
@@ -247,7 +247,7 @@ impl Sftp {
             Self {
                 runtime,
                 ssh,
-                sftp,
+                sftp: Arc::new(sftp),
                 connection: connection.clone(),
                 goodbye,
             },
@@ -270,6 +270,66 @@ impl Sftp {
             }
         })
     }
+}
+
+/// One server folder's contents; a link counts as what it points to.
+async fn list_dir(sftp: Arc<SftpSession>, dir: String) -> Result<Vec<Entry>> {
+    async fn step<T>(
+        what: &str,
+        work: impl std::future::Future<
+            Output = std::result::Result<T, russh_sftp::client::error::Error>,
+        >,
+    ) -> Result<T> {
+        match tokio::time::timeout(STEP_TIMEOUT, work).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(e)) => Err(fail(format!("{what}: {}", sftp_error(e)))),
+            Err(_) => Err(fail(format!("{what}: the server stopped answering"))),
+        }
+    }
+    let entries = step(&format!("Listing {dir}"), sftp.read_dir(dir.as_str())).await?;
+    let mut out = Vec::new();
+    for entry in entries {
+        let name = entry.file_name();
+        if name == "." || name == ".." {
+            continue;
+        }
+        let mut meta = entry.metadata();
+        if entry.file_type().is_symlink() {
+            // Where the link points decides whether it is a file or folder.
+            match step("Following a link", sftp.metadata(super::join(&dir, &name))).await {
+                Ok(target) => meta = target,
+                Err(_) => continue,
+            }
+        }
+        let is_dir = meta.file_type().is_dir();
+        if !is_dir && !meta.file_type().is_file() {
+            continue;
+        }
+        out.push(Entry {
+            name,
+            dir: is_dir,
+            size: if is_dir { 0 } else { meta.size.unwrap_or(0) },
+            modified: meta.mtime.map(i64::from),
+        });
+    }
+    Ok(out)
+}
+
+/// Writes a downloaded file in one go, under its partial name until it is
+/// complete, with the server's modification time.
+fn save_whole(
+    local: &Path,
+    data: &[u8],
+    meta: Option<russh_sftp::client::fs::Metadata>,
+) -> Result<()> {
+    let part = partial_name(local);
+    let mut file = std::fs::File::create(&part).map_err(io_error(&part))?;
+    std::io::Write::write_all(&mut file, data).map_err(io_error(&part))?;
+    if let Some(at) = meta.and_then(|m| m.mtime) {
+        set_mtime(&file, i64::from(at));
+    }
+    drop(file);
+    std::fs::rename(&part, local).map_err(io_error(local))
 }
 
 fn sftp_error(e: russh_sftp::client::error::Error) -> String {
@@ -433,36 +493,66 @@ impl Drop for Sftp {
 
 impl Remote for Sftp {
     fn list(&mut self, dir: &str) -> Result<Vec<Entry>> {
-        let entries = self.step(&format!("Listing {dir}"), self.sftp.read_dir(dir))?;
-        let mut out = Vec::new();
-        for entry in entries {
-            let name = entry.file_name();
-            if name == "." || name == ".." {
-                continue;
+        self.runtime
+            .block_on(list_dir(self.sftp.clone(), dir.to_string()))
+    }
+
+    fn list_many(&mut self, dirs: &[String]) -> Vec<Result<Vec<Entry>>> {
+        let mut results: Vec<Result<Vec<Entry>>> =
+            dirs.iter().map(|_| Err(fail("not listed"))).collect();
+        self.runtime.block_on(async {
+            let mut tasks = tokio::task::JoinSet::new();
+            for (index, dir) in dirs.iter().enumerate() {
+                let listed = list_dir(self.sftp.clone(), dir.clone());
+                tasks.spawn(async move { (index, listed.await) });
             }
-            let mut meta = entry.metadata();
-            if entry.file_type().is_symlink() {
-                // Where the link points decides whether it is a file or folder.
-                match self.step(
-                    "Following a link",
-                    self.sftp.metadata(super::join(dir, &name)),
-                ) {
-                    Ok(target) => meta = target,
-                    Err(_) => continue,
+            while let Some(done) = tasks.join_next().await {
+                if let Ok((index, result)) = done {
+                    results[index] = result;
                 }
             }
-            let dir = meta.file_type().is_dir();
-            if !dir && !meta.file_type().is_file() {
-                continue;
+        });
+        results
+    }
+
+    fn download_many(&mut self, files: &[(String, PathBuf)]) -> Vec<Result<()>> {
+        // Asked all at once over the one session: the server answers them
+        // side by side, instead of one round trip after another per file.
+        let mut results: Vec<Result<()>> =
+            files.iter().map(|_| Err(fail("not downloaded"))).collect();
+        self.runtime.block_on(async {
+            let mut tasks = tokio::task::JoinSet::new();
+            for (index, (remote, local)) in files.iter().enumerate() {
+                let sftp = self.sftp.clone();
+                let (remote, local) = (remote.clone(), local.clone());
+                tasks.spawn(async move {
+                    let what = format!("Downloading {remote}");
+                    let fetched = tokio::time::timeout(STEP_TIMEOUT, async {
+                        let mut source = sftp.open(remote.as_str()).await?;
+                        let meta = source.metadata().await.ok();
+                        let mut data = Vec::new();
+                        source.read_to_end(&mut data).await.map_err(|e| {
+                            russh_sftp::client::error::Error::UnexpectedBehavior(e.to_string())
+                        })?;
+                        let _ = source.shutdown().await;
+                        Ok::<_, russh_sftp::client::error::Error>((data, meta))
+                    })
+                    .await;
+                    let result = match fetched {
+                        Ok(Ok((data, meta))) => save_whole(&local, &data, meta),
+                        Ok(Err(e)) => Err(fail(format!("{what}: {}", sftp_error(e)))),
+                        Err(_) => Err(fail(format!("{what}: the server stopped answering"))),
+                    };
+                    (index, result)
+                });
             }
-            out.push(Entry {
-                name,
-                dir,
-                size: if dir { 0 } else { meta.size.unwrap_or(0) },
-                modified: meta.mtime.map(i64::from),
-            });
-        }
-        Ok(out)
+            while let Some(done) = tasks.join_next().await {
+                if let Ok((index, result)) = done {
+                    results[index] = result;
+                }
+            }
+        });
+        results
     }
 
     fn download(&mut self, remote: &str, local: &Path, on_bytes: OnBytes) -> Result<()> {
