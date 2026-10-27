@@ -115,8 +115,8 @@ The client secret expires (two years at most); make a new one in step 7 and repl
 ## When an antivirus flags Stackyard
 
 Microsoft Defender (and others) sometimes report a new unsigned program as a trojan, with names
-such as `Trojan:Win32/Bearfoos.B!ml`, `Trojan:Win32/Wacatac.B!ml` or `Trojan:Win32/Sabsik`. The `!ml` ending means a machine
-learning guess, not a match with known malware. Every release is a new file that nobody has seen
+such as `Trojan:Win32/Bearfoos.B!ml`, `Trojan:Win32/Wacatac.B!ml` or `Trojan:Win32/Sabsik`. The
+`!ml` ending means a machine learning guess, not a match with known malware. Every release is a new file that nobody has seen
 before, and unsigned files with no history get these guesses most often; signing (above) is what
 stops them for good.
 
