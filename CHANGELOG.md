@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.17.0
 
 - **Work keeps going in the background.** Every open tab stays alive while another one is shown, and
   so does every section and inner tab of a site. A sync check, pull, push, backup, image or video
