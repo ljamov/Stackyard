@@ -469,7 +469,11 @@ fn empty_folder_page(served: &ServedSite) -> String {
     let text = format!(
         "{} works, but its folder has no index.php or index.html yet. \
          Put one in {} and reload this page.",
-        served.domain(),
+        if served.site.settings.no_address {
+            served.localhost()
+        } else {
+            served.domain()
+        },
         slash(&served.root)
     );
     format!(
