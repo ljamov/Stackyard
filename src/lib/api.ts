@@ -222,8 +222,8 @@ export type SiteProject = {
 /** Every kind of project, in the order the pickers show them. */
 export const projectKinds: { id: ProjectKind; name: string; hint: string }[] = [
   { id: "website", name: "Website", hint: "A website or web app: WordPress, Laravel, a static site and more" },
-  { id: "wordpress-theme", name: "WordPress theme", hint: "Stackyard makes a WordPress to try the theme in, with the theme switched on" },
-  { id: "wordpress-plugin", name: "WordPress plugin", hint: "Stackyard makes a WordPress to try the plugin in, with the plugin switched on" },
+  { id: "wordpress-theme", name: "WordPress theme", hint: "A theme in its own folder; set its version and build its .zip in Manage" },
+  { id: "wordpress-plugin", name: "WordPress plugin", hint: "A plugin in its own folder; set its version and build its .zip in Manage" },
   { id: "php-package", name: "PHP package", hint: "A PHP library, served with PHP so you can try it in a page" },
   { id: "node-app", name: "Node.js app", hint: "A Node.js app; Stackyard runs its dev server" },
 ];
@@ -233,6 +233,7 @@ export const categories: { id: Category; name: string; plural: string; hint: str
   { id: "app", name: "App", plural: "Apps", hint: "An app or server that runs, like a Node.js, Python or Go app, or a desktop app's code" },
   { id: "site", name: "Site", plural: "Sites", hint: "A website: WordPress, WooCommerce, Laravel, Astro, React and more" },
 ];
+/** A WordPress theme or plugin: built in its own folder, with a version and a .zip. */
 export const inWordPress = (kind: ProjectKind) => kind === "wordpress-theme" || kind === "wordpress-plugin";
 
 /** The one address to show for a site: its own (`https://blog.stack`)
@@ -450,6 +451,20 @@ export type TldInfo = { tld: string; warning: string | null };
 export type NewSite = { name: string; path: string; runtime: string; https: boolean; kind?: ProjectKind; category?: Category };
 /** A theme or plugin project; its WordPress is made with it. */
 export type NewProject = { name: string; kind: ProjectKind; path: string; https: boolean };
+
+/** A WordPress theme or plugin project's header and where its zips go. */
+export type WpPackage = {
+  slug: string;
+  /** The file with the header: style.css, or the plugin's main .php. */
+  main_file: string | null;
+  name: string | null;
+  version: string | null;
+  builds: string;
+  /** The WordPress Stackyard made for it before, while it is still there. */
+  old_wordpress: string | null;
+};
+
+export type WpBuilt = { path: string; files: number; bytes: number };
 
 export type RemoteProtocol = "sftp" | "ftps" | "ftp" | "plugin";
 
@@ -690,9 +705,9 @@ export interface Api {
   /** Picks a runtime version for a site; null goes back to the default. */
   setSiteVersion(domain: string, kind: RuntimeKind, version: string | null): Promise<Site[]>;
   addSite(site: NewSite): Promise<Site[]>;
-  /** Makes a theme or plugin project and the WordPress it is tried in; progress comes as starter progress. */
+  /** Makes a theme or plugin project: its folder, with a starting theme or plugin when empty. */
   addProject(project: NewProject): Promise<Site[]>;
-  /** Changes what a site is for; a theme or plugin gets a WordPress made or linked for it. */
+  /** Changes what a site is for; the folder stays as it is. */
   setProjectKind(domain: string, kind: ProjectKind): Promise<Site[]>;
   /** Moves an item to Projects, Apps or Sites; one from a parked folder is saved first. */
   setSiteCategory(domain: string, category: Category): Promise<Site[]>;
@@ -860,6 +875,16 @@ export interface Api {
   openSiteBackups(domain: string): Promise<void>;
   /** Opens the site's own folder in the file manager. */
   openSiteFolder(domain: string): Promise<void>;
+  /** A WordPress theme or plugin project's version and zips. */
+  wpPackage(domain: string): Promise<WpPackage>;
+  /** Sets the version in its header (and readme.txt's Stable tag). */
+  wpPackageSetVersion(domain: string, version: string): Promise<WpPackage>;
+  /** Packs it into a zip WordPress installs from. */
+  wpPackageBuild(domain: string): Promise<WpBuilt>;
+  /** Opens the folder built zips go in. */
+  openWpBuilds(): Promise<void>;
+  /** Removes the WordPress Stackyard made for a theme or plugin before. */
+  wpRemoveOldWordPress(domain: string): Promise<WpPackage>;
   /** Points an added site at another folder; its settings stay. */
   changeSiteFolder(domain: string, path: string): Promise<Site[]>;
   /** Moves an added site's folder into `into` (e.g. on another drive) and points the site there. */
@@ -1081,6 +1106,11 @@ const tauriApi: Api = {
   removeSiteBackup: (domain, file) => invoke("remove_site_backup", { domain, file }),
   openSiteBackups: (domain) => invoke("open_site_backups", { domain }),
   openSiteFolder: (domain) => invoke("open_site_folder", { domain }),
+  wpPackage: (domain) => invoke("wp_package", { domain }),
+  wpPackageSetVersion: (domain, version) => invoke("wp_package_set_version", { domain, version }),
+  wpPackageBuild: (domain) => invoke("wp_package_build", { domain }),
+  openWpBuilds: () => invoke("open_wp_builds"),
+  wpRemoveOldWordPress: (domain) => invoke("wp_remove_old_wordpress", { domain }),
   changeSiteFolder: (domain, path) => invoke("change_site_folder", { domain, path }),
   moveSite: (domain, into) => invoke("move_site", { domain, into }),
   onSiteMoveProgress: (handler) => listen<SiteMoveProgress>("site-move-progress", (e) => handler(e.payload)),
@@ -1488,6 +1518,7 @@ function browserApi(): Api {
     if (command === "node -v" && installed("node")) return [`v${installed("node")}`];
     return [command, "(the browser preview has no real shell)"];
   };
+  const mockWpVersions = new Map<string, string>();
   const mock: Api = {
     listRuntimes: async () => runtimes,
     installRuntime: async (kind, version) => {
@@ -1619,21 +1650,15 @@ function browserApi(): Api {
       return sites;
     },
     addProject: async ({ name, kind, path, https }) => {
-      const what = kind === "wordpress-theme" ? "theme" : "plugin";
-      const steps = ["Finding the latest WordPress…", ...[20, 60, 100].map((p) => `Downloading WordPress… ${p}%`), "Making the database…", "Installing WordPress…", `Switching the ${what} on…`];
-      for (const message of steps) {
-        starterHandlers.forEach((h) => h({ name, message }));
-        await new Promise((r) => setTimeout(r, 400));
-      }
-      const folder = path || `C:\stackyard\www\${name}`;
-      const all = await mock.addSite({ name, path: `C:\stackyard\projects\${name}\wordpress`, runtime: "PHP 8.4", https, kind });
-      sites = all.map((s) => (s.name === name ? { ...s, framework: "WordPress", project: { kind, category: "project", folder } } : s));
+      const folder = path || `C:\\stackyard\\www\\${name}`;
+      const all = await mock.addSite({ name, path: folder, runtime: "Static", https, kind });
+      sites = all.map((s) => (s.name === name ? { ...s, project: { kind, category: "project", folder } } : s));
       sitesChanged();
       return sites;
     },
     setProjectKind: async (domain, kind) => {
       await new Promise((r) => setTimeout(r, 600));
-      sites = sites.map((s) => (s.domain === domain ? { ...s, project: { ...s.project, kind }, framework: inWordPress(kind) ? "WordPress" : s.framework } : s));
+      sites = sites.map((s) => (s.domain === domain ? { ...s, project: { ...s.project, kind } } : s));
       sitesChanged();
       return sites;
     },
@@ -2290,6 +2315,32 @@ function browserApi(): Api {
     },
     openSiteBackups: async () => {},
     openSiteFolder: async () => {},
+    wpPackage: async (domain) => {
+      const site = sites.find((s) => s.domain === domain);
+      if (!site || !inWordPress(site.project.kind)) throw `${domain} is not a WordPress theme or plugin`;
+      const slug = site.project.folder.split(/[\\/]/).pop() ?? site.name;
+      const version = mockWpVersions.get(domain) ?? "0.1.0";
+      return {
+        slug,
+        main_file: site.project.kind === "wordpress-theme" ? "style.css" : `${slug}.php`,
+        name: site.name,
+        version,
+        builds: "C:\\Users\\you\\AppData\\Roaming\\Stackyard\\builds",
+        old_wordpress: null,
+      };
+    },
+    wpPackageSetVersion: async (domain, version) => {
+      if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,31}$/.test(version.trim())) throw `"${version}" is not a version; use numbers and dots, like 1.2.0`;
+      mockWpVersions.set(domain, version.trim());
+      return mock.wpPackage(domain);
+    },
+    wpPackageBuild: async (domain) => {
+      const p = await mock.wpPackage(domain);
+      await new Promise((r) => setTimeout(r, 500));
+      return { path: `${p.builds}\\${p.slug}-${p.version}.zip`, files: 5, bytes: 4812 };
+    },
+    openWpBuilds: async () => {},
+    wpRemoveOldWordPress: async (domain) => mock.wpPackage(domain),
     changeSiteFolder: async (domain, path) => {
       if (!path.trim()) throw "choose a folder";
       sites = sites.map((s) => (s.domain === domain ? { ...s, path } : s));

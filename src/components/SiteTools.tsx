@@ -23,6 +23,7 @@ import { Icon, type IconName } from "./Icon";
 import { BRAND_PATHS } from "../lib/brands";
 import { rovingGroup, rovingKeys } from "../lib/focus";
 import { WordPressTools } from "./wordpress/WordPressTools";
+import { WpPackageTab } from "./WpPackage";
 import type { LiveAsk } from "./wordpress/Live";
 import { wp, type WpEnvironment } from "../lib/wordpress";
 import { Keep, useBusy, useRememberedTab } from "../lib/tabLife";
@@ -84,7 +85,13 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
       .then((env) => setLive(env?.live ?? null))
       .catch(() => setLive(null));
   }, [site.domain, wordpress, isOn, linked]);
+  const wpPackage = inWordPress(site.project.kind);
   const sections = [
+    wpPackage && {
+      id: "Package",
+      label: site.project.kind === "wordpress-theme" ? t("Theme") : t("Plugin"),
+      icon: "wordpress",
+    },
     wordpress && isOn("wordpress") && { id: "WordPress", label: "WordPress", icon: "wordpress" },
     isOn("sitesettings") && { id: "Settings", label: t("Settings"), icon: "manage" },
     (isOn("sitebackups") || isOn("sitetransfer")) && { id: "Backups", label: t("Backups"), icon: "archive" },
@@ -134,6 +141,11 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
         ))}
       </div>
       <section id={`site-section-panel-${site.domain}`} role="tabpanel" aria-labelledby={tabId(shown)} className="card stack site-section-panel">
+        {has("Package") && (
+          <Keep shown={shown === "Package"}>
+            <WpPackageTab site={site} />
+          </Keep>
+        )}
         {has("WordPress") && (
           <Keep shown={shown === "WordPress"}>
             <WordPressTools
@@ -170,8 +182,8 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
   );
 }
 
-/** What the site is for. Changing it makes, finds or unlinks the WordPress
- * a theme or plugin is tried in; it is its own step, apart from Save. */
+/** What the site is for: its own step, apart from Save. The folder stays
+ * as it is; a theme or plugin gets its version and .zip tools. */
 function ProjectType({ site, onChanged }: { site: Site; onChanged: Changed }) {
   const t = useT();
   const from = site.project.kind;
@@ -208,15 +220,9 @@ function ProjectType({ site, onChanged }: { site: Site; onChanged: Changed }) {
   }
 
   const note =
-    kind === from
-      ? null
-      : inWordPress(kind) && !inWordPress(from)
-        ? t("Stackyard makes a WordPress to try it in and links this folder into it. The folder itself is not changed. MySQL or MariaDB must be installed.")
-        : inWordPress(from) && !inWordPress(kind)
-          ? t("The folder is unlinked from its WordPress and served on its own again. The WordPress is kept, in case you change back.")
-          : inWordPress(from) && inWordPress(kind)
-            ? t("The folder moves from WordPress's themes to its plugins, or the other way, and is switched on there.")
-            : null;
+    kind !== from && inWordPress(kind)
+      ? t("The folder is not changed. Its tab gets the tools to set the version and build the .zip.")
+      : null;
   return (
     <div className="stack project-type">
       <div className="form-grid">
@@ -265,9 +271,7 @@ function ProjectType({ site, onChanged }: { site: Site; onChanged: Changed }) {
         <div className="field">
           <span className="label">{t("Project folder")}</span>
           <span className="mono small">{site.project.folder}</span>
-          {inWordPress(from) ? (
-            <span className="muted small">{t("The editor, the terminal and Git open this folder.")}</span>
-          ) : site.parked ? (
+          {site.parked ? (
             <span className="muted small">{t("It is in a parked folder, so it stays where it is; move the folder in File Explorer to move it.")}</span>
           ) : (
             <SiteFolder site={site} onChanged={onChanged} />
