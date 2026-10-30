@@ -2,29 +2,26 @@
 //! later.
 //!
 //! Most projects are websites, served from their own folder. A WordPress
-//! theme or plugin is written in a folder of its own and tried in a
-//! WordPress made for it: the site's folder is that WordPress, and the
-//! theme's or plugin's folder is linked into its `wp-content`, so a change
-//! saved in one shows in the other at once. The editor, the terminal and
-//! Git open the theme's or plugin's own folder ([`folder`]).
+//! theme or plugin is a folder of its own too, with a starting theme or
+//! plugin written into it when it is empty ([`scaffold`]); its version is
+//! set and its `.zip` built in its Manage tab ([`crate::wppackage`]).
 //!
-//! The WordPress for a theme or plugin lives in Stackyard's data folder,
-//! `projects/<name>/wordpress`, out of the way of the project. Changing a
-//! theme back into a website unlinks it and serves its folder again; the
-//! WordPress is kept, so changing it back once more finds it ready.
+//! Themes and plugins made before used to get a whole WordPress of their
+//! own, in `projects/<name>/wordpress` in Stackyard's data folder, with the
+//! theme's or plugin's folder linked into its `wp-content`. Such a project
+//! is let go of that WordPress once ([`detach`]): the link is removed, never
+//! what it points to, and the project is served from its own folder again.
+//! The old WordPress stays until it is removed ([`remove_old_wordpress`]).
 //!
 //! The link is a symbolic link on macOS and Linux and a directory junction
-//! on Windows, which needs no administrator rights. Removing a site's
-//! folder removes a link, never what it points to: Rust's `remove_dir_all`
-//! does not follow links or junctions.
+//! on Windows. Rust's `remove_dir_all` does not follow links or junctions,
+//! so removing the old WordPress never reaches the project's files.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::sites::{Site, SiteDatabase, SiteRuntime};
-use crate::starters::{self, Starter};
-use crate::wordpress::cli::{self, Load};
+use crate::sites::Site;
 use crate::{Error, Result};
 
 fn fail(message: impl Into<String>) -> Error {
@@ -39,9 +36,9 @@ pub enum ProjectKind {
     /// with its dev server, and so on. What it runs is found in its folder.
     #[default]
     Website,
-    /// A WordPress theme, tried in a WordPress made for it.
+    /// A WordPress theme, built in its own folder.
     WordpressTheme,
-    /// A WordPress plugin, tried in a WordPress made for it.
+    /// A WordPress plugin, built in its own folder.
     WordpressPlugin,
     /// A PHP library or package, served with PHP so it can be tried in a
     /// page of its own.
@@ -83,8 +80,9 @@ impl ProjectKind {
         }
     }
 
-    /// A theme or a plugin: tried in a WordPress of its own.
-    pub fn in_wordpress(self) -> bool {
+    /// A WordPress theme or plugin: it gets a starting theme or plugin,
+    /// a version and a `.zip`.
+    pub fn wp_package(self) -> bool {
         matches!(
             self,
             ProjectKind::WordpressTheme | ProjectKind::WordpressPlugin
@@ -138,8 +136,9 @@ impl Category {
 pub struct Project {
     #[serde(default)]
     pub kind: ProjectKind,
-    /// A theme's or plugin's own folder, linked into the WordPress in the
-    /// site's folder. `None` for the other kinds, whose folder is the site's.
+    /// Only themes and plugins made before they were let go of their own
+    /// WordPress ([`detach`]): their own folder, linked into the WordPress
+    /// in the site's folder. `None` for the rest, whose folder is the site's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<PathBuf>,
     /// The list it is in; `None` (sites saved before there were lists)
@@ -179,7 +178,7 @@ pub fn folder(site: &Site) -> &Path {
         .unwrap_or(&site.path)
 }
 
-/// Where the WordPress made for a theme or plugin project lives.
+/// Where the WordPress made for a theme or plugin project used to go.
 pub fn wordpress_dir(home: &Path, name: &str) -> PathBuf {
     home.join("projects").join(name).join("wordpress")
 }
@@ -202,7 +201,8 @@ fn link_path(kind: ProjectKind, wp: &Path, source: &Path) -> Result<PathBuf> {
     Ok(wp.join("wp-content").join(dir).join(slug(source)?))
 }
 
-/// Links `link` to the folder `target`.
+/// Links `link` to the folder `target`, as projects used to be linked.
+#[cfg(test)]
 fn make_link(target: &Path, link: &Path) -> Result<()> {
     if let Some(parent) = link.parent() {
         std::fs::create_dir_all(parent).map_err(|source| Error::Io {
@@ -352,116 +352,69 @@ pub fn scaffold(kind: ProjectKind, folder: &Path, title: &str) -> Result<()> {
     Ok(())
 }
 
-/// What a theme or plugin project runs on, once its WordPress is ready.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ready {
-    pub path: PathBuf,
-    pub runtime: SiteRuntime,
-    pub database: SiteDatabase,
-}
-
-/// Makes the WordPress for a theme or plugin at `source`, or finds the one
-/// made before, links `source` into it and switches the theme or plugin
-/// on. MySQL or MariaDB must be running. `url` is the site's address.
-pub fn prepare_wordpress(
-    home: &Path,
-    name: &str,
-    kind: ProjectKind,
-    source: &Path,
-    url: &str,
-    progress: &mut dyn FnMut(String),
-) -> Result<Ready> {
-    let wp = wordpress_dir(home, name);
-    let database = starters::database_name(name);
-    let fresh = !wp.join("wp-config.php").is_file();
-    let runtime = if fresh {
-        std::fs::create_dir_all(&wp).map_err(|source| Error::Io {
-            path: wp.clone(),
-            source,
-        })?;
-        let made = starters::create(home, Starter::WordPress, name, &wp, progress)?;
-        made.runtime
-    } else {
-        SiteRuntime::Php {
-            version: starters::php_version(home)?,
+/// Lets a theme or plugin made before go of the WordPress Stackyard made
+/// for it: removes the link to its folder from that WordPress and serves
+/// the folder itself again. Returns whether anything changed; the caller
+/// saves `site`. The WordPress is kept, see [`remove_old_wordpress`].
+pub fn detach(site: &mut Site) -> Result<bool> {
+    let Some(own) = site.settings.project.source.clone() else {
+        return Ok(false);
+    };
+    for kind in [ProjectKind::WordpressTheme, ProjectKind::WordpressPlugin] {
+        let link = link_path(kind, &site.path, &own)?;
+        // A real theme or plugin of the same name is not the project's.
+        if std::fs::symlink_metadata(&link).is_ok_and(|m| is_link(&m)) {
+            remove_link(&link)?;
         }
-    };
-    let link = link_path(kind, &wp, source)?;
-    if std::fs::symlink_metadata(&link).is_err() {
-        make_link(source, &link)?;
     }
-    let wp_cli = |load: Load, args: &[&str]| {
-        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-        cli::run(home, &wp, load, &args)
-    };
-    if fresh {
-        progress("Installing WordPress…".into());
-        let mut bytes = [0u8; 18];
-        getrandom::fill(&mut bytes).map_err(|e| fail(format!("no randomness: {e}")))?;
-        let password: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        let host = url.split("://").nth(1).unwrap_or(url).trim_end_matches('/');
-        wp_cli(
-            Load::Core,
-            &[
-                "core",
-                "install",
-                &format!("--url={url}"),
-                &format!("--title={name}"),
-                "--admin_user=admin",
-                &format!("--admin_password={password}"),
-                &format!("--admin_email=admin@{host}"),
-                "--skip-email",
-            ],
-        )?;
-    }
-    progress(format!("Switching the {} on…", kind.name()));
-    let slug = slug(source)?;
-    match kind {
-        ProjectKind::WordpressTheme => wp_cli(Load::Core, &["theme", "activate", &slug])?,
-        _ => wp_cli(Load::Core, &["plugin", "activate", &slug])?,
-    };
-    Ok(Ready {
-        path: wp,
-        runtime,
-        database: SiteDatabase {
-            server: "mysql".into(),
-            name: database,
-        },
-    })
+    site.path = own;
+    site.settings.project.source = None;
+    site.settings.database = None;
+    site.settings.root = None;
+    Ok(true)
 }
 
-/// Changes what `site` is. A theme or plugin needs MySQL or MariaDB
-/// running, for its WordPress. `site` is changed in place; the caller
+/// The WordPress Stackyard made for a theme or plugin before, while it is
+/// still there and nothing uses it.
+pub fn old_wordpress(home: &Path, site: &Site) -> Option<PathBuf> {
+    let wp = wordpress_dir(home, &site.name);
+    (site.settings.project.source.is_none()
+        && site.path != wp
+        && wp.join("wp-config.php").is_file())
+    .then_some(wp)
+}
+
+/// Removes the WordPress Stackyard made for a theme or plugin before
+/// (`projects/<name>/wordpress`), and `projects/<name>` when that leaves it
+/// empty. Refuses while a link to a project is still in it.
+pub fn remove_old_wordpress(home: &Path, site: &Site) -> Result<()> {
+    let wp = old_wordpress(home, site)
+        .ok_or_else(|| fail(format!("{} has no old WordPress to remove", site.name)))?;
+    for dir in ["themes", "plugins"] {
+        let inside = wp.join("wp-content").join(dir);
+        for entry in std::fs::read_dir(&inside).into_iter().flatten().flatten() {
+            if std::fs::symlink_metadata(entry.path()).is_ok_and(|m| is_link(&m)) {
+                remove_link(&entry.path())?;
+            }
+        }
+    }
+    std::fs::remove_dir_all(&wp).map_err(|source| Error::Io {
+        path: wp.clone(),
+        source,
+    })?;
+    if let Some(parent) = wp.parent() {
+        if is_empty_dir(parent) {
+            let _ = std::fs::remove_dir(parent);
+        }
+    }
+    Ok(())
+}
+
+/// Changes what `site` is. A theme or plugin made before is let go of its
+/// WordPress first ([`detach`]). `site` is changed in place; the caller
 /// saves it.
-pub fn change(
-    home: &Path,
-    site: &mut Site,
-    to: ProjectKind,
-    progress: &mut dyn FnMut(String),
-) -> Result<()> {
-    let from = site.settings.project.kind;
-    if from == to {
-        return Ok(());
-    }
-    let own = folder(site).to_path_buf();
-    // Out of WordPress first: unlink, and serve the project's folder again.
-    if from.in_wordpress() {
-        remove_link(&link_path(from, &site.path, &own)?)?;
-        if !to.in_wordpress() {
-            site.path = own.clone();
-            site.settings.project.source = None;
-            site.settings.database = None;
-        }
-    }
-    if to.in_wordpress() {
-        let url = site.url();
-        let ready = prepare_wordpress(home, &site.name, to, &own, &url, progress)?;
-        site.path = ready.path;
-        site.runtime = ready.runtime;
-        site.settings.database = Some(ready.database);
-        site.settings.project.source = Some(own);
-        site.settings.root = None;
-    }
+pub fn change(site: &mut Site, to: ProjectKind) -> Result<()> {
+    detach(site)?;
     site.settings.project.kind = to;
     Ok(())
 }
@@ -552,17 +505,21 @@ mod tests {
         assert!(real.join("a.php").is_file());
     }
 
-    #[test]
-    fn a_website_has_its_own_folder_and_a_theme_its_source() {
-        let mut site = Site {
+    fn site(path: &Path) -> Site {
+        Site {
             name: "shop".into(),
             tld: ".stack".into(),
-            path: PathBuf::from("/data/projects/shop/wordpress"),
-            runtime: SiteRuntime::Static,
+            path: path.to_owned(),
+            runtime: crate::sites::SiteRuntime::Static,
             https: true,
             dev_server: false,
             settings: Default::default(),
-        };
+        }
+    }
+
+    #[test]
+    fn a_website_has_its_own_folder_and_a_theme_its_source() {
+        let mut site = site(Path::new("/data/projects/shop/wordpress"));
         assert_eq!(folder(&site), Path::new("/data/projects/shop/wordpress"));
         site.settings.project = Project {
             kind: ProjectKind::WordpressTheme,
@@ -570,5 +527,60 @@ mod tests {
             category: None,
         };
         assert_eq!(folder(&site), Path::new("/code/shop-theme"));
+    }
+
+    /// A theme made with its own WordPress, as before: it is let go of the
+    /// WordPress, which can then be removed without touching the theme.
+    #[test]
+    fn an_old_theme_lets_go_of_its_wordpress() {
+        let home = crate::testutil::tempdir();
+        let source = home.join("code").join("shop-theme");
+        scaffold(ProjectKind::WordpressTheme, &source, "Shop").unwrap();
+        let wp = wordpress_dir(&home, "shop");
+        std::fs::create_dir_all(wp.join("wp-content").join("plugins").join("akismet")).unwrap();
+        std::fs::write(wp.join("wp-config.php"), "<?php").unwrap();
+        make_link(
+            &source,
+            &link_path(ProjectKind::WordpressTheme, &wp, &source).unwrap(),
+        )
+        .unwrap();
+        let mut site = site(&wp);
+        site.settings.project = Project {
+            kind: ProjectKind::WordpressTheme,
+            source: Some(source.clone()),
+            category: None,
+        };
+        site.settings.database = Some(crate::sites::SiteDatabase {
+            server: "mysql".into(),
+            name: "shop".into(),
+        });
+        assert_eq!(old_wordpress(&home, &site), None, "still in use");
+
+        assert!(detach(&mut site).unwrap());
+        assert!(!detach(&mut site).unwrap(), "only once");
+        assert_eq!(site.path, source);
+        assert_eq!(folder(&site), source);
+        assert_eq!(site.settings.database, None);
+        assert!(std::fs::symlink_metadata(wp.join("wp-content/themes/shop-theme")).is_err());
+        assert_eq!(old_wordpress(&home, &site), Some(wp.clone()));
+
+        // A link made again by hand is removed, not followed.
+        make_link(&source, &wp.join("wp-content").join("themes").join("again")).unwrap();
+        remove_old_wordpress(&home, &site).unwrap();
+        assert!(!wp.exists());
+        assert!(!home.join("projects").join("shop").exists());
+        assert!(source.join("style.css").is_file());
+        assert_eq!(old_wordpress(&home, &site), None);
+    }
+
+    #[test]
+    fn changing_the_kind_keeps_the_folder() {
+        let home = crate::testutil::tempdir();
+        let mut site = site(&home.join("tools"));
+        change(&mut site, ProjectKind::WordpressPlugin).unwrap();
+        assert_eq!(site.settings.project.kind, ProjectKind::WordpressPlugin);
+        assert_eq!(site.path, home.join("tools"));
+        change(&mut site, ProjectKind::Website).unwrap();
+        assert_eq!(site.settings.project.kind, ProjectKind::Website);
     }
 }

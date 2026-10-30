@@ -50,6 +50,7 @@ pub mod thumbnails;
 pub mod videos;
 pub mod web;
 pub mod wordpress;
+pub mod wppackage;
 
 pub use error::{Error, Result};
 

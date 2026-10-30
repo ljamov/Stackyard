@@ -31,6 +31,15 @@ Update button, and the app shows its own version's section after it updates.
 - **Apps and sites everywhere.** The side bar lists your apps and your sites under their own
   headings, the status bar counts both, and both update as soon as one is made or removed.
 
+- **WordPress themes and plugins without a whole WordPress.** Making a theme or plugin project
+  now only makes its folder, with a starting theme or plugin when it is empty; nothing is
+  downloaded and no database is needed. Its Manage tab has a Theme or Plugin section that sets the
+  version (the header's Version line, and Stable tag in readme.txt) and builds the .zip you upload
+  in WordPress, with one folder inside named after it. Git, node_modules, editor settings, other
+  zips and what `.distignore` lists are left out; zips go in the `builds` folder in Stackyard's
+  data folder. Themes and plugins made before are served from their own folder again, and the
+  WordPress made for them can be removed with Remove old WordPress.
+
 ## 0.19.0
 
 - **Projects, Apps and Sites.** Everything you make is in one of three lists, each with its own
