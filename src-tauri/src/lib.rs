@@ -2320,6 +2320,8 @@ pub fn run() {
             wordpress::wp_export_database,
             wordpress::wp_import_database,
             wordpress::wp_optimize_database,
+            wordpress::wp_check_database,
+            wordpress::wp_repair_database,
             wordpress::wp_clear_transients,
             wordpress::wp_change_prefix,
             wordpress::wp_open_phpmyadmin,

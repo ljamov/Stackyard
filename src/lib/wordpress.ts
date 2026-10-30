@@ -27,6 +27,17 @@ export type WpOverview = {
   warnings: string[];
 };
 
+/** One thing the database check looked at: `fix` is fixed by Repair, `fixed` was just now, `problem` needs you. */
+export type WpDbFinding = { check: string; status: "ok" | "fix" | "fixed" | "problem"; text: string };
+export type WpDbReport = {
+  database: string;
+  server: string | null;
+  findings: WpDbFinding[];
+  /** The database backup taken before repairing (Databases screen). */
+  backup: string | null;
+  /** Where the old wp-config.php was saved. */
+  config_backup: string | null;
+};
 export type WpDiskUse = { total: number; uploads: number; plugins: number; themes: number; database: number | null };
 export type WpCoreUpdate = { current: string | null; available: string | null };
 export type WpKind = "plugin" | "theme";
@@ -243,6 +254,10 @@ export interface WpApi {
   /** Loads a SQL file; returns the backup taken first. */
   importDatabase(domain: string, path: string): Promise<string>;
   optimizeDatabase(domain: string): Promise<number>;
+  /** Looks for what is wrong with the database and wp-config.php; changes nothing. */
+  checkDatabase(domain: string): Promise<WpDbReport>;
+  /** Backs up, then fixes what the check finds. */
+  repairDatabase(domain: string): Promise<WpDbReport>;
   clearTransients(domain: string): Promise<number>;
   /** Renames the tables to a new prefix; returns the backup taken first. */
   changePrefix(domain: string, prefix: string): Promise<{ overview: WpOverview; backup: string }>;
@@ -323,6 +338,8 @@ const tauriWp: WpApi = {
   exportDatabase: (domain, path) => invoke("wp_export_database", { domain, path }),
   importDatabase: (domain, path) => invoke("wp_import_database", { domain, path }),
   optimizeDatabase: (domain) => invoke("wp_optimize_database", { domain }),
+  checkDatabase: (domain) => invoke("wp_check_database", { domain }),
+  repairDatabase: (domain) => invoke("wp_repair_database", { domain }),
   clearTransients: (domain) => invoke("wp_clear_transients", { domain }),
   changePrefix: (domain, prefix) => invoke("wp_change_prefix", { domain, prefix }),
   openPhpMyAdmin: (domain) => invoke("wp_open_phpmyadmin", { domain }),
@@ -474,6 +491,14 @@ function mockWp(): WpApi {
     exportDatabase: async () => wait(),
     importDatabase: async () => "legacy-20261022-101500.sql.gz",
     optimizeDatabase: async () => 24,
+    checkDatabase: async () => {
+      await wait(600);
+      return mockDbReport(false);
+    },
+    repairDatabase: async () => {
+      await wait(1200);
+      return mockDbReport(true);
+    },
     clearTransients: async () => 118,
     changePrefix: async (_d, next) => {
       await wait(800);
@@ -805,6 +830,32 @@ const stagingHandlers: ((p: WpCloneProgress) => void)[] = [];
 const cloneStopped = new Set<string>();
 const clonePaused = new Set<string>();
 const cloneHandlers: ((p: WpCloneProgress) => void)[] = [];
+
+function mockDbReport(repaired: boolean): WpDbReport {
+  const fix = repaired ? "fixed" : "fix";
+  return {
+    database: "legacy",
+    server: "MariaDB",
+    findings: [
+      { check: "Server", status: "ok", text: "MariaDB is running on port 3306." },
+      { check: "Database", status: "ok", text: "MariaDB has the database legacy." },
+      { check: "Prefix", status: "ok", text: "The tables start with wp_, as wp-config.php says." },
+      {
+        check: "Login",
+        status: fix,
+        text: "wp-config.php logs in to localhost:/run/mysqld/mysqld.sock, the server it was copied from; it is changed to root on 127.0.0.1:3306, as Stackyard's other sites use.",
+      },
+      { check: "Tables", status: "ok", text: "All 24 tables check out." },
+      { check: "Core tables", status: "ok", text: "All of WordPress's own tables are there." },
+      { check: "IDs", status: fix, text: "wp_posts.ID lost AUTO_INCREMENT, so new rows get ID 0; repair puts it back." },
+      { check: "Roles", status: "ok", text: "User roles are there." },
+      { check: "Characters", status: "ok", text: "Tables use utf8mb4." },
+      { check: "Address", status: "ok", text: "The site's address is https://legacy.stack." },
+    ],
+    backup: repaired ? "legacy-20261030-140000.sql.gz" : null,
+    config_backup: repaired ? "C:\\stackyard\\backups\\wp-config\\legacy.stack-20261030-140000.php" : null,
+  };
+}
 
 const mock = mockWp();
 

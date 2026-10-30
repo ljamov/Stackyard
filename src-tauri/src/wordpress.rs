@@ -14,7 +14,7 @@ use stackyard_core::remote::{self, Connection, ConnectionInput, RemoteStore, Ses
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::Site;
 use stackyard_core::wordpress::{
-    self, connect, env, live, merge, posts, snapshot, staging, sync, woo, CoreUpdate,
+    self, connect, env, live, merge, posts, repair, snapshot, staging, sync, woo, CoreUpdate,
     DebugSettings, DiskUse, Extension, ExtensionAction, Kind, LogTail, Overview, Replaced, User,
     WpSite,
 };
@@ -226,6 +226,26 @@ pub async fn wp_optimize_database(domain: String) -> CmdResult<usize> {
 #[tauri::command]
 pub async fn wp_clear_transients(domain: String) -> CmdResult<u64> {
     with_site(domain, wordpress::clear_transients).await
+}
+
+/// Looks for problems in the site's database and wp-config.php.
+#[tauri::command]
+pub async fn wp_check_database(domain: String) -> CmdResult<repair::Report> {
+    blocking(move || {
+        let (site, _) = find_site(&domain)?;
+        repair::check(&paths::home(), &site).map_err(err)
+    })
+    .await
+}
+
+/// Fixes what [`wp_check_database`] found, after backing up.
+#[tauri::command]
+pub async fn wp_repair_database(domain: String) -> CmdResult<repair::Report> {
+    blocking(move || {
+        let (site, _) = find_site(&domain)?;
+        repair::repair(&paths::home(), &site).map_err(err)
+    })
+    .await
 }
 
 /// The site's database in phpMyAdmin.

@@ -349,11 +349,11 @@ fn take_as(home: &Path, wp: &WpSite, reason: &str, id: &str, list: bool) -> Resu
     std::fs::create_dir_all(&folder).map_err(io(&folder))?;
     let result = (|| {
         let database = snapshot.database(home);
-        Client::open(home)?.dump_to(&wp.database()?, &[], &database)?;
+        wp.client(home)?.dump_to(&wp.database()?, &[], &database)?;
         let mut snapshot = snapshot.clone();
         snapshot.bytes = std::fs::metadata(&database).map(|m| m.len()).unwrap_or(0);
         if list {
-            let facts = read_facts(&Client::open(home)?, &wp.database()?, wp.prefix())?;
+            let facts = read_facts(&wp.client(home)?, &wp.database()?, wp.prefix())?;
             let path = folder.join("facts.json");
             let text = serde_json::to_vec(&facts)
                 .map_err(|e| Error::WordPress(format!("could not save the facts: {e}")))?;

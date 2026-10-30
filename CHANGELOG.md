@@ -15,6 +15,18 @@ Update button, and the app shows its own version's section after it updates.
   data folder. Themes and plugins made before are served from their own folder again, and the
   WordPress made for them can be removed with Remove old WordPress.
 
+- **Check and repair a WordPress database.** The WordPress Database tab has Check database, for
+  copied or cloned sites that show database errors. It checks that wp-config.php logs in to this
+  computer's MySQL or MariaDB (not the live server), that the database and its tables are there
+  with the prefix wp-config.php names, that IDs still count up by themselves, that user roles and
+  rights match the prefix, the site's address, damaged tables and old utf8 tables. Repair backs up
+  the database and wp-config.php, then fixes what it can and says what is left. A site that can't
+  reach its database shows a warning with a button to it.
+
+- **A site's tables come from the server that has them.** With both MySQL and MariaDB installed,
+  the WordPress tools read whichever was switched on; now they read the one whose data folder
+  holds the site's database, and say so when the other one is running on its port instead.
+
 ## 0.19.0
 
 - **Projects, Apps and Sites.** Everything you make is in one of three lists, each with its own

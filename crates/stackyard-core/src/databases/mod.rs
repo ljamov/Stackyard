@@ -140,6 +140,76 @@ impl Client {
         })
     }
 
+    /// The client for one server, `mysql` or `mariadb`, even when the
+    /// other is the one switched on: a site's database lives in one of
+    /// them. Refuses when the other answers on the server's port, which
+    /// happens on Windows where both keep 3306, so the tables shown are
+    /// never another server's.
+    pub fn open_service(home: &Path, id: &str) -> Result<Self> {
+        let context = Context::load(home)?;
+        let mysql = context.mysql_launch(id, Tool::Mysql, Vec::new())?;
+        let def = crate::catalog::service(id).expect("checked by mysql_launch");
+        let port = crate::services::port(home, def);
+        if let Some(other) = crate::shell::mysql_flavor(port).filter(|found| *found != id) {
+            let other = crate::catalog::service(other).map_or(other, |d| d.name);
+            return Err(Error::Database(format!(
+                "{other} is running on port {port}, but this database is in {}. Stop {other} and start {} on the Services screen",
+                def.name, def.name
+            )));
+        }
+        Ok(Self {
+            home: home.to_owned(),
+            mysql,
+            server: id.to_string(),
+            pg: None,
+        })
+    }
+
+    /// `mysqldump` of the same server as `mysql`.
+    fn dump_launch(&self) -> Result<Launch> {
+        Context::load(&self.home)?.mysql_launch(&self.server, Tool::Mysqldump, Vec::new())
+    }
+
+    /// Whether `user` with `password` can log in on 127.0.0.1:`port`, as a
+    /// site's wp-config.php would (MySQL and MariaDB only).
+    pub fn can_log_in(
+        &self,
+        user: &str,
+        password: &str,
+        port: u16,
+        database: Option<&str>,
+    ) -> bool {
+        if self.pg.is_some() {
+            return false;
+        }
+        let mut command = client_command(&self.mysql);
+        command.args([
+            "--protocol=TCP".to_string(),
+            "--host=127.0.0.1".to_string(),
+            format!("--port={port}"),
+            format!("--user={user}"),
+            "--connect-timeout=5".to_string(),
+        ]);
+        if !password.is_empty() {
+            command.arg(format!("--password={password}"));
+        }
+        if let Some(database) = database {
+            command.arg(format!("--database={database}"));
+        }
+        command
+            .args(["-e", "SELECT 1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    }
+
+    /// `mysql`, `mariadb` or `postgres`.
+    pub fn id(&self) -> &str {
+        &self.server
+    }
+
     /// Which server this is, and its version if it is running.
     pub fn server(&self) -> Server {
         if let Some(pg) = &self.pg {
@@ -339,8 +409,7 @@ impl Client {
             return pg.backup(database);
         }
         check_user_database(database)?;
-        let context = Context::load(&self.home)?;
-        let dump = context.launch(Tool::Mysqldump, &self.home, Vec::new())?;
+        let dump = self.dump_launch()?;
         let mut command = dump_command(&dump);
         command
             .args([
@@ -429,8 +498,7 @@ impl Client {
             ));
         }
         check_user_database(database)?;
-        let context = Context::load(&self.home)?;
-        let dump = context.launch(Tool::Mysqldump, &self.home, Vec::new())?;
+        let dump = self.dump_launch()?;
         let mut command = dump_command(&dump);
         command.args(options).arg(database).args(tables);
         let io = |path: &Path| {

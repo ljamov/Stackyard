@@ -225,6 +225,7 @@ mod tests {
             blocked_by: None,
             blocked_by_id: None,
             start_with_web: false,
+            found: true,
         };
         let size = measure(&home, &site(&project), Some(&db), &|_| None).unwrap();
         assert!(size.wordpress);

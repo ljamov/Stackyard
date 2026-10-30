@@ -36,6 +36,10 @@ pub struct SiteDb {
     pub blocked_by_id: Option<String>,
     /// Whether Stackyard starts the server along with the web server.
     pub start_with_web: bool,
+    /// Whether that server's data folder has the database. A copied site
+    /// whose database never came along names one no server has; always
+    /// true for PostgreSQL, whose folders don't tell.
+    pub found: bool,
 }
 
 /// MySQL's name for a database folder: letters, digits and `_` as they
@@ -72,25 +76,24 @@ pub fn holds(home: &Path, service: &str, database: &str) -> bool {
 pub fn status(home: &Path, site: &Site, running: &dyn Fn(&str) -> bool) -> Option<SiteDb> {
     let db = site_database(site)?;
     let manager = ServiceManager::new(home);
+    let candidates = ["mariadb", "mysql"];
+    let holder = candidates.into_iter().find(|id| holds(home, id, &db.name));
+    let found = db.server == "postgres" || holder.is_some();
     let service = if db.server == "postgres" {
         Some("postgres")
     } else {
         // The server that has its folder; else the installed one, if only
         // one is (the database is made on the first start of WordPress).
-        let candidates = ["mariadb", "mysql"];
-        candidates
-            .into_iter()
-            .find(|id| holds(home, id, &db.name))
-            .or_else(|| {
-                let installed: Vec<&str> = candidates
-                    .into_iter()
-                    .filter(|id| manager.get(id).is_some())
-                    .collect();
-                match installed.as_slice() {
-                    [one] => Some(*one),
-                    _ => installed.iter().copied().find(|id| running(id)),
-                }
-            })
+        holder.or_else(|| {
+            let installed: Vec<&str> = candidates
+                .into_iter()
+                .filter(|id| manager.get(id).is_some())
+                .collect();
+            match installed.as_slice() {
+                [one] => Some(*one),
+                _ => installed.iter().copied().find(|id| running(id)),
+            }
+        })
     };
     let def = service.and_then(catalog::service);
     let blocked_by = def
@@ -113,6 +116,7 @@ pub fn status(home: &Path, site: &Site, running: &dyn Fn(&str) -> bool) -> Optio
         blocked_by_id: blocked_by.map(|d| d.id.to_string()),
         start_with_web: crate::settings::Settings::load_from(&home.join("settings.toml"))
             .is_ok_and(|s| s.start_databases.contains(&site.domain())),
+        found,
     })
 }
 
@@ -160,6 +164,7 @@ mod tests {
         let found = status(&home, &site, &mysql_runs).unwrap();
         assert_eq!(found.database, "my-shop");
         assert_eq!(found.service.as_deref(), Some("mariadb"));
+        assert!(found.found);
         assert_eq!(found.service_name.as_deref(), Some("MariaDB"));
         assert!(!found.running);
         assert_eq!(found.blocked_by_id.as_deref(), Some("mysql"));

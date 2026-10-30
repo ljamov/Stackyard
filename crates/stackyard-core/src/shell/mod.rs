@@ -522,7 +522,31 @@ impl Context {
                     tool.name()
                 ))
             })?;
-        let def = catalog::service(id).expect("listed above");
+        self.mysql_tool(id, tool, args)
+    }
+
+    /// `mysql` or `mysqldump` from one server's own folder, `mysql` or
+    /// `mariadb`, set up to talk to that server; for a site whose database
+    /// is known to be in it, whichever of the two is switched on.
+    pub fn mysql_launch(&self, id: &str, tool: Tool, args: Vec<OsString>) -> Result<Launch> {
+        if !matches!(id, "mysql" | "mariadb") || !matches!(tool, Tool::Mysql | Tool::Mysqldump) {
+            return Err(Error::Shell(format!(
+                "{} has no {} program",
+                id,
+                tool.name()
+            )));
+        }
+        self.mysql_tool(id, tool, args)
+    }
+
+    fn mysql_tool(&self, id: &str, tool: Tool, args: Vec<OsString>) -> Result<Launch> {
+        let services = ServiceManager::new(&self.home);
+        let socket = |id: &str| services.data_dir(id).join("mysql.sock");
+        let def = catalog::service(id)
+            .ok_or_else(|| Error::Shell(format!("{id} is not a database server")))?;
+        if services.get(id).is_none() {
+            return Err(Error::Shell(format!("{} is not installed", def.name)));
+        }
         let bin = services.dir(def).join("bin");
         let exe = if self.os == Os::Windows { ".exe" } else { "" };
         // MariaDB names its clients `mariadb` and `mariadb-dump`; older
