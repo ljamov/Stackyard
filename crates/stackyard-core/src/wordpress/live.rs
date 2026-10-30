@@ -1175,13 +1175,33 @@ fn replace_site(
         Stage::Connecting,
         format!("Backing up {domain} before replacing it…"),
     )?;
-    let backup = crate::sitepack::backup(home, old, &mut |_| {})?;
-    if let Some(warning) = &backup.warning {
-        return Err(fail(format!(
-            "{domain} was not replaced: its backup could not include the database ({warning}). The files' backup is at {}.",
-            backup.path.display()
-        )));
-    }
+    // The copy goes on whatever happens to the backup: a site worth
+    // replacing often has a broken database, and a full drive shouldn't
+    // stop the copy either.
+    let size = super::copy::tree_size(&old.path, &[]);
+    let room = crate::paths::free_space(&crate::sitepack::backups_dir(home))
+        .is_none_or(|free| free > size.saturating_add(SPARE_SPACE));
+    let note = if !room {
+        format!(
+            "The earlier {domain} was replaced without a backup: the drive with {} hasn't room for its {}.",
+            crate::sitepack::backups_dir(home).display(),
+            gigabytes(size)
+        )
+    } else {
+        match crate::sitepack::backup(home, old, &mut |_| {}) {
+            Ok(backup) => match &backup.warning {
+                None => format!(
+                    "The earlier {domain} was backed up to {} before it was replaced; restore it under Manage › Backups.",
+                    backup.path.display()
+                ),
+                Some(warning) => format!(
+                    "The earlier {domain}'s files were backed up to {} before it was replaced; its database could not be ({warning}).",
+                    backup.path.display()
+                ),
+            },
+            Err(e) => format!("The earlier {domain} was replaced without a backup: {e}."),
+        }
+    };
     let backed_up_db = crate::sitepack::site_database(old).map(|d| d.name);
     if backed_up_db.as_deref() == Some(database) {
         let client = Client::open(home)?;
@@ -1190,32 +1210,17 @@ fn replace_site(
         }
     }
     if same_folder(&old.path, folder) && folder.is_dir() {
-        let entries = std::fs::read_dir(folder).map_err(io(folder))?;
-        for entry in entries {
-            let path = entry.map_err(io(folder))?.path();
-            let removed = if path.is_dir() && !path.is_symlink() {
-                std::fs::remove_dir_all(&path)
-            } else {
-                std::fs::remove_file(&path)
-            };
-            removed.map_err(|e| {
-                fail(format!(
-                    "could not empty {} to replace {domain} ({e}); close programs using it and clone again. The backup is at {}.",
-                    folder.display(),
-                    backup.path.display()
-                ))
-            })?;
-        }
+        empty_folder(folder)?;
     }
-    store.remove(&domain)?;
-    store.save()?;
+    // A site found in a parked folder is not on the list itself.
+    if store.list().iter().any(|s| s.domain() == domain) {
+        store.remove(&domain)?;
+        store.save()?;
+    }
     env::forget(home, &domain);
     crate::thumbnails::forget(home, &domain);
     crate::sitesize::forget(home, &domain);
-    Ok(format!(
-        "The earlier {domain} was backed up to {} before it was replaced; restore it under Manage › Backups.",
-        backup.path.display()
-    ))
+    Ok(note)
 }
 
 fn same_folder(a: &Path, b: &Path) -> bool {
@@ -1483,10 +1488,11 @@ impl Unpacked {
     }
 }
 
-/// Where backup files are unpacked, shared by Look for WordPress and the
-/// clone after it, so a big backup is unpacked once: named after the
-/// files, their sizes and times, so a changed file is unpacked again.
-fn unpacked_dir(home: &Path, files: &[PathBuf]) -> PathBuf {
+/// The folder name backup files are unpacked under, shared by Look for
+/// WordPress and the clone after it, so a big backup is unpacked once:
+/// named after the files, their sizes and times, so a changed file is
+/// unpacked again.
+fn unpacked_name(files: &[PathBuf]) -> String {
     // FNV-1a: stable between runs, unlike the standard hasher.
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for file in files {
@@ -1502,8 +1508,27 @@ fn unpacked_dir(home: &Path, files: &[PathBuf]) -> PathBuf {
             hash = hash.wrapping_mul(0x0100_0000_01b3);
         }
     }
-    home.join("tmp").join(format!("backup-{hash:016x}"))
+    format!("backup-{hash:016x}")
 }
+
+/// Where backups are unpacked, best first: beside the sites when they are
+/// kept outside the data home (often another drive with more room, and
+/// moving the files into the new site is then a rename, not a copy), else
+/// the data home's `tmp`. The dot keeps the folder off the sites list.
+fn unpack_roots(home: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(settings) = Settings::load_from(&home.join("settings.toml")) {
+        let sites = settings.sites_folder(home);
+        if !sites.starts_with(home) && !crate::sites::same_folder(&sites, home) {
+            roots.push(sites.join(UNPACK_FOLDER));
+        }
+    }
+    roots.push(home.join("tmp"));
+    roots
+}
+
+/// The folder in the sites folder that backups are unpacked in.
+pub const UNPACK_FOLDER: &str = ".stackyard-tmp";
 
 /// Says the files in an unpacked folder are all there; it holds the
 /// files that could not be unpacked, one a line.
@@ -1512,16 +1537,93 @@ const UNPACKED_READY: &str = "unpacked.txt";
 /// Unpacked backups older than this are deleted when another is unpacked.
 const UNPACKED_KEPT: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// Room kept free on the drive beyond what the backup needs.
+const SPARE_SPACE: u64 = 512 * 1024 * 1024;
+
+/// About how much the backup files take once unpacked: a `.tar` its own
+/// size, a `.zip` what its list of files says, a compressed tar a guess.
+fn unpacked_estimate(files: &[PathBuf]) -> u64 {
+    files
+        .iter()
+        .map(|file| {
+            let len = std::fs::metadata(file).map_or(0, |m| m.len());
+            let name = file
+                .file_name()
+                .map(|n| n.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if is_sql(&name) {
+                0
+            } else if name.ends_with(".tar") {
+                len
+            } else if name.ends_with(".zip") {
+                zip_size(file).unwrap_or(len.saturating_mul(2))
+            } else {
+                len.saturating_mul(3)
+            }
+        })
+        .sum()
+}
+
+fn zip_size(file: &Path) -> Option<u64> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(file).ok()?).ok()?;
+    let mut total = 0u64;
+    for i in 0..zip.len() {
+        total = total.saturating_add(zip.by_index_raw(i).ok()?.size());
+    }
+    Some(total)
+}
+
+/// `2.8 GB`, `640 MB`.
+fn gigabytes(bytes: u64) -> String {
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    if bytes as f64 >= GB {
+        format!("{:.1} GB", bytes as f64 / GB)
+    } else {
+        format!("{} MB", bytes / (1024 * 1024))
+    }
+}
+
+/// Deletes unpacked backups not used for a day, in every place backups
+/// are unpacked.
+fn sweep_unpacked(home: &Path) {
+    for root in unpack_roots(home) {
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let old = std::fs::metadata(entry.path().join(UNPACKED_READY))
+                .or_else(|_| entry.metadata())
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > UNPACKED_KEPT);
+            if name.starts_with("backup-") && old {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+        // Nothing left in it: the folder in the sites folder goes too.
+        if root.ends_with(UNPACK_FOLDER) {
+            let _ = std::fs::remove_dir(&root);
+        }
+    }
+}
+
 /// The backup files unpacked, from the last time when that finished, else
-/// now. Other unpacked backups not used for a day are deleted first.
+/// now. Other unpacked backups not used for a day are deleted first, and
+/// the drive is checked for room before anything is written.
 fn unpack_backup(
     home: &Path,
     files: &[PathBuf],
     progress: OnProgress,
 ) -> Result<(PathBuf, Unpacked)> {
-    let dir = unpacked_dir(home, files);
-    let ready = dir.join(UNPACKED_READY);
-    if let Ok(text) = std::fs::read_to_string(&ready) {
+    let name = unpacked_name(files);
+    let roots = unpack_roots(home);
+    for dir in roots.iter().map(|root| root.join(&name)) {
+        let ready = dir.join(UNPACKED_READY);
+        let Ok(text) = std::fs::read_to_string(&ready) else {
+            continue;
+        };
         say(
             progress,
             Stage::Files,
@@ -1534,29 +1636,53 @@ fn unpack_backup(
             return Ok((dir, unpacked));
         }
     }
-    if let Ok(entries) = std::fs::read_dir(home.join("tmp")) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let old = std::fs::metadata(entry.path().join(UNPACKED_READY))
-                .or_else(|_| entry.metadata())
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .is_some_and(|age| age > UNPACKED_KEPT);
-            if name.starts_with("backup-") && entry.path() != dir && old {
-                let _ = std::fs::remove_dir_all(entry.path());
-            }
-        }
+    sweep_unpacked(home);
+    // A copy that stopped part-way, wherever it is, makes room first.
+    for root in &roots {
+        let _ = std::fs::remove_dir_all(root.join(&name));
     }
-    let _ = std::fs::remove_dir_all(&dir);
-    let unpacked = Unpacked::open(files, &dir.join("files"), progress)?;
+    let need = unpacked_estimate(files).saturating_add(SPARE_SPACE);
+    let mut short = None;
+    let dir = roots
+        .iter()
+        .find(|root| match crate::paths::free_space(root) {
+            Some(free) if free < need => {
+                short.get_or_insert(((*root).clone(), free));
+                false
+            }
+            _ => true,
+        })
+        .map(|root| root.join(&name))
+        .ok_or_else(|| {
+            let (root, free) = short.clone().unwrap_or_default();
+            fail(format!(
+                "there isn't room to unpack the backup: it needs about {} and the drive with {} has {} free. Free up space there, or set the folder for new sites (Settings) to a drive with more room",
+                gigabytes(need),
+                root.display(),
+                gigabytes(free)
+            ))
+        })?;
+    let ready = dir.join(UNPACKED_READY);
+    let unpacked = match Unpacked::open(files, &dir.join("files"), progress) {
+        Ok(unpacked) => unpacked,
+        Err(e) => {
+            // Half a backup is no use, and it fills the drive.
+            let _ = std::fs::remove_dir_all(&dir);
+            sweep_unpacked(home);
+            return Err(e);
+        }
+    };
     std::fs::write(&ready, unpacked.failed.join("\n")).map_err(io(&ready))?;
     Ok((dir, unpacked))
 }
 
-/// Deletes the unpacked copy of these backup files, if there is one.
+/// Deletes the unpacked copy of these backup files, wherever it is.
 pub fn forget_backup(home: &Path, files: &[PathBuf]) {
-    let _ = std::fs::remove_dir_all(unpacked_dir(home, files));
+    let name = unpacked_name(files);
+    for root in unpack_roots(home) {
+        let _ = std::fs::remove_dir_all(root.join(&name));
+    }
+    sweep_unpacked(home);
 }
 
 /// A note on the files of a backup that could not be unpacked.
@@ -1688,6 +1814,10 @@ struct State {
     folder: PathBuf,
     #[serde(default)]
     files_done: bool,
+    /// The files of a backup started moving into the site's folder, so
+    /// what is in it is this clone's own.
+    #[serde(default)]
+    copying: bool,
     #[serde(default)]
     database_made: bool,
     /// The tables, in order; empty until listed.
@@ -1696,6 +1826,13 @@ struct State {
     /// The tables come from `mysqldump`, else from the helper.
     #[serde(default)]
     mysqldump: bool,
+}
+
+impl State {
+    /// Whether this clone got far enough to leave something behind.
+    fn started(&self) -> bool {
+        self.files_done || self.copying || !self.tables.is_empty()
+    }
 }
 
 struct Work {
@@ -1738,15 +1875,13 @@ impl Work {
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .is_some_and(|state: State| {
-                state.source == source
-                    && same_folder(&state.folder, folder)
-                    && (state.files_done || !state.tables.is_empty())
+                state.source == source && same_folder(&state.folder, folder) && state.started()
             })
     }
 
     /// Whether an earlier clone of this source into this folder was cut short.
     fn resuming(&self) -> bool {
-        self.state.files_done || !self.state.tables.is_empty()
+        self.state.started()
     }
 
     fn save(&self) -> Result<()> {
@@ -1904,11 +2039,15 @@ pub fn clone(
         Some(_) => domain_name.replace('.', "-"),
         None => name.clone(),
     };
-    let existing = store
-        .list()
-        .iter()
-        .find(|s| s.domain() == domain_name)
-        .cloned();
+    // Sites found in parked folders count too: a folder left there (say, by
+    // a copy that stopped) shows as a site of this name.
+    let listed: Vec<Site> = crate::web::sites(home, &settings, &RuntimeManager::new(home))?
+        .into_iter()
+        .map(|served| served.site)
+        .collect();
+    let existing = listed.iter().find(|s| s.domain() == domain_name).cloned();
+    // Listing the sites may have saved the list (a moved project's folder).
+    store = SiteStore::load_from(&home.join("sites.toml"))?;
     // A clone that stopped after adding its site (in its last steps)
     // continues with that site instead of refusing the name.
     let own = existing.as_ref().is_some_and(|old| {
@@ -1944,10 +2083,34 @@ pub fn clone(
         None => crate::starters::database_name(&name),
     };
     let client = Client::open(home)?;
+    let mut database_note = None;
     if !work.state.database_made && client.databases()?.iter().any(|d| d.name == database) {
-        return Err(fail(format!(
-            "a database named {database} already exists; pick another name for the site"
-        )));
+        // Another site's database is never touched; one no site uses (left
+        // by a site that was removed) is backed up and replaced.
+        if let Some(user) = listed.iter().find(|s| {
+            s.domain() != domain_name
+                && crate::sitepack::site_database(s).is_some_and(|d| d.name == database)
+        }) {
+            return Err(fail(format!(
+                "the database {database} belongs to {}; pick another name for the site",
+                user.domain()
+            )));
+        }
+        say(
+            progress,
+            Stage::Connecting,
+            format!("Backing up the database {database} before replacing it…"),
+        )?;
+        database_note = Some(match client.backup(&database) {
+            Ok(backup) => format!(
+                "A database named {database} was already here with no site using it; it was backed up ({}) and replaced.",
+                backup.file
+            ),
+            Err(e) => format!(
+                "A database named {database} was already here with no site using it; it was replaced without a backup ({e})."
+            ),
+        });
+        client.drop(&database)?;
     }
 
     let local_url = Site {
@@ -1960,7 +2123,7 @@ pub fn clone(
         settings: SiteSettings::default(),
     }
     .url();
-    let mut notes: Vec<String> = replaced_note.into_iter().collect();
+    let mut notes: Vec<String> = replaced_note.into_iter().chain(database_note).collect();
     let mut replaced = 0;
     let live = match source {
         Source::Server(connection) => {
@@ -2622,8 +2785,13 @@ fn clone_from_files(
     let config = WpConfig::read(&config_text);
     let sql = unpacked.sql(&config)?;
     // The files leave the unpacked folder now; a clone cut short after
-    // this unpacks the backup again.
+    // this unpacks the backup again, and starts the move over.
+    if work.state.copying && !work.state.files_done {
+        empty_folder(folder)?;
+    }
     let _ = std::fs::remove_file(unpacked_dir.join(UNPACKED_READY));
+    work.state.copying = true;
+    work.save()?;
     move_contents(&unpacked.root, folder, progress)?;
     let config_file = folder.join("wp-config.php");
     if !config_file.exists() {
@@ -2672,6 +2840,28 @@ fn clone_from_files(
         route: Route::Files,
         facts: None,
     })
+}
+
+/// Deletes what is inside `folder`, keeping the folder.
+fn empty_folder(folder: &Path) -> Result<()> {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Ok(());
+    };
+    for entry in entries {
+        let path = entry.map_err(io(folder))?.path();
+        let removed = if path.is_dir() && !path.is_symlink() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        removed.map_err(|e| {
+            fail(format!(
+                "could not empty {} ({e}); close programs using files in it (an editor, a terminal) and try again",
+                folder.display()
+            ))
+        })?;
+    }
+    Ok(())
 }
 
 /// Moves what is inside `from` into `to`, copying across drives (and
@@ -2852,7 +3042,12 @@ pub(super) fn payments_to_test_mode(home: &Path, wp: &WpSite) -> Vec<String> {
 
 /// Whether an unfinished clone with this name can be continued.
 pub fn unfinished(home: &Path, name: &str) -> bool {
-    Work::dir(home, name).join("state.json").is_file()
+    // A clone refused before it began leaves its state too: that one has
+    // nothing to continue.
+    std::fs::read(Work::dir(home, name).join("state.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<State>(&b).ok())
+        .is_some_and(|state| state.started())
 }
 
 /// Throws away an unfinished clone's downloaded database chunks.
@@ -3128,6 +3323,65 @@ mod tests {
         assert!(!dir.exists());
         assert!(unpack_backup(&home, &files, &mut |_| false).is_err());
         assert!(!dir.join(UNPACKED_READY).exists());
+    }
+
+    #[test]
+    fn unpacks_beside_the_sites_when_they_are_elsewhere() {
+        let home = crate::testutil::tempdir();
+        let sites = crate::testutil::tempdir();
+        std::fs::write(
+            home.join("settings.toml"),
+            format!("sites_folder = '{}'\n", sites.display()),
+        )
+        .unwrap();
+        let zip = home.join("backup.zip");
+        crate::archive::fixtures::zip(
+            &zip,
+            &[
+                ("wp-load.php", b"<?php"),
+                ("wp-includes/version.php", b"<?php $wp_version = '6.8.1';"),
+                ("wp-config.php", b"<?php $table_prefix='wp_';"),
+                ("db.sql", b"CREATE TABLE `wp_options` (x int);"),
+            ],
+        );
+        let files = vec![zip];
+        let (dir, _) = unpack_backup(&home, &files, &mut |_| true).unwrap();
+        assert!(dir.starts_with(sites.join(UNPACK_FOLDER)));
+        // It is not taken for a site.
+        assert!(crate::web::project_folders(&sites).is_empty());
+        forget_backup(&home, &files);
+        assert!(!sites.join(UNPACK_FOLDER).exists());
+    }
+
+    #[test]
+    fn a_refused_clone_is_not_unfinished() {
+        let home = crate::testutil::tempdir();
+        let folder = home.join("www/shop");
+        let mut work = Work::open(&home, "shop", "a.tar", &folder).unwrap();
+        assert!(!unfinished(&home, "shop"));
+        assert!(!Work::cut_short(&home, "shop", "a.tar", &folder));
+        // Files started moving in: what is in the folder is the clone's.
+        work.state.copying = true;
+        work.save().unwrap();
+        assert!(unfinished(&home, "shop"));
+        assert!(Work::cut_short(&home, "shop", "a.tar", &folder));
+        assert!(Work::open(&home, "shop", "a.tar", &folder)
+            .unwrap()
+            .resuming());
+    }
+
+    #[test]
+    fn estimates_unpacked_size() {
+        let home = crate::testutil::tempdir();
+        let zip = home.join("b.zip");
+        crate::archive::fixtures::zip(&zip, &[("a.txt", &[b'x'; 1000][..])]);
+        let tar = home.join("b.tar");
+        std::fs::write(&tar, [0u8; 2048]).unwrap();
+        let sql = home.join("b.sql");
+        std::fs::write(&sql, "x").unwrap();
+        assert_eq!(unpacked_estimate(&[zip, tar, sql]), 1000 + 2048);
+        assert_eq!(gigabytes(3 * 1024 * 1024 * 1024 / 2), "1.5 GB");
+        assert_eq!(gigabytes(640 * 1024 * 1024), "640 MB");
     }
 
     #[test]
