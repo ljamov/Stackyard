@@ -120,10 +120,20 @@ export function WpPackageTab({ site }: { site: Site }) {
               >
                 {busy === "zip" ? t("Building…") : t("Build .zip")}
               </button>
-              <button type="button" className="btn" onClick={() => void run("zip", () => api.openWpBuilds())} disabled={busy !== null}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void run("zip", () => api.openWpBuilds(site.domain))}
+                disabled={busy !== null}
+              >
                 {t("Open folder")}
               </button>
             </div>
+            {pkg && (
+              <span className="muted small">
+                {t("Saved in {folder}.", { folder: pkg.builds })}
+              </span>
+            )}
             <span className="muted small">
               {t("Git, node_modules, editor settings, other zips and what .distignore lists are left out.")}
             </span>
@@ -131,9 +141,14 @@ export function WpPackageTab({ site }: { site: Site }) {
         </div>
       </form>
       {built && (
-        <p className="small">
-          {t("Built {file}: {count} files, {size}.", { file: built.path, count: String(built.files), size: size(built.bytes) })}
-        </p>
+        <div className="row">
+          <p className="small grow">
+            {t("Built {file}: {count} files, {size}.", { file: built.path, count: String(built.files), size: size(built.bytes) })}
+          </p>
+          <button type="button" className="btn" onClick={() => void run("zip", () => api.openWpBuilds(site.domain))} disabled={busy !== null}>
+            {t("Open folder")}
+          </button>
+        </div>
       )}
       {pkg?.old_wordpress && (
         <div className="stack">

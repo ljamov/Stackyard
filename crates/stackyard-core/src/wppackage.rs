@@ -7,7 +7,9 @@
 //! folder named after the theme or plugin, as WordPress expects, and
 //! leaves out what is only there for building it: Git, `node_modules`,
 //! editor settings, other zips, and whatever `.distignore` lists (the file
-//! `wp dist-archive` reads too).
+//! `wp dist-archive` reads too). Zips are written to `dist/` in the
+//! project's own folder; they never end up in the next zip, and a
+//! `dist/.gitignore` keeps them out of Git.
 
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
@@ -362,7 +364,8 @@ fn list(
         if kind.is_symlink() || SKIP.contains(&name.as_str()) {
             continue;
         }
-        if kind.is_file() && name.to_ascii_lowercase().ends_with(".zip") {
+        let lower = name.to_ascii_lowercase();
+        if kind.is_file() && (lower.ends_with(".zip") || lower.ends_with(".zip.partial")) {
             continue;
         }
         if patterns
@@ -380,9 +383,23 @@ fn list(
     Ok(())
 }
 
-/// Where built zips go: `builds/` in Stackyard's data folder.
-pub fn builds_dir(home: &Path) -> PathBuf {
-    home.join("builds")
+/// Where built zips go: `dist/` in the project's own folder.
+pub fn builds_dir(folder: &Path) -> PathBuf {
+    folder.join("dist")
+}
+
+/// Makes `out` and, when it has none, a `.gitignore` there that keeps the
+/// zips out of Git. Other files a build tool puts in `dist/` stay tracked.
+fn prepare_out(out: &Path) -> Result<()> {
+    std::fs::create_dir_all(out).map_err(|source| Error::Io {
+        path: out.to_owned(),
+        source,
+    })?;
+    let ignore = out.join(".gitignore");
+    if !ignore.exists() {
+        write(&ignore, "# Zips built by Stackyard\n*.zip\n*.zip.partial\n")?;
+    }
+    Ok(())
 }
 
 /// Packs the theme or plugin into `<out>/<slug>-<version>.zip` (or
@@ -400,10 +417,7 @@ pub fn build_zip(kind: ProjectKind, folder: &Path, out: &Path) -> Result<Built> 
     }
     let mut files = Vec::new();
     list(folder, "", &ignored(folder), &mut files)?;
-    std::fs::create_dir_all(out).map_err(|source| Error::Io {
-        path: out.to_owned(),
-        source,
-    })?;
+    prepare_out(out)?;
     let file_name = match &package.version {
         Some(v) if check_version(v).is_ok() => format!("{}-{v}.zip", package.slug),
         _ => format!("{}.zip", package.slug),
@@ -558,7 +572,8 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, text).unwrap();
         }
-        let out = home.join("builds");
+        let out = builds_dir(&theme);
+        assert_eq!(out, theme.join("dist"));
         let built = build_zip(ProjectKind::WordpressTheme, &theme, &out).unwrap();
         assert_eq!(built.path, out.join("calm-0.1.0.zip"));
         let names = names(&built.path);
@@ -594,8 +609,30 @@ mod tests {
         assert!(!out.join("calm-0.1.0.zip.partial").exists());
         assert_eq!(built.files, 7, "{names:?}");
 
-        // Building again replaces the zip.
-        build_zip(ProjectKind::WordpressTheme, &theme, &out).unwrap();
+        assert!(std::fs::read_to_string(out.join(".gitignore"))
+            .unwrap()
+            .contains("*.zip"));
+
+        // Building again replaces the zip, and the zips and the .gitignore
+        // in dist/ never go in it; a stale .partial neither.
+        std::fs::write(out.join("calm-0.0.9.zip.partial"), "x").unwrap();
+        let again = build_zip(ProjectKind::WordpressTheme, &theme, &out).unwrap();
+        assert_eq!(again.files, 7);
+        assert!(!super::tests::names(&again.path)
+            .iter()
+            .any(|n| n.contains("dist")));
+
+        // Assets a build tool puts in dist/ are still packed.
+        std::fs::write(out.join("app.css"), "a{}").unwrap();
+        let with_assets = build_zip(ProjectKind::WordpressTheme, &theme, &out).unwrap();
+        let packed = super::tests::names(&with_assets.path);
+        assert!(
+            packed.contains(&"calm/dist/app.css".to_string()),
+            "{packed:?}"
+        );
+        assert!(!packed
+            .iter()
+            .any(|n| n.ends_with(".zip") || n.ends_with("/.gitignore")));
     }
 
     #[test]
