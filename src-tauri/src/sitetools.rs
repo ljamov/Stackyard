@@ -590,3 +590,86 @@ pub fn share_stop(engine: State<'_, Arc<Engine>>, domain: String) -> CmdResult<S
     share::stop(engine.supervisor(), &site).map_err(err)?;
     share_view(&engine)
 }
+
+/// A WordPress theme or plugin project's version and where its zips go,
+/// for its Manage tab.
+#[derive(Serialize)]
+pub struct WpPackageView {
+    #[serde(flatten)]
+    package: stackyard_core::wppackage::Package,
+    /// The folder built zips go in.
+    builds: String,
+    /// The WordPress Stackyard made for it before, while it is still there.
+    old_wordpress: Option<String>,
+}
+
+fn wp_package_site(domain: &str) -> CmdResult<(Site, stackyard_core::projects::ProjectKind)> {
+    let (site, _) = find_site(domain)?;
+    let kind = site.settings.project.kind;
+    if !kind.wp_package() {
+        return Err(format!("{domain} is not a WordPress theme or plugin"));
+    }
+    Ok((site, kind))
+}
+
+fn wp_package_view(site: &Site) -> CmdResult<WpPackageView> {
+    let home = paths::home();
+    let folder = stackyard_core::projects::folder(site);
+    Ok(WpPackageView {
+        package: stackyard_core::wppackage::read(site.settings.project.kind, folder)
+            .map_err(err)?,
+        builds: stackyard_core::wppackage::builds_dir(&home)
+            .display()
+            .to_string(),
+        old_wordpress: stackyard_core::projects::old_wordpress(&home, site)
+            .map(|p| p.display().to_string()),
+    })
+}
+
+#[tauri::command]
+pub fn wp_package(domain: String) -> CmdResult<WpPackageView> {
+    let (site, _) = wp_package_site(&domain)?;
+    wp_package_view(&site)
+}
+
+/// Sets the version in the theme's or plugin's header (and readme.txt).
+#[tauri::command]
+pub fn wp_package_set_version(domain: String, version: String) -> CmdResult<WpPackageView> {
+    let (site, kind) = wp_package_site(&domain)?;
+    stackyard_core::wppackage::set_version(kind, stackyard_core::projects::folder(&site), &version)
+        .map_err(err)?;
+    wp_package_view(&site)
+}
+
+/// Packs the theme or plugin into a zip WordPress installs from.
+#[tauri::command]
+pub async fn wp_package_build(domain: String) -> CmdResult<stackyard_core::wppackage::Built> {
+    let (site, kind) = wp_package_site(&domain)?;
+    blocking(move || {
+        let out = stackyard_core::wppackage::builds_dir(&paths::home());
+        stackyard_core::wppackage::build_zip(kind, stackyard_core::projects::folder(&site), &out)
+            .map_err(err)
+    })
+    .await
+}
+
+/// Opens the folder built zips go in.
+#[tauri::command]
+pub fn open_wp_builds() -> CmdResult<()> {
+    let out = stackyard_core::wppackage::builds_dir(&paths::home());
+    std::fs::create_dir_all(&out)
+        .map_err(|e| format!("could not create {}: {e}", out.display()))?;
+    open_with_system(out.as_os_str())
+}
+
+/// Removes the WordPress Stackyard made for a theme or plugin before. Its
+/// database, if any, stays on the Databases screen.
+#[tauri::command]
+pub async fn wp_remove_old_wordpress(domain: String) -> CmdResult<WpPackageView> {
+    let (site, _) = wp_package_site(&domain)?;
+    blocking(move || {
+        stackyard_core::projects::remove_old_wordpress(&paths::home(), &site).map_err(err)?;
+        wp_package_view(&site)
+    })
+    .await
+}
