@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.22.0
 
 - **Big WordPress shops no longer run out of time on Windows.** PHP on Windows answered one
   request at a time, so a WooCommerce page that waited on another request to its own site (cron,
