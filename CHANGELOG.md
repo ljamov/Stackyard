@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.22.0
 
 - **Importing over an existing site works.** When a site or a database of that name is already
   there, the import replaces both and finishes, with "Replace it with the copy" ticked for you.
