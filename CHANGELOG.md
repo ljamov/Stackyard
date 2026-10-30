@@ -6,6 +6,17 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Big WordPress shops no longer run out of time on Windows.** PHP on Windows answered one
+  request at a time, so a WooCommerce page that waited on another request to its own site (cron,
+  background jobs, the REST API) waited until "Maximum execution time of 120 seconds exceeded".
+  Each PHP version now runs 6 workers. PHP's time limit is 300 seconds, with a bigger code cache
+  and path cache for sites with thousands of files; php.ini files Stackyard made earlier get the
+  new settings, and values you changed are kept.
+
+- **Copies of live sites wait at most 10 seconds for an outside service**, so a slow licence or
+  payment API can't hold up a page. When a page still runs over the time limit, Stackyard says
+  under the error what usually causes it and how to give the site more time.
+
 - **Importing over an existing site works.** When a site or a database of that name is already
   there, the import replaces both and finishes, with "Replace it with the copy" ticked for you.
   The old site is backed up first when the drive has room; a broken database no longer stops the

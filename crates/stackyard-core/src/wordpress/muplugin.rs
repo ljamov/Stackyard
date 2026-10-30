@@ -146,6 +146,7 @@ pub fn source(options: &Options) -> String {
     {
         out.push_str(MEDIA_MISSING);
     }
+    out.push_str(TIME_LIMIT);
     out.push_str(LOGIN);
     out.push_str(&ADMIN_BAR.replace(
         "{color}",
@@ -195,6 +196,24 @@ add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
 	}
 	return new WP_Error( 'stackyard_blocked', 'Stackyard keeps scheduled tasks on this copy from calling ' . $host . '.' );
 }, 1, 3 );
+
+// An outside service that is slow to answer (licence checks, live
+// payment or shipping APIs) can't hold a page on this copy for minutes.
+// Downloads, such as plugin updates, keep their own time.
+add_filter( 'http_request_args', function ( $args, $url ) {
+	if ( ! empty( $args['stream'] ) || ! empty( $args['filename'] ) ) {
+		return $args;
+	}
+	$host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+	$own  = strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
+	if ( in_array( $host, array( $own, 'localhost', '127.0.0.1', '::1', '[::1]' ), true ) ) {
+		return $args;
+	}
+	if ( empty( $args['timeout'] ) || $args['timeout'] > 10 ) {
+		$args['timeout'] = 10;
+	}
+	return $args;
+}, PHP_INT_MAX, 2 );
 
 // WooCommerce webhooks would tell outside services about test orders.
 add_filter( 'woocommerce_webhook_should_deliver', '__return_false', PHP_INT_MAX );
@@ -257,6 +276,25 @@ const MEDIA_MISSING: &str = r#"( function () {
 	readfile( $file );
 	exit;
 } )();
+
+"#;
+
+/// When a page runs over PHP's time limit, says why that happens and what
+/// to do, under PHP's own error, on pages (not in JSON answers).
+const TIME_LIMIT: &str = r#"register_shutdown_function( function () {
+	$error = error_get_last();
+	if ( ! $error || E_ERROR !== $error['type'] || false === strpos( $error['message'], 'Maximum execution time' ) ) {
+		return;
+	}
+	if ( empty( $_SERVER['HTTP_ACCEPT'] ) || false === strpos( (string) $_SERVER['HTTP_ACCEPT'], 'text/html' ) ) {
+		return;
+	}
+	echo '<div style="font:15px/1.5 system-ui,sans-serif;max-width:640px;margin:24px auto;padding:16px 20px;border:1px solid #2563eb;border-radius:8px;background:#eff6ff;color:#1e293b">'
+		. '<strong>Stackyard:</strong> this page ran longer than PHP allows (' . (int) ini_get( 'max_execution_time' ) . ' seconds). '
+		. 'The first visits after an import or clone are the slowest, while WordPress and its plugins update the database and PHP fills its code cache, so reload the page once or twice. '
+		. 'If it keeps happening, make sure the site&rsquo;s database server is running in Stackyard, or give the site more time under Sites &rsaquo; Settings &rsaquo; PHP settings, for example <code>max_execution_time = 600</code>.'
+		. '</div>';
+} );
 
 "#;
 
@@ -335,6 +373,8 @@ mod tests {
         let php = source(&options);
         assert!(php.contains("$mailer->Port        = 1026;"));
         assert!(php.contains("pre_option_blog_public"));
+        assert!(php.contains("'http_request_args'"));
+        assert!(php.contains("Maximum execution time"));
         assert!(php.contains("define( 'STACKYARD_MEDIA_FROM', 'https://shop.example' );"));
         assert_eq!(php.matches('{').count(), php.matches('}').count());
         let dropped = source(&Options {

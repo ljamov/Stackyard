@@ -753,8 +753,16 @@ pub fn php_ini_file(home: &Path, version: &str, install: &Path, os: Os) -> Resul
         source,
     })?;
     let ini = config.join("php.ini");
+    let cache = config.join("opcache");
     if !ini.exists() {
-        write_config(&ini, &php_ini(install, os))?;
+        write_config(&ini, &php_ini(install, &cache, os))?;
+    } else if let Ok(text) = std::fs::read_to_string(&ini) {
+        if let Some(text) = upgrade_php_ini(&text, &cache, os) {
+            write_config(&ini, &text)?;
+        }
+    }
+    if os == Os::Windows {
+        let _ = std::fs::create_dir_all(&cache);
     }
     Ok(ini)
 }
@@ -808,8 +816,18 @@ fn php_process(
                 "-c".to_string(),
                 slash(&ini),
             ],
-            // Serve requests until stopped instead of exiting after 500.
-            vec![("PHP_FCGI_MAX_REQUESTS".to_string(), "0".to_string())],
+            vec![
+                // Serve requests until stopped instead of exiting after 500.
+                ("PHP_FCGI_MAX_REQUESTS".to_string(), "0".to_string()),
+                // One php-cgi answers one request at a time, so a page that
+                // waits on another request to its own site (WordPress cron,
+                // WooCommerce's background jobs, the REST API) waited until
+                // the time limit. php-cgi starts this many workers instead.
+                (
+                    "PHP_FCGI_CHILDREN".to_string(),
+                    WINDOWS_PHP_WORKERS.to_string(),
+                ),
+            ],
         )
     } else {
         let fpm = config.join("php-fpm.conf");
@@ -839,20 +857,97 @@ fn php_process(
     })
 }
 
+/// php-cgi workers per PHP process on Windows.
+const WINDOWS_PHP_WORKERS: u32 = 6;
+
+const PHP_INI_HEADER: &str =
+    "; Created by Stackyard with development defaults. Your edits are kept.\n";
+
+/// Settings every Stackyard `php.ini` has: big sites such as WooCommerce
+/// shops load thousands of files and run long admin pages, and Windows
+/// counts waiting (disk, database, the network) toward the time limit.
+fn php_defaults(cache: &Path, os: Os) -> Vec<(&'static str, String)> {
+    let mut lines: Vec<(&'static str, String)> = [
+        ("memory_limit", "512M"),
+        ("upload_max_filesize", "128M"),
+        ("post_max_size", "128M"),
+        ("max_execution_time", "300"),
+        ("max_input_time", "300"),
+        ("max_input_vars", "5000"),
+        ("display_errors", "On"),
+        ("display_startup_errors", "On"),
+        ("error_reporting", "E_ALL"),
+        ("log_errors", "On"),
+        ("date.timezone", "UTC"),
+        ("realpath_cache_size", "16M"),
+        ("realpath_cache_ttl", "600"),
+        ("opcache.enable", "1"),
+        ("opcache.memory_consumption", "256"),
+        ("opcache.interned_strings_buffer", "32"),
+        ("opcache.max_accelerated_files", "60000"),
+        ("opcache.validate_timestamps", "1"),
+        ("opcache.revalidate_freq", "2"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k, v.to_string()))
+    .collect();
+    if os == Os::Windows {
+        // A php-cgi worker that can't share the code cache uses files.
+        lines.push(("opcache.file_cache", quote(&slash(cache))));
+    }
+    lines
+}
+
+/// Whether `text` sets `key` on a line of its own, commented out or not
+/// (a commented-out line is the user's choice too).
+fn ini_has(text: &str, key: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim_start().trim_start_matches(';').trim_start();
+        line.strip_prefix(key)
+            .is_some_and(|rest| rest.trim_start().starts_with('='))
+    })
+}
+
+/// A `php.ini` Stackyard made before these defaults, given the settings it
+/// lacks and the old time limit raised. The user's own values are kept;
+/// `None` when nothing changes or the file is not Stackyard's.
+fn upgrade_php_ini(text: &str, cache: &Path, os: Os) -> Option<String> {
+    if !text.starts_with(PHP_INI_HEADER.trim_end()) {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len() + 512);
+    let mut changed = false;
+    for line in text.split_inclusive('\n') {
+        if line.trim_end() == "max_execution_time = 120" {
+            out.push_str("max_execution_time = 300\n");
+            changed = true;
+        } else {
+            out.push_str(line);
+        }
+    }
+    let missing: Vec<_> = php_defaults(cache, os)
+        .into_iter()
+        .filter(|(key, _)| !ini_has(text, key))
+        .collect();
+    if !missing.is_empty() {
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("; Added by Stackyard for big sites.\n");
+        for (key, value) in missing {
+            out.push_str(&format!("{key} = {value}\n"));
+        }
+        changed = true;
+    }
+    changed.then_some(out)
+}
+
 /// Development defaults. Written once; the user's edits are kept.
-fn php_ini(install: &Path, os: Os) -> String {
-    let mut ini = String::from(
-        "; Created by Stackyard with development defaults. Your edits are kept.\n\
-         memory_limit = 512M\n\
-         upload_max_filesize = 128M\n\
-         post_max_size = 128M\n\
-         max_execution_time = 120\n\
-         display_errors = On\n\
-         display_startup_errors = On\n\
-         error_reporting = E_ALL\n\
-         log_errors = On\n\
-         date.timezone = UTC\n",
-    );
+fn php_ini(install: &Path, cache: &Path, os: Os) -> String {
+    let mut ini = String::from(PHP_INI_HEADER);
+    for (key, value) in php_defaults(cache, os) {
+        ini.push_str(&format!("{key} = {value}\n"));
+    }
     if os == Os::Windows {
         // The Windows builds ship extensions as separate files; turn on the
         // ones most projects need, where this version has them.
@@ -1339,5 +1434,39 @@ mod tests {
         let ini = std::fs::read_to_string(home.join("config/php/8.3/php.ini")).unwrap();
         assert!(ini.contains("extension=mbstring"), "{ini}");
         assert!(!ini.contains("extension=curl"), "{ini}");
+        assert!(ini.contains("max_execution_time = 300\n"), "{ini}");
+        assert!(ini.contains("opcache.file_cache = "), "{ini}");
+        assert!(home.join("config/php/8.3/opcache").is_dir());
+        assert!(windows
+            .env
+            .iter()
+            .any(|(k, v)| k == "PHP_FCGI_CHILDREN" && v == "6"));
+    }
+
+    #[test]
+    fn brings_old_php_settings_up_to_date() {
+        let cache = Path::new("C:/stackyard/config/php/8.3/opcache");
+        let old = "; Created by Stackyard with development defaults. Your edits are kept.\n\
+                   memory_limit = 1G\n\
+                   max_execution_time = 120\n\
+                   ;opcache.enable = 0\n\
+                   zend_extension=opcache\n";
+        let new = upgrade_php_ini(old, cache, Os::Windows).unwrap();
+        assert!(new.contains("memory_limit = 1G\n"), "{new}");
+        assert!(!new.contains("memory_limit = 512M"), "{new}");
+        assert!(new.contains("max_execution_time = 300\n"), "{new}");
+        assert!(!new.contains("opcache.enable = 1"), "{new}");
+        assert!(new.contains("realpath_cache_size = 16M\n"), "{new}");
+        assert!(new.contains("opcache.memory_consumption = 256\n"), "{new}");
+        assert!(
+            new.contains("opcache.file_cache = \"C:/stackyard/config/php/8.3/opcache\"\n"),
+            "{new}"
+        );
+        assert_eq!(upgrade_php_ini(&new, cache, Os::Windows), None);
+        // A php.ini the user wrote is theirs.
+        assert_eq!(
+            upgrade_php_ini("memory_limit = 1G\n", cache, Os::Windows),
+            None
+        );
     }
 }
