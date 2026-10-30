@@ -171,6 +171,17 @@ impl Settings {
         if !self.parked.contains(&folder) {
             self.parked.push(folder.clone());
         }
+        // New sites went into a folder that isn't parked (say, the old place
+        // before the projects moved to another drive): they go here now.
+        let home = paths::home();
+        let current = self.sites_folder(&home);
+        if !self
+            .parked
+            .iter()
+            .any(|p| crate::sites::same_folder(p, &current))
+        {
+            self.sites_folder = Some(folder.clone());
+        }
         Ok(folder)
     }
 
@@ -201,7 +212,24 @@ impl Settings {
         if self.parked.len() == before {
             return Err(Error::NotParked(folder));
         }
+        // New sites follow to another parked folder, if there is one.
+        let current = self.sites_folder(&paths::home());
+        if crate::sites::same_folder(&current, &folder) {
+            if let Some(next) = self.parked.first() {
+                self.sites_folder = Some(next.clone());
+            }
+        }
         Ok(())
+    }
+
+    /// Picks the folder new sites are created in (`~` is expanded).
+    pub fn set_sites_folder(&mut self, folder: &Path) -> Result<PathBuf> {
+        let folder = full_path(folder);
+        if !folder.is_dir() {
+            return Err(Error::NotAFolder(folder));
+        }
+        self.sites_folder = Some(folder.clone());
+        Ok(folder)
     }
 }
 
@@ -269,6 +297,32 @@ mod tests {
     #[test]
     fn defaults_to_stack() {
         assert_eq!(Settings::default().tld, ".stack");
+    }
+
+    #[test]
+    fn new_sites_follow_the_parked_folder() {
+        let dir = crate::testutil::tempdir();
+        let (old, new, other) = (dir.join("c/www"), dir.join("d/Sites"), dir.join("e"));
+        for d in [&old, &new, &other] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        // Projects moved off the folder new sites went into, which is no
+        // longer parked: the parked folder takes over.
+        let mut settings = Settings {
+            sites_folder: Some(old.clone()),
+            ..Settings::default()
+        };
+        settings.park(&new).unwrap();
+        assert_eq!(settings.sites_folder, Some(new.clone()));
+        // Parking another folder doesn't take it away again.
+        settings.park(&other).unwrap();
+        assert_eq!(settings.sites_folder, Some(new.clone()));
+        // Unparking it moves new sites to the next parked folder.
+        settings.unpark(&new).unwrap();
+        assert_eq!(settings.sites_folder, Some(other.clone()));
+        settings.set_sites_folder(&old).unwrap();
+        assert_eq!(settings.sites_folder, Some(old));
+        assert!(settings.set_sites_folder(&dir.join("missing")).is_err());
     }
 
     #[test]

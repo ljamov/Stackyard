@@ -230,12 +230,109 @@ function ProjectType({ site, onChanged }: { site: Site; onChanged: Changed }) {
         <div className="field">
           <span className="label">{t("Project folder")}</span>
           <span className="mono small">{site.project.folder}</span>
-          {inWordPress(from) && (
+          {inWordPress(from) ? (
             <span className="muted small">{t("The editor, the terminal and Git open this folder.")}</span>
+          ) : (
+            <SiteFolder site={site} onChanged={onChanged} />
           )}
         </div>
       </div>
       {error && <p className="error small">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Changing where a site's files are: point it at another folder (one already
+ * copied there), or move the files, e.g. to a bigger drive.
+ */
+function SiteFolder({ site, onChanged }: { site: Site; onChanged: Changed }) {
+  const t = useT();
+  const [busy, setBusy] = useState<"change" | "move" | null>(null);
+  useBusy(busy !== null);
+  const [moved, setMoved] = useState<{ done: number; total: number } | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const parent = site.path.replace(/[\\/][^\\/]*[\\/]?$/, "");
+
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    api
+      .onSiteMoveProgress((p) => p.site === site.domain && setMoved({ done: p.done, total: p.total }))
+      .then((s) => (stop = s));
+    return () => stop?.();
+  }, [site.domain]);
+
+  async function change() {
+    const folder = await api.pickFolder(t("Select the site's folder"), parent);
+    if (!folder) return;
+    setBusy("change");
+    try {
+      await api.changeSiteFolder(site.domain, folder);
+      setError(null);
+      setNote(t("The site now uses {folder}.", { folder }));
+      onChanged(site.domain);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function move() {
+    const into = await api.pickFolder(t("Move the site into this folder"), parent);
+    if (!into) return;
+    setBusy("move");
+    setMoved(null);
+    try {
+      const result = await api.moveSite(site.domain, into);
+      setError(null);
+      setNote(
+        result.left_behind
+          ? t("Moved to {path}. Some files in {old} were in use and stayed; you can delete that folder later.", {
+              path: result.path,
+              old: result.left_behind,
+            })
+          : t("Moved to {path}.", { path: result.path }),
+      );
+      onChanged(site.domain);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+      setMoved(null);
+    }
+  }
+
+  const percent = moved && moved.total > 0 ? Math.round((moved.done / moved.total) * 100) : null;
+  return (
+    <div className="stack site-folder">
+      <div className="row">
+        <button type="button" className="btn small" disabled={busy !== null} onClick={move}>
+          {busy === "move" ? t("Moving…") : t("Move to another folder…")}
+        </button>
+        <button type="button" className="btn ghost small" disabled={busy !== null} onClick={change}>
+          {t("Change folder…")}
+        </button>
+      </div>
+      {busy === "move" && (
+        <Progress
+          label={t("Moving {site}", { site: site.domain })}
+          state={{
+            text: moved ? `${size(moved.done)} / ${size(moved.total)}` : t("Moving…"),
+            percent,
+          }}
+        />
+      )}
+      <span className="muted small">
+        {t("Move copies the files to the new place (another drive works too), then removes the old folder. Change folder points the site at a folder you already copied. Settings, database and connections stay.")}
+      </span>
+      {note && <span className="small" role="status">{note}</span>}
+      {error && (
+        <span className="error small" role="alert">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

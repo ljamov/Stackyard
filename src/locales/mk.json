@@ -900,5 +900,17 @@
   "Put it on the host": "Стави го на хостот",
   "This site isn't linked to a live site yet. Put it on a host: Stackyard uploads every file and the database into a WordPress already installed there, with every address changed to the host's. After that, push and pull work as for a cloned site.": "Овој сајт сè уште не е поврзан со сајт во живо. Ставете го на хост: Stackyard ги прикачува сите датотеки и базата на податоци во WordPress што веќе е инсталиран таму, со секоја адреса сменета во адресата на хостот. Потоа push и pull работат како за клониран сајт.",
   "Type {host} to confirm: the site there is replaced": "Напишете {host} за потврда: сајтот таму ќе биде заменет",
-  "{domain} is on {url}. {count} files were sent; the host's database was backed up first.": "{domain} е на {url}. Испратени се {count} датотеки; базата на податоци на хостот претходно е зачувана."
+  "{domain} is on {url}. {count} files were sent; the host's database was backed up first.": "{domain} е на {url}. Испратени се {count} датотеки; базата на податоци на хостот претходно е зачувана.",
+  "Select the site's folder": "Изберете ја папката на сајтот",
+  "The site now uses {folder}.": "Сајтот сега ја користи {folder}.",
+  "Move the site into this folder": "Преместете го сајтот во оваа папка",
+  "Moved to {path}. Some files in {old} were in use and stayed; you can delete that folder later.": "Преместено во {path}. Некои датотеки во {old} беа во употреба и останаа; таа папка можете да ја избришете подоцна.",
+  "Moved to {path}.": "Преместено во {path}.",
+  "Move to another folder…": "Премести во друга папка…",
+  "Change folder…": "Смени папка…",
+  "Moving {site}": "Се преместува {site}",
+  "Move copies the files to the new place (another drive works too), then removes the old folder. Change folder points the site at a folder you already copied. Settings, database and connections stay.": "Премести ги копира датотеките на новото место (може и на друг диск), а потоа ја брише старата папка. Смени папка го насочува сајтот кон папка што веќе сте ја копирале. Поставките, базата и врските остануваат.",
+  "New sites go here": "Новите сајтови одат тука",
+  "Make new sites in {folder}": "Прави нови сајтови во {folder}",
+  "Use for new sites": "Користи за нови сајтови"
 }

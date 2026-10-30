@@ -350,6 +350,56 @@ impl SiteStore {
         Ok((before, site.clone()))
     }
 
+    /// Points a site at another folder, keeping its settings, e.g. a copy
+    /// of the project on another drive. Returns the site as it is now.
+    pub fn set_folder(&mut self, name_or_domain: &str, folder: &Path) -> Result<Site> {
+        let folder = paths::expand_home(folder);
+        if !folder.is_dir() {
+            return Err(Error::NotAFolder(folder));
+        }
+        let domain = self.get_mut(name_or_domain)?.domain();
+        if let Some(other) = self
+            .sites
+            .iter()
+            .find(|s| s.domain() != domain && same_folder(&s.path, &folder))
+        {
+            return Err(Error::Shell(format!(
+                "{} already uses {}",
+                other.domain(),
+                folder.display()
+            )));
+        }
+        let site = self.get_mut(name_or_domain)?;
+        site.path = folder;
+        Ok(site.clone())
+    }
+
+    /// Points sites whose folder is gone at a folder of the same name in a
+    /// parked folder: the user moved their projects, e.g. to another drive,
+    /// and parked the new place. The sites keep their settings. Returns the
+    /// domains that changed.
+    pub fn relink_moved(&mut self, parked: &[PathBuf]) -> Vec<String> {
+        let mut moved = Vec::new();
+        for i in 0..self.sites.len() {
+            let site = &self.sites[i];
+            if site.path.exists() {
+                continue;
+            }
+            let Some(name) = site.path.file_name() else {
+                continue;
+            };
+            let found = parked
+                .iter()
+                .map(|p| p.join(name))
+                .find(|p| p.is_dir() && !self.sites.iter().any(|s| same_folder(&s.path, p)));
+            if let Some(path) = found {
+                self.sites[i].path = path;
+                moved.push(self.sites[i].domain());
+            }
+        }
+        moved
+    }
+
     /// Removes a site by its domain (`myapp.stack`) or bare name (`myapp`).
     pub fn remove(&mut self, name_or_domain: &str) -> Result<Site> {
         let index = self
@@ -359,6 +409,109 @@ impl SiteStore {
             .ok_or_else(|| Error::SiteNotFound(name_or_domain.to_string()))?;
         Ok(self.sites.remove(index))
     }
+}
+
+/// Whether two paths name the same folder; Windows and macOS ignore case.
+pub fn same_folder(a: &Path, b: &Path) -> bool {
+    let spell = |p: &Path| {
+        let p = std::path::absolute(p).unwrap_or_else(|_| p.to_owned());
+        let p = p.to_string_lossy().replace('\\', "/");
+        let p = p.trim_end_matches('/').to_string();
+        if cfg!(any(windows, target_os = "macos")) {
+            p.to_lowercase()
+        } else {
+            p
+        }
+    };
+    spell(a) == spell(b)
+}
+
+/// Moves a site's folder into `into` (a folder that holds projects, e.g. on
+/// another drive) and returns where it is now. Within one drive this is a
+/// rename; across drives every file is copied first, and the old folder is
+/// removed only once the whole copy has worked, so a failed move loses
+/// nothing. `progress` gets the bytes copied and the total. The second
+/// value is true when some of the old folder could not be removed (a file
+/// still open in another program); the copy is complete either way.
+pub fn move_folder(
+    from: &Path,
+    into: &Path,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(PathBuf, bool)> {
+    let io = |e: std::io::Error| Error::Shell(e.to_string());
+    let name = from
+        .file_name()
+        .ok_or_else(|| Error::NotAFolder(from.to_owned()))?;
+    if !from.is_dir() {
+        return Err(Error::NotAFolder(from.to_owned()));
+    }
+    std::fs::create_dir_all(into).map_err(io)?;
+    let to = into.join(name);
+    if same_folder(from, &to) {
+        return Err(Error::Shell(format!(
+            "the site is already in {}",
+            into.display()
+        )));
+    }
+    if to.exists() {
+        return Err(Error::Shell(format!(
+            "{} already exists; pick another folder, or use Change folder to point the site at it",
+            to.display()
+        )));
+    }
+    let inside = std::path::absolute(into)
+        .unwrap_or_else(|_| into.to_owned())
+        .starts_with(std::path::absolute(from).unwrap_or_else(|_| from.to_owned()));
+    if inside {
+        return Err(Error::Shell("a site can't move into its own folder".into()));
+    }
+    if std::fs::rename(from, &to).is_ok() {
+        return Ok((to, false));
+    }
+    let total = folder_size(from);
+    progress(0, total);
+    let mut done = 0;
+    if let Err(e) = copy_all(from, &to, &mut |bytes| {
+        done += bytes;
+        progress(done, total);
+    }) {
+        let _ = std::fs::remove_dir_all(&to);
+        return Err(Error::Shell(format!(
+            "could not copy the site to {}: {e}. Nothing was moved.",
+            into.display()
+        )));
+    }
+    let left = std::fs::remove_dir_all(from).is_err();
+    Ok((to, left))
+}
+
+/// Copies every file and folder, with their dates, from `from` to `to`.
+fn copy_all(from: &Path, to: &Path, copied: &mut dyn FnMut(u64)) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        // A link is copied as what it points at.
+        if entry.path().is_dir() {
+            copy_all(&entry.path(), &target, copied)?;
+        } else {
+            copied(crate::wordpress::copy::copy_file(&entry.path(), &target)?);
+        }
+    }
+    Ok(())
+}
+
+fn folder_size(folder: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => folder_size(&e.path()),
+            _ => e.metadata().map(|m| m.len()).unwrap_or(0),
+        })
+        .sum()
 }
 
 /// Ports the web server may take: 80 and 443, or 8080 and 8443 and up.
@@ -385,6 +538,69 @@ mod tests {
             dev_server: false,
             settings: SiteSettings::default(),
         }
+    }
+
+    #[test]
+    fn changes_and_moves_a_site_folder() {
+        let dir = crate::testutil::tempdir();
+        let mut store = SiteStore::load_from(&dir.join("sites.toml")).unwrap();
+        let old = dir.join("c/www/shop");
+        std::fs::create_dir_all(old.join("wp-content/uploads")).unwrap();
+        std::fs::write(old.join("index.php"), "<?php echo 1;").unwrap();
+        std::fs::write(old.join("wp-content/uploads/a.jpg"), vec![7u8; 5000]).unwrap();
+        store
+            .add(Site {
+                path: old.clone(),
+                ..php_site("shop")
+            })
+            .unwrap();
+        store.add(php_site("blog")).unwrap();
+
+        // Pointing at a missing folder, or one another site uses, is refused.
+        assert!(store.set_folder("shop", &dir.join("nope")).is_err());
+        std::fs::create_dir_all(dir.join("blog")).unwrap();
+        store.set_folder("blog", &dir.join("blog")).unwrap();
+        assert!(store.set_folder("shop", &dir.join("blog")).is_err());
+
+        let mut last = (0, 0);
+        let (moved, left) = move_folder(&old, &dir.join("d/Sites"), &mut |done, total| {
+            last = (done, total)
+        })
+        .unwrap();
+        assert_eq!(moved, dir.join("d/Sites/shop"));
+        assert!(!left);
+        assert!(!old.exists());
+        assert_eq!(
+            std::fs::read(moved.join("wp-content/uploads/a.jpg"))
+                .unwrap()
+                .len(),
+            5000
+        );
+        let _ = last;
+        assert_eq!(store.set_folder("shop", &moved).unwrap().path, moved);
+
+        // Moving onto an existing folder, or into itself, is refused.
+        std::fs::create_dir_all(dir.join("e/shop")).unwrap();
+        assert!(move_folder(&moved, &dir.join("e"), &mut |_, _| {}).is_err());
+        assert!(move_folder(&moved, &moved.join("inner"), &mut |_, _| {}).is_err());
+        assert!(moved.join("index.php").exists());
+    }
+
+    #[test]
+    fn copies_when_a_rename_is_not_possible() {
+        let dir = crate::testutil::tempdir();
+        let from = dir.join("a/site");
+        std::fs::create_dir_all(from.join("sub")).unwrap();
+        std::fs::write(from.join("sub/f.txt"), "hello").unwrap();
+        let to = dir.join("b/site");
+        let mut seen = Vec::new();
+        copy_all(&from, &to, &mut |b| seen.push(b)).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(to.join("sub/f.txt")).unwrap(),
+            "hello"
+        );
+        assert_eq!(seen, [5]);
+        assert_eq!(folder_size(&from), 5);
     }
 
     #[test]
