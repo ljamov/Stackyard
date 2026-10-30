@@ -320,7 +320,7 @@ pub enum SourceInput {
     /// A connection saved for another site.
     Saved { id: String },
     /// A connection typed in now.
-    New { connection: ConnectionInput },
+    New { connection: Box<ConnectionInput> },
     /// Backup files on this computer.
     Files { files: Vec<String> },
 }
@@ -373,7 +373,7 @@ fn source(
                         .password
                         .take()
                         .or_else(|| remote::secrets::get(&clone_secret(job)).ok().flatten());
-                    let mut draft = remote::draft(connection).map_err(err)?;
+                    let mut draft = remote::draft(*connection).map_err(err)?;
                     forget_draft(state, job);
                     draft.server_key = state.sessions.login(&draft, password).map_err(err)?;
                     state
@@ -618,7 +618,7 @@ pub async fn wp_clone_check(
             }
             SourceInput::New { mut connection } => {
                 let password = connection.password.take();
-                let draft = remote::draft(connection).map_err(err)?;
+                let draft = remote::draft(*connection).map_err(err)?;
                 let report = state.sessions.check(&draft, Some(password));
                 state.sessions.forget(&draft.id);
                 Ok(report)

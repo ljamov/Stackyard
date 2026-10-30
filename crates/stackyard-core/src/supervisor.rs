@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::{ports, Error, Result};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
+#[cfg(unix)]
 const STOP_GRACE: Duration = Duration::from_secs(5);
 const MAX_RESTARTS: u32 = 5;
 /// A process that stayed up this long gets a fresh set of restart attempts.

@@ -241,7 +241,7 @@ pub(crate) fn read_toml<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Opt
         .map(Some)
         .map_err(|source| Error::Parse {
             path: path.to_owned(),
-            source,
+            source: Box::new(source),
         })
 }
 

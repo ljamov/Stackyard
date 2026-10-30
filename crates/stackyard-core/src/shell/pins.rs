@@ -167,7 +167,7 @@ fn read(file: &Path) -> Result<Option<toml::Table>> {
     match std::fs::read_to_string(file) {
         Ok(text) => text.parse().map(Some).map_err(|source| Error::Parse {
             path: file.to_owned(),
-            source,
+            source: Box::new(source),
         }),
         // A folder named `.stackyard`, or one we may not read, is not a pin file.
         Err(_) => Ok(None),

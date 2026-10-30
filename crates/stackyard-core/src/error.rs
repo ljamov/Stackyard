@@ -19,8 +19,9 @@ pub enum Error {
     #[error("could not parse {path}: {source}")]
     Parse {
         path: PathBuf,
+        // Boxed: unboxed it makes every Result in the crate large.
         #[source]
-        source: toml::de::Error,
+        source: Box<toml::de::Error>,
     },
     #[error("unknown module {0:?}")]
     UnknownModule(String),

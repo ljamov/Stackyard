@@ -382,6 +382,7 @@ fn add_entries<W: Write + std::io::Seek>(
         let path = root.join(&entry.inner);
         let meta = std::fs::metadata(&path).ok();
         let size = meta.as_ref().map_or(0, |m| m.len());
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut file_options = options.large_file(size >= u32::MAX as u64);
         #[cfg(unix)]
         {
@@ -477,7 +478,7 @@ pub fn read_manifest(pack: &Path) -> Result<Manifest> {
         .map_err(|_| not_a_pack(pack))?;
     let manifest: Manifest = toml::from_str(&text).map_err(|source| Error::Parse {
         path: pack.join(MANIFEST),
-        source,
+        source: Box::new(source),
     })?;
     if manifest.format > FORMAT {
         return Err(Error::Shell(format!(
