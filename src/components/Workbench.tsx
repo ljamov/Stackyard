@@ -61,8 +61,12 @@ function screen(s: TabId): ReactNode {
   switch (s as TabScreen) {
     case "Dashboard":
       return <Dashboard onNavigate={(to) => isTabScreen(to) && showScreen(to)} />;
+    case "Projects":
+      return <Sites category="project" />;
+    case "Apps":
+      return <Sites category="app" />;
     case "Sites":
-      return <Sites />;
+      return <Sites category="site" />;
     case "Services":
       return <Services />;
     case "Runtimes":

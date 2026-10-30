@@ -101,6 +101,33 @@ impl ProjectKind {
     }
 }
 
+/// Which list an item is in: a project (scripts, a theme or plugin,
+/// plain files), an app, or a site. It only sorts and labels; every one is
+/// served and opened the same way, and it can be changed at any time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Category {
+    Project,
+    App,
+    Site,
+}
+
+impl Category {
+    pub const ALL: [Category; 3] = [Category::Project, Category::App, Category::Site];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Category::Project => "project",
+            Category::App => "app",
+            Category::Site => "site",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Category> {
+        Category::ALL.into_iter().find(|c| c.id() == id)
+    }
+}
+
 /// What a site is for, kept with its settings.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Project {
@@ -110,11 +137,27 @@ pub struct Project {
     /// site's folder. `None` for the other kinds, whose folder is the site's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<PathBuf>,
+    /// The list it is in; `None` (sites saved before there were lists)
+    /// follows from the kind, see [`Project::category`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<Category>,
 }
 
 impl Project {
     pub fn is_default(&self) -> bool {
         *self == Project::default()
+    }
+
+    /// The list it is in: the one picked, else a theme, plugin or package
+    /// is a project, a Node.js app an app, and the rest sites.
+    pub fn category(&self) -> Category {
+        self.category.unwrap_or(match self.kind {
+            ProjectKind::WordpressTheme
+            | ProjectKind::WordpressPlugin
+            | ProjectKind::PhpPackage => Category::Project,
+            ProjectKind::NodeApp => Category::App,
+            ProjectKind::Website => Category::Site,
+        })
     }
 }
 
@@ -425,10 +468,27 @@ mod tests {
         }
         let saved = toml::to_string(&Project {
             kind: ProjectKind::WordpressTheme,
-            source: None,
+            ..Default::default()
         })
         .unwrap();
         assert_eq!(saved.trim(), "kind = \"wordpress-theme\"");
+    }
+
+    #[test]
+    fn lists_follow_the_kind_until_one_is_picked() {
+        let mut project = Project::default();
+        assert_eq!(project.category(), Category::Site);
+        project.kind = ProjectKind::WordpressPlugin;
+        assert_eq!(project.category(), Category::Project);
+        project.kind = ProjectKind::NodeApp;
+        assert_eq!(project.category(), Category::App);
+        project.category = Some(Category::Site);
+        assert_eq!(project.category(), Category::Site);
+        let saved = toml::to_string(&project).unwrap();
+        assert!(saved.contains("category = \"site\""), "{saved}");
+        for c in Category::ALL {
+            assert_eq!(Category::from_id(c.id()), Some(c));
+        }
     }
 
     #[test]
@@ -494,6 +554,7 @@ mod tests {
         site.settings.project = Project {
             kind: ProjectKind::WordpressTheme,
             source: Some(PathBuf::from("/code/shop-theme")),
+            category: None,
         };
         assert_eq!(folder(&site), Path::new("/code/shop-theme"));
     }

@@ -331,7 +331,14 @@ fn parked_site(
         path,
         https: true,
         dev_server: false,
-        settings: Default::default(),
+        // A folder made by hand is a project until it is given a list.
+        settings: crate::sites::SiteSettings {
+            project: crate::projects::Project {
+                category: Some(crate::projects::Category::Project),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
     }
 }
 
@@ -979,6 +986,10 @@ mod tests {
         );
         assert_eq!(served[2].backend, Backend::Static);
         assert!(!served[0].parked);
+        // Folders made by hand are projects; saved sites stay sites.
+        use crate::projects::Category;
+        assert_eq!(blog.site.settings.project.category(), Category::Project);
+        assert_eq!(served[0].site.settings.project.category(), Category::Site);
 
         // A `.stackyard` file in the project picks its version.
         std::fs::write(code.join("blog/.stackyard"), "php = \"8.2\"\n").unwrap();

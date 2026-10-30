@@ -1,8 +1,8 @@
-import type { MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import { Icon, type IconName } from "./Icon";
 import { Logo } from "./Logo";
 import { BrandIcon } from "./BrandIcon";
-import type { Site } from "../lib/api";
+import { categories, type Site } from "../lib/api";
 import { siteBrand } from "../lib/brands";
 import { openPalette } from "../lib/palette";
 import { openTab, showNewSite, showScreen, siteTab, type TabId } from "../lib/layout";
@@ -10,10 +10,12 @@ import { useUpdate } from "../lib/updates";
 import { useT } from "../lib/i18n";
 import { withKey } from "../lib/keybindings";
 import { rovingGroup, rovingKeys } from "../lib/focus";
-import type { Screen, TabScreen } from "../lib/screens";
+import { CATEGORY_SCREEN, type Screen, type TabScreen } from "../lib/screens";
 
 export const SCREEN_ICON: Record<Screen, IconName> = {
   Dashboard: "dashboard",
+  Projects: "projects",
+  Apps: "apps",
   Sites: "sites",
   Services: "services",
   Runtimes: "runtimes",
@@ -53,6 +55,8 @@ export function Sidebar({
 }) {
   const t = useT();
   const { status: update } = useUpdate();
+  // New asks first what is being made: a project, an app or a site.
+  const [choosing, setChoosing] = useState(false);
 
   const open = (s: TabScreen, e: MouseEvent) => (e.ctrlKey || e.metaKey ? openTab(s) : showScreen(s));
   const item = (s: TabScreen, extra?: string) => (
@@ -100,15 +104,43 @@ export function Sidebar({
         <button
           type="button"
           className="side-new"
-          aria-label={collapsed ? t("New site") : undefined}
-          title={collapsed ? t("New site") : undefined}
-          onClick={showNewSite}
+          aria-label={collapsed ? t("New project, app or site") : undefined}
+          title={collapsed ? t("New project, app or site") : t("New project, app or site")}
+          aria-expanded={choosing}
+          aria-controls="side-new-choices"
+          onClick={() => setChoosing(!choosing)}
         >
           <span className="side-plus" aria-hidden="true">
             <Icon name="plus" />
           </span>
-          <span className="side-label">{t("New site")}</span>
+          <span className="side-label">{t("New")}</span>
         </button>
+      )}
+      {screens.includes("Sites") && choosing && (
+        <div
+          id="side-new-choices"
+          className="side-new-choices"
+          role="group"
+          aria-label={t("What are you making?")}
+          onKeyDown={(e) => e.key === "Escape" && setChoosing(false)}
+        >
+          {categories.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className="side-item"
+              title={t(c.hint)}
+              aria-label={collapsed ? t("New {what}", { what: t(c.name) }) : undefined}
+              onClick={() => {
+                setChoosing(false);
+                showNewSite(c.id);
+              }}
+            >
+              <Icon name={SCREEN_ICON[CATEGORY_SCREEN[c.id]]} />
+              <span className="side-label">{t(c.name)}</span>
+            </button>
+          ))}
+        </div>
       )}
 
       <nav ref={rovingGroup} className="side-nav" aria-label={t("Screens")} onKeyDown={(e) => rovingKeys(e, "vertical")}>

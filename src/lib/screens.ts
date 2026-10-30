@@ -2,6 +2,8 @@ import { useModules } from "./modules";
 
 export const SCREENS = [
   "Dashboard",
+  "Projects",
+  "Apps",
   "Sites",
   "Services",
   "Runtimes",
@@ -17,6 +19,9 @@ export const SCREENS = [
 ] as const;
 
 export type Screen = (typeof SCREENS)[number];
+
+/** The screen that lists each of Projects, Apps and Sites. */
+export const CATEGORY_SCREEN = { project: "Projects", app: "Apps", site: "Sites" } as const;
 
 /** Screens that open as tabs; Logs lives in the bottom panel instead. */
 export type TabScreen = Exclude<Screen, "Logs">;

@@ -210,8 +210,11 @@ export type Site = {
 };
 
 export type ProjectKind = "website" | "wordpress-theme" | "wordpress-plugin" | "php-package" | "node-app";
+/** The list an item is in: Projects, Apps or Sites. */
+export type Category = "project" | "app" | "site";
 export type SiteProject = {
   kind: ProjectKind;
+  category: Category;
   /** The project's own folder: for a theme or plugin, not the WordPress it is tried in. */
   folder: string;
 };
@@ -223,6 +226,12 @@ export const projectKinds: { id: ProjectKind; name: string; hint: string }[] = [
   { id: "wordpress-plugin", name: "WordPress plugin", hint: "Stackyard makes a WordPress to try the plugin in, with the plugin switched on" },
   { id: "php-package", name: "PHP package", hint: "A PHP library, served with PHP so you can try it in a page" },
   { id: "node-app", name: "Node.js app", hint: "A Node.js app; Stackyard runs its dev server" },
+];
+/** The three lists, in the order the side bar and New show them. */
+export const categories: { id: Category; name: string; plural: string; hint: string }[] = [
+  { id: "project", name: "Project", plural: "Projects", hint: "Scripts, a WordPress theme or plugin, plain files: anything you build in a folder" },
+  { id: "app", name: "App", plural: "Apps", hint: "An app or server that runs, like a Node.js, Python or Go app, or a desktop app's code" },
+  { id: "site", name: "Site", plural: "Sites", hint: "A website: WordPress, WooCommerce, Laravel, Astro, React and more" },
 ];
 export const inWordPress = (kind: ProjectKind) => kind === "wordpress-theme" || kind === "wordpress-plugin";
 
@@ -438,7 +447,7 @@ export type SchedulePreview = { description: string | null; runs: number[] };
 
 export type TldInfo = { tld: string; warning: string | null };
 
-export type NewSite = { name: string; path: string; runtime: string; https: boolean; kind?: ProjectKind };
+export type NewSite = { name: string; path: string; runtime: string; https: boolean; kind?: ProjectKind; category?: Category };
 /** A theme or plugin project; its WordPress is made with it. */
 export type NewProject = { name: string; kind: ProjectKind; path: string; https: boolean };
 
@@ -564,8 +573,8 @@ export type GitStatus = {
   identity: boolean;
 };
 /** A project a new site can start as, instead of an empty folder. */
-export type Starter = { id: string; name: string; description: string };
-export type NewStarterSite = { name: string; starter: string; path: string; https: boolean };
+export type Starter = { id: string; name: string; description: string; category: Category };
+export type NewStarterSite = { name: string; starter: string; path: string; https: boolean; category?: Category };
 export type StarterProgress = { name: string; message: string };
 
 export type ImageFormat = "webp" | "avif" | "same";
@@ -685,6 +694,8 @@ export interface Api {
   addProject(project: NewProject): Promise<Site[]>;
   /** Changes what a site is for; a theme or plugin gets a WordPress made or linked for it. */
   setProjectKind(domain: string, kind: ProjectKind): Promise<Site[]>;
+  /** Moves an item to Projects, Apps or Sites; one from a parked folder is saved first. */
+  setSiteCategory(domain: string, category: Category): Promise<Site[]>;
   listStarters(): Promise<Starter[]>;
   /** Opens the system's file picker for images; empty when cancelled. */
   pickImages(start?: string): Promise<string[]>;
@@ -922,6 +933,7 @@ const tauriApi: Api = {
   addSite: (site) => invoke("add_site", site),
   addProject: (project) => invoke("add_project", project),
   setProjectKind: (domain, kind) => invoke("set_project_kind", { domain, kind }),
+  setSiteCategory: (domain, category) => invoke("set_site_category", { domain, category }),
   listStarters: () => invoke("list_starters"),
   pickImages: async (start) => {
     const picked = await openDialog({
@@ -1332,7 +1344,7 @@ function browserApi(): Api {
     parked,
     problem,
     versions: [],
-    project: { kind: "website", folder: `~/Code/${name}` },
+    project: { kind: "website", category: parked ? "project" : "site", folder: `~/Code/${name}` },
   });
   const isInstalled = (kind: RuntimeKind, version: string) =>
     runtimes.some((f) => f.kind === kind && f.versions.some((v) => v.version === version && v.installed));
@@ -1587,7 +1599,7 @@ function browserApi(): Api {
       });
       return sites;
     },
-    addSite: async ({ name, path, runtime, https, kind }) => {
+    addSite: async ({ name, path, runtime, https, kind, category }) => {
       if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) throw `invalid site name "${name}"`;
       const domain = name + tld;
       if (sites.some((s) => s.domain === domain)) throw `a site named "${domain}" already exists`;
@@ -1600,7 +1612,7 @@ function browserApi(): Api {
         path,
         root: path,
         https,
-        project: { kind: kind ?? "website", folder: path },
+        project: { kind: kind ?? "website", category: category ?? (kind && kind !== "website" ? (kind === "node-app" ? "app" : "project") : "site"), folder: path },
       };
       sites = [site, ...sites];
       sitesChanged();
@@ -1615,7 +1627,7 @@ function browserApi(): Api {
       }
       const folder = path || `C:\stackyard\www\${name}`;
       const all = await mock.addSite({ name, path: `C:\stackyard\projects\${name}\wordpress`, runtime: "PHP 8.4", https, kind });
-      sites = all.map((s) => (s.name === name ? { ...s, framework: "WordPress", project: { kind, folder } } : s));
+      sites = all.map((s) => (s.name === name ? { ...s, framework: "WordPress", project: { kind, category: "project", folder } } : s));
       sitesChanged();
       return sites;
     },
@@ -1625,21 +1637,23 @@ function browserApi(): Api {
       sitesChanged();
       return sites;
     },
-    listStarters: async () => [
-      { id: "wordpress", name: "WordPress", description: "The latest WordPress, with its database made in MySQL or MariaDB" },
-      { id: "laravel", name: "Laravel", description: "A new Laravel app, made with Composer" },
-      { id: "astro", name: "Astro", description: "A new Astro site; Stackyard runs its dev server" },
-    ],
-    addStarterSite: async ({ name, starter, path, https }) => {
-      const what = { wordpress: "WordPress", laravel: "Laravel", astro: "Astro" }[starter] ?? starter;
+    setSiteCategory: async (domain, category) => {
+      sites = sites.map((s) => (s.domain === domain ? { ...s, parked: false, project: { ...s.project, category } } : s));
+      sitesChanged();
+      return sites;
+    },
+    listStarters: async () => PREVIEW_STARTERS,
+    addStarterSite: async ({ name, starter, path, https, category }) => {
+      const what = PREVIEW_STARTERS.find((s) => s.id === starter)?.name ?? starter;
       const steps = [`Finding the latest ${what}…`, ...[10, 35, 60, 85, 100].map((p) => `Downloading ${what}… ${p}%`), `Unpacking ${what}…`, "Making the database…"];
       for (const message of steps) {
         starterHandlers.forEach((h) => h({ name, message }));
         await new Promise((r) => setTimeout(r, 500));
       }
-      const runtime = starter === "astro" ? "Node 22" : "PHP 8.4";
-      const all = await mock.addSite({ name, path: path || `C:\\stackyard\\www\\${name}`, runtime, https });
-      const label = { wordpress: "WordPress", laravel: "Laravel", astro: "Astro" }[starter] ?? null;
+      const runtime = ["wordpress", "woocommerce", "laravel"].includes(starter) ? "PHP 8.4" : ["static", "python-scripts"].includes(starter) ? "Static" : "Node 22";
+      const chosen = PREVIEW_STARTERS.find((s) => s.id === starter);
+      const all = await mock.addSite({ name, path: path || `C:\\stackyard\\www\\${name}`, runtime, https, category: category ?? chosen?.category });
+      const label = starter === "woocommerce" ? "WordPress" : (chosen?.name ?? null);
       sites = all.map((s) => (s.name === name ? { ...s, framework: label } : s));
       sitesChanged();
       return sites;
@@ -2537,3 +2551,18 @@ export function previewCheck(host: string): ConnectionReport {
     key_changed: false,
   };
 }
+
+/** The starters the browser preview offers, as the app lists them. */
+const PREVIEW_STARTERS: Starter[] = [
+  { id: "wordpress", name: "WordPress", category: "site", description: "The latest WordPress, with its database made in MySQL or MariaDB" },
+  { id: "woocommerce", name: "WordPress + WooCommerce", category: "site", description: "The latest WordPress with the WooCommerce shop plugin, switched on after WordPress's install page" },
+  { id: "laravel", name: "Laravel", category: "site", description: "A new Laravel app, made with Composer" },
+  { id: "astro", name: "Astro", category: "site", description: "A new Astro site; Stackyard runs its dev server" },
+  { id: "react", name: "React", category: "site", description: "A React app with Vite and TypeScript; Stackyard runs its dev server" },
+  { id: "vue", name: "Vue", category: "site", description: "A Vue app with Vite and TypeScript; Stackyard runs its dev server" },
+  { id: "svelte", name: "Svelte", category: "site", description: "A Svelte app with Vite and TypeScript; Stackyard runs its dev server" },
+  { id: "nextjs", name: "Next.js", category: "site", description: "A Next.js app with TypeScript; Stackyard runs its dev server" },
+  { id: "static", name: "Static HTML", category: "site", description: "An index.html, a stylesheet and a script, served as they are" },
+  { id: "node-server", name: "Node.js server", category: "app", description: "A small Node.js server with no packages; Stackyard runs it and restarts it on changes" },
+  { id: "python-scripts", name: "Python scripts", category: "project", description: "A main.py to start from; run it in the terminal" },
+];

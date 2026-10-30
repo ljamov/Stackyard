@@ -7,6 +7,8 @@ import { useViewOptions } from "../lib/viewOptions";
 const PATHS = {
   explorer: "M4 5.5h6l2 2h8v11H4zM4 9.5h16",
   dashboard: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z",
+  projects: "M3.5 6.5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1zM10 11.5l-2 2 2 2M14 11.5l2 2-2 2",
+  apps: "M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z",
   sites: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z",
   services: "M4 4h16v6H4zM4 14h16v6H4zM7.5 7h.01M7.5 17h.01M11 7h6M11 17h6",
   runtimes: "M8.5 7 3.5 12l5 5M15.5 7l5 5-5 5M13.5 5l-3 14",
@@ -55,6 +57,8 @@ export type IconName = keyof typeof PATHS;
 const CODICONS: Record<IconName, string> = {
   explorer: "files",
   dashboard: "dashboard",
+  projects: "folder-library",
+  apps: "extensions",
   sites: "globe",
   services: "server",
   runtimes: "code",

@@ -18,7 +18,7 @@ use stackyard_core::engine::Engine;
 use stackyard_core::logs;
 use stackyard_core::mcp;
 use stackyard_core::modules::{ModuleGroup, MODULES};
-use stackyard_core::projects::{self, Project, ProjectKind};
+use stackyard_core::projects::{self, Category, Project, ProjectKind};
 use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::scheduler::{self, TaskInput, TaskView};
 use stackyard_core::services::ServiceManager;
@@ -73,6 +73,8 @@ pub(crate) struct SiteView {
 #[derive(Serialize)]
 struct ProjectView {
     kind: &'static str,
+    /// The list it is in: `project`, `app` or `site`.
+    category: &'static str,
     folder: String,
 }
 
@@ -149,7 +151,7 @@ impl SiteView {
             } => (
                 format!("{} {version} · server on port {port}", site_label(*runtime)),
                 served.parked.then(|| {
-                    "Stackyard runs the server only for sites you add, not parked folders: add this folder as a site".to_string()
+                    "Stackyard runs the server only for saved items: open Manage and save its settings or pick its type".to_string()
                 }),
             ),
             Backend::Static => ("Static".to_string(), None),
@@ -172,6 +174,7 @@ impl SiteView {
             versions: SiteVersionView::list(site, served.parked, settings, runtimes),
             project: ProjectView {
                 kind: site.settings.project.kind.id(),
+                category: site.settings.project.category().id(),
                 folder: stackyard_core::projects::folder(site).display().to_string(),
             },
         }
@@ -1438,7 +1441,9 @@ fn add_site(
     runtime: String,
     https: bool,
     kind: Option<String>,
+    category: Option<String>,
 ) -> CmdResult<Vec<SiteView>> {
+    let category = parse_category(category.as_deref())?;
     let kind = match kind.as_deref() {
         None => ProjectKind::Website,
         Some(id) => {
@@ -1467,7 +1472,11 @@ fn add_site(
             https,
             dev_server: false,
             settings: stackyard_core::sites::SiteSettings {
-                project: Project { kind, source: None },
+                project: Project {
+                    kind,
+                    source: None,
+                    category,
+                },
                 ..Default::default()
             },
         })
@@ -1697,9 +1706,11 @@ async fn add_starter_site(
     starter: String,
     path: String,
     https: bool,
+    category: Option<String>,
 ) -> CmdResult<Vec<SiteView>> {
     let starter = starters::Starter::from_id(&starter)
         .ok_or_else(|| format!("unknown starter {starter:?}"))?;
+    let category = parse_category(category.as_deref())?.or(Some(starter.category()));
     domain::validate_site_name(&name).map_err(err)?;
     let settings = Settings::load().map_err(err)?;
     let tld = domain::normalize_tld(&settings.tld).map_err(err)?;
@@ -1770,6 +1781,10 @@ async fn add_starter_site(
                             name,
                         }
                     }),
+                    project: Project {
+                        category,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
             })
@@ -1889,6 +1904,7 @@ async fn add_project(
                     project: Project {
                         kind,
                         source: Some(source),
+                        category: Some(Category::Project),
                     },
                     ..Default::default()
                 },
@@ -1917,7 +1933,7 @@ async fn set_project_kind(
 ) -> CmdResult<Vec<SiteView>> {
     let to = ProjectKind::from_id(&kind).ok_or_else(|| format!("unknown project kind {kind:?}"))?;
     let engine = app.state::<Arc<Engine>>().inner().clone();
-    let mut store = SiteStore::load().map_err(err)?;
+    let mut store = saved_store(&domain)?;
     let name = store.get_mut(&domain).map_err(err)?.name.clone();
     let mut progress = project_progress(&app, &name);
     tauri::async_runtime::spawn_blocking(move || -> CmdResult<()> {
@@ -1932,6 +1948,48 @@ async fn set_project_kind(
     .map_err(|e| e.to_string())??;
     sites_changed(&app);
     site_views()
+}
+
+/// Moves a project, app or site to another list. One found in a parked
+/// folder is saved first, as if it had been made in the app.
+#[tauri::command]
+fn set_site_category(app: AppHandle, domain: String, category: String) -> CmdResult<Vec<SiteView>> {
+    let category =
+        Category::from_id(&category).ok_or_else(|| format!("unknown type {category:?}"))?;
+    let mut store = saved_store(&domain)?;
+    store
+        .get_mut(&domain)
+        .map_err(err)?
+        .settings
+        .project
+        .category = Some(category);
+    store.save().map_err(err)?;
+    sites_changed(&app);
+    site_views()
+}
+
+/// `project`, `app` or `site`; `None` leaves it to the kind.
+fn parse_category(id: Option<&str>) -> CmdResult<Option<Category>> {
+    id.map(|id| Category::from_id(id).ok_or_else(|| format!("unknown type {id:?}")))
+        .transpose()
+}
+
+/// The saved sites, with the one at `domain` among them: a site found in a
+/// parked folder is saved as it is listed (and the store written), so it
+/// can be changed like one made in the app.
+pub(crate) fn saved_store(domain: &str) -> CmdResult<SiteStore> {
+    let mut store = SiteStore::load().map_err(err)?;
+    let served = ServiceManager::open()
+        .user_sites()
+        .map_err(err)?
+        .into_iter()
+        .find(|s| s.domain() == domain)
+        .ok_or_else(|| format!("no site named {domain}"))?;
+    if served.parked {
+        store.adopt(&served.site).map_err(err)?;
+        store.save().map_err(err)?;
+    }
+    Ok(store)
 }
 
 /// Picks the version of a runtime for a site, or `None` for the default,
@@ -2379,6 +2437,7 @@ pub fn run() {
             add_starter_site,
             add_project,
             set_project_kind,
+            set_site_category,
             list_modules,
             set_module,
             service_states,
