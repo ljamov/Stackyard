@@ -20,6 +20,7 @@ import {
 import { StagingTab } from "./Staging";
 import { Icon } from "../Icon";
 import { AutostartCheck, SiteDatabaseNotice, useSiteDatabase } from "../SiteDatabase";
+import { DatabaseCheck } from "./DatabaseCheck";
 import { Keep, useBusy, useRememberedTab, useShown } from "../../lib/tabLife";
 import "../site-views.css";
 
@@ -118,6 +119,11 @@ export function WordPressTools({ site, onLive }: { site: Site; onLive?: (way: Wp
   }, [site.domain]);
   useEffect(reload, [reload]);
 
+  // A copy that still logs in to the live server, or whose database never
+  // came along: the Database tab's check and repair fixes those.
+  const dbTrouble =
+    (!!database.db && database.db.running && !database.db.found) || !!overview?.warnings.some((w) => w.startsWith("DB_HOST"));
+
   const tabs = TABS.filter((x) => x !== "WooCommerce" || overview?.woocommerce);
   const shown = tabs.includes(tab) ? tab : "Overview";
   return (
@@ -183,6 +189,23 @@ export function WordPressTools({ site, onLive }: { site: Site; onLive?: (way: Wp
         </div>
       </header>
       <SiteDatabaseNotice site={site} state={database} />
+      {dbTrouble && shown !== "Database" && (
+        <div className="site-db-notice" role="alert">
+          <p className="small">
+            {database.db && !database.db.found
+              ? t("{server} has no database {database}, so this site can't open its pages. A copied or cloned site often still points at the live server's database.", {
+                  server: database.db.service_name ?? "",
+                  database: database.db.database,
+                })
+              : t("wp-config.php doesn't log in to this computer's database, so the site and its tools can't reach it.")}
+          </p>
+          <div className="row wrap centered">
+            <button type="button" className="btn small primary" onClick={() => setTab("Database")}>
+              {t("Check and repair the database")}
+            </button>
+          </div>
+        </div>
+      )}
       {error && (
         <p className="error small" role="alert">
           {error}
@@ -237,7 +260,7 @@ export function WordPressTools({ site, onLive }: { site: Site; onLive?: (way: Wp
             )}
             {tabs.includes("Database") && (
               <Keep shown={shown === "Database"}>
-                <DatabaseTab site={site} overview={overview} onChanged={setOverview} />
+                <DatabaseTab site={site} overview={overview} onChanged={setOverview} trouble={dbTrouble} onRepaired={reload} />
               </Keep>
             )}
             {tabs.includes("WooCommerce") && (
@@ -1088,10 +1111,15 @@ function DatabaseTab({
   site,
   overview,
   onChanged,
+  trouble,
+  onRepaired,
 }: {
   site: Site;
   overview: WpOverview;
   onChanged: (o: WpOverview) => void;
+  /** The site can't reach its database: check as soon as the tab shows. */
+  trouble: boolean;
+  onRepaired: () => void;
 }) {
   const t = useT();
   const { isOn } = useModules();
@@ -1102,6 +1130,7 @@ function DatabaseTab({
 
   return (
     <div className="stack">
+      <DatabaseCheck site={site} auto={trouble} onRepaired={onRepaired} />
       <div className="row centered wrap">
         <span className="muted small">
           {t("The database {name}, tables starting with {prefix}.", { name: overview.database ?? "?", prefix: overview.prefix })}

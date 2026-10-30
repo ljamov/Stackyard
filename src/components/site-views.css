@@ -227,3 +227,8 @@
 .sidebar[data-collapsed] .side-group { width: 100%; align-items: center; }
 .side-sites h3 { margin: 0; padding: 8px 8px 2px; font: 400 11px var(--body); color: var(--muted); }
 .sidebar[data-collapsed] .side-sites h3 { display: none; }
+
+/* The Database tab's check and repair. */
+.db-check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.db-check-list li { align-items: flex-start; }
+.db-check-list .dot { flex: none; margin-top: 5px; }

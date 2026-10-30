@@ -294,6 +294,8 @@ export type SiteDb = {
   blocked_by_id: string | null;
   /** Started along with the web server. */
   start_with_web: boolean;
+  /** Whether the server's data folder has the database; false for a copy whose database never came along. */
+  found: boolean;
 };
 
 export type SiteVersion = {
@@ -1440,6 +1442,7 @@ function browserApi(): Api {
       blocked_by: running ? null : (other?.name ?? null),
       blocked_by_id: running ? null : (other?.id ?? null),
       start_with_web: autostart.has(domain),
+      found: true,
     };
   };
   let system: SystemStatus = {

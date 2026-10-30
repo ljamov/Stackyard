@@ -18,6 +18,7 @@ pub mod merge;
 pub mod muplugin;
 pub mod php;
 pub mod posts;
+pub mod repair;
 pub mod replace;
 pub mod snapshot;
 pub mod staging;
@@ -196,10 +197,25 @@ impl WpSite {
         header_field(&head, "Version")
     }
 
+    /// A client for the server that holds the site's database: MySQL or
+    /// MariaDB by their data folders (see [`crate::sitedb`]), else the one
+    /// switched on. Never the other server's tables of the same name.
+    pub fn client(&self, home: &Path) -> Result<Client> {
+        let database = self.database()?;
+        let services = crate::services::ServiceManager::new(home);
+        match ["mariadb", "mysql"]
+            .into_iter()
+            .find(|id| services.get(id).is_some() && crate::sitedb::holds(home, id, &database))
+        {
+            Some(id) => Client::open_service(home, id),
+            None => Client::open(home),
+        }
+    }
+
     /// Runs SQL in the site's database and returns the first result's rows.
     pub fn sql(&self, home: &Path, sql: &str) -> Result<Vec<Vec<Option<String>>>> {
         let database = self.database()?;
-        let client = Client::open(home)?;
+        let client = self.client(home)?;
         let sets = client.query(Some(&database), sql)?;
         Ok(sets.into_iter().next().map(|s| s.rows).unwrap_or_default())
     }
@@ -336,7 +352,15 @@ pub fn overview(home: &Path, wp: &WpSite) -> Overview {
         warnings.push("wp-config.php names no database Stackyard can read.".into());
     }
     let host = wp.config.get("DB_HOST").unwrap_or("localhost");
-    let server = Client::open(home).ok();
+    let server = match wp.client(home) {
+        Ok(client) => Some(client),
+        Err(e) => {
+            if database.is_some() {
+                warnings.push(e.to_string());
+            }
+            None
+        }
+    };
     if let Some(client) = &server {
         if let Some(def) = crate::catalog::service(&client.server().id) {
             let port = crate::services::port(home, def);
@@ -402,7 +426,7 @@ pub struct DiskUse {
 pub fn disk_use(home: &Path, wp: &WpSite) -> DiskUse {
     let content = wp.wp_content();
     let database = wp.database().ok().and_then(|db| {
-        Client::open(home)
+        wp.client(home)
             .ok()?
             .databases()
             .ok()?
@@ -947,7 +971,7 @@ pub fn search_replace(
         replace::Rules::text(from, to)
     };
     let database = wp.database()?;
-    let client = Client::open(home)?;
+    let client = wp.client(home)?;
     let work = temp_dir(home, "replace")?;
     let dump = work.join("before.sql");
     let result = (|| {
@@ -1012,14 +1036,14 @@ pub(crate) fn temp_dir(home: &Path, what: &str) -> Result<PathBuf> {
 
 /// Saves the site's database to `dest` (`.sql`, or `.sql.gz` compressed).
 pub fn export_database(home: &Path, wp: &WpSite, dest: &Path) -> Result<()> {
-    Client::open(home)?.dump_to(&wp.database()?, &[], dest)
+    wp.client(home)?.dump_to(&wp.database()?, &[], dest)
 }
 
 /// Loads a `.sql` or `.sql.gz` file into the site's database, after a backup.
 /// Returns the backup's file name.
 pub fn import_database(home: &Path, wp: &WpSite, file: &Path) -> Result<String> {
     let database = wp.database()?;
-    let client = Client::open(home)?;
+    let client = wp.client(home)?;
     let exists = client.databases()?.iter().any(|d| d.name == database);
     let backup = if exists {
         client.backup(&database)?.file
@@ -1070,7 +1094,7 @@ pub fn change_prefix(home: &Path, wp: &WpSite, prefix: &str) -> Result<String> {
         return Err(fail(format!("The tables already start with {old}")));
     }
     let database = wp.database()?;
-    let client = Client::open(home)?;
+    let client = wp.client(home)?;
     let all: Vec<String> = client
         .tables(&database)?
         .into_iter()
@@ -1149,7 +1173,7 @@ pub fn change_prefix(home: &Path, wp: &WpSite, prefix: &str) -> Result<String> {
 /// Optimizes every table of the site; returns how many there were.
 pub fn optimize_database(home: &Path, wp: &WpSite) -> Result<usize> {
     let database = wp.database()?;
-    let client = Client::open(home)?;
+    let client = wp.client(home)?;
     let tables: Vec<String> = client
         .tables(&database)?
         .into_iter()
