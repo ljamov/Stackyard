@@ -70,7 +70,13 @@ fn make_with(db: &DbSettings, lifetime: u64, write: bool) -> crate::Result<Helpe
     getrandom::fill(&mut bytes)
         .map_err(|e| crate::Error::WordPress(format!("no randomness: {e}")))?;
     let key: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    let file = format!("stackyard-{}.php", &key[..12]);
+    // A name of its own: one made from the key would show part of it in
+    // every server log line that names the file.
+    let mut name = [0u8; 6];
+    getrandom::fill(&mut name)
+        .map_err(|e| crate::Error::WordPress(format!("no randomness: {e}")))?;
+    let name: String = name.iter().map(|b| format!("{b:02x}")).collect();
+    let file = format!("stackyard-{name}.php");
     let hash: String = Sha256::digest(key.as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -1069,6 +1075,11 @@ mod tests {
     fn writes_settings_and_only_the_key_hash() {
         let helper = make(&db(), 1800).unwrap();
         assert!(helper.file.starts_with("stackyard-") && helper.file.ends_with(".php"));
+        assert_eq!(helper.file.len(), "stackyard-.php".len() + 12);
+        assert!(
+            !helper.file.contains(&helper.key[..12]),
+            "the name shows the key"
+        );
         assert_eq!(helper.key.len(), 48);
         assert!(!helper.source.contains(&helper.key));
         assert!(helper.source.contains("define( 'SY_LIFETIME', 1800 );"));

@@ -82,6 +82,11 @@ pub fn changes(sql: &str) -> Result<String, String> {
     }
     for statement in &statements {
         no_files(statement)?;
+        if let Some(what) = server_wide(statement) {
+            return Err(format!(
+                "{what} is not allowed here; only the data in databases may change"
+            ));
+        }
         let drops_database = statement
             .words
             .windows(2)
@@ -109,6 +114,39 @@ fn no_files(statement: &Statement) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// What a statement that changes the server itself, rather than the data in
+/// it, does: `None` for the data. The server's settings are among them:
+/// `SET GLOBAL general_log_file = …` with the log on writes every later
+/// query to any file the server may write, PHP into a site's folder say,
+/// which refusing OUTFILE alone doesn't stop. So are plugins and functions
+/// loaded from files, users and their rights, and stopping the server.
+fn server_wide(statement: &Statement) -> Option<&'static str> {
+    let words = &statement.words;
+    let first = words.first().map(String::as_str).unwrap_or("");
+    let has = |word: &str| words.iter().any(|w| w == word);
+    let pair = |a: &str, b: &str| words.windows(2).any(|w| w[0] == a && w[1] == b);
+    if first == "SET" && (has("GLOBAL") || has("PERSIST") || has("PERSIST_ONLY")) {
+        return Some("changing the server's settings");
+    }
+    if first == "SET" && words.get(1).is_some_and(|w| w == "PASSWORD") {
+        return Some("changing a password");
+    }
+    if matches!(first, "INSTALL" | "UNINSTALL") || has("SONAME") {
+        return Some("loading code into the server");
+    }
+    if matches!(first, "GRANT" | "REVOKE")
+        || ["CREATE", "ALTER", "DROP", "RENAME"]
+            .iter()
+            .any(|verb| pair(verb, "USER") || pair(verb, "ROLE"))
+    {
+        return Some("changing users and their rights");
+    }
+    if matches!(first, "SHUTDOWN" | "RESTART" | "KILL") {
+        return Some("stopping the server or its connections");
+    }
+    None
 }
 
 /// Splits SQL into statements, dropping comments and putting everything
@@ -275,6 +313,39 @@ mod tests {
             "UPDATE a SET b = 1 \\g",
         ] {
             assert!(changes(bad).is_err(), "{bad}");
+        }
+    }
+
+    /// The server's own settings can write files (its logs go wherever
+    /// they are pointed), load code, or open it up; only data may change.
+    #[test]
+    fn changes_leave_the_server_itself_alone() {
+        for bad in [
+            "SET GLOBAL general_log_file = 'C:/stackyard/www/shop/x.php'",
+            "set global general_log = 1",
+            "SET @@global.slow_query_log_file = '/tmp/x.php'",
+            "SET PERSIST general_log = ON",
+            "UPDATE a SET b = 1; SET GLOBAL general_log = ON",
+            "INSTALL PLUGIN x SONAME 'x.so'",
+            "CREATE FUNCTION f RETURNS STRING SONAME 'udf.dll'",
+            "CREATE USER 'x'@'%' IDENTIFIED BY 'y'",
+            "GRANT ALL ON *.* TO 'x'@'%'",
+            "ALTER USER root IDENTIFIED BY 'x'",
+            "SET PASSWORD FOR root = 'x'",
+            "SHUTDOWN",
+        ] {
+            assert!(changes(bad).is_err(), "{bad}");
+        }
+        // Ordinary changes that only mention such words still work.
+        for good in [
+            "UPDATE settings SET value = 'global' WHERE name = 'scope'",
+            "SET @count = 1",
+            "SET NAMES utf8mb4",
+            "CREATE TABLE user (id INT)",
+            "ALTER TABLE users ADD COLUMN role VARCHAR(20)",
+            "INSERT INTO log (message) VALUES ('SET GLOBAL general_log = 1')",
+        ] {
+            assert!(changes(good).is_ok(), "{good}");
         }
     }
 }
