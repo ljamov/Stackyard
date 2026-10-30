@@ -52,6 +52,21 @@ A tool always runs on the Node.js it was installed with, whatever version a proj
 these tools need a recent one. If that version was removed, it uses another one that is new
 enough.
 
+## Installed with `npm install -g`
+
+Tools you install yourself with `npm install -g` in Stackyard's Terminal tab work there too:
+
+- On Windows `npm install -g` puts them in `%APPDATA%\npm`, the folder Node.js's own installer
+  uses and puts on your Path, not in the Node.js version's folder, which an update of that version
+  replaces. Set `NPM_CONFIG_PREFIX` yourself to use another folder.
+- The Terminal tab finds commands in that folder, and in your default Node.js version's folder,
+  where `npm install -g` put them before.
+- Claude Code updates itself by moving its running `claude.exe` aside and writing the new one. If
+  that stops half way, for example because Stackyard closed and took the terminal with it, `claude`
+  no longer starts ("The term '...\bin\claude.exe' is not recognized"). Each new terminal puts
+  the program back from the package, so `claude` works again without reinstalling.
+- Claude Code installed on this screen does not update itself; Stackyard shows **Update** instead.
+
 ## Command line
 
 ```sh
