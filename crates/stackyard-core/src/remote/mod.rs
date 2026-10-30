@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::settings::{read_toml, write_toml};
 use crate::{paths, Error, Result};
 
+pub(crate) use sync::MAX_FILES;
 pub use sync::{Action, Compare, Direction, Outcome, Plan, PlannedFile, Progress, Side};
 
 /// Seconds a command on a server may go without printing anything.

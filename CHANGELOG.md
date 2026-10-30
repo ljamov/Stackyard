@@ -6,6 +6,11 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Much faster push, pull and clone for WordPress.** Stackyard's helper on the live server now lists
+  every file in a few requests, where Stackyard used to ask the server for each folder in turn (over
+  FTP, a new connection for each one). Small files then come many to a request instead of one by
+  one. If the helper can't do it, Stackyard falls back to the old way by itself.
+
 - **Publisher name on Windows.** The installer, the program file and Apps & features now name the
   publisher and the project page, which also helps antivirus programs tell Stackyard apart from
   unknown software.

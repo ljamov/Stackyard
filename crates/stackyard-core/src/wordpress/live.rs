@@ -197,6 +197,65 @@ pub(crate) const SKIP: &[&str] = &[
 ];
 
 /// What a clone leaves out of the files: the usual (`.git`, …) and [`SKIP`].
+/// Copies the live files into `folder` through the helper: listed in a few
+/// requests, small files many to an answer, large ones one by one. Files
+/// already here with the same size and date are left alone, so a clone
+/// that stopped goes on where it was. Any error leaves the rest to the walk.
+fn clone_by_helper(
+    s: &Server,
+    folder: &Path,
+    skip: &[String],
+    progress: &mut dyn FnMut(String, u64, u64) -> bool,
+) -> Result<()> {
+    let listed = s.helper_files(skip, &mut |found| {
+        progress(format!("Listing files on the server… {found} found"), 0, 0)
+    })?;
+    let need: Vec<(String, u64)> = listed
+        .into_iter()
+        .filter(|(rel, (size, modified))| {
+            let here = std::fs::metadata(folder.join(rel)).ok();
+            !here.is_some_and(|m| {
+                m.len() == *size
+                    && match (remote::mtime_of(&m), modified) {
+                        (Some(a), Some(b)) => (a - b).abs() <= 2,
+                        _ => true,
+                    }
+            })
+        })
+        .map(|(rel, (size, _))| (rel, size))
+        .collect();
+    let count = need.len() as u64;
+    let small: Vec<String> = need
+        .iter()
+        .filter(|(_, size)| *size <= helper::PACK_FILE_BYTES)
+        .map(|(rel, _)| rel.clone())
+        .collect();
+    let packed = s.helper_pack(&small, folder, &mut |done| {
+        progress(
+            format!("Downloading files… {done} of {count}"),
+            done as u64,
+            count,
+        )
+    })?;
+    for (i, (rel, _)) in need
+        .iter()
+        .filter(|(rel, _)| !packed.contains(rel))
+        .enumerate()
+    {
+        let done = (packed.len() + i) as u64;
+        if !progress(format!("Downloading {rel}"), done, count) {
+            return Err(stopped());
+        }
+        s.sessions.download(
+            &s.connection,
+            &remote::join(&s.root, rel),
+            &folder.join(rel),
+            &mut |_| true,
+        )?;
+    }
+    Ok(())
+}
+
 fn clone_skip() -> Vec<String> {
     let mut skip = remote::default_skip();
     skip.extend(SKIP.iter().map(|s| s.to_string()));
@@ -778,6 +837,127 @@ impl<'a> Server<'a> {
             }
             other => other,
         }
+    }
+
+    /// Lists the site's files through the helper: a few requests in all,
+    /// however many folders the site has, where walking them over FTP takes
+    /// one round trip each. `progress` gets the count so far and returns
+    /// `false` to stop.
+    pub(super) fn helper_files(
+        &self,
+        skip: &[String],
+        progress: &mut dyn FnMut(usize) -> bool,
+    ) -> Result<std::collections::BTreeMap<String, (u64, Option<i64>)>> {
+        let skip = serde_json::to_string(skip).unwrap_or_default();
+        let seconds = if self.php_cli {
+            helper::FILES_SECS_CLI
+        } else {
+            helper::FILES_SECS_HTTP
+        }
+        .to_string();
+        let mut found = std::collections::BTreeMap::new();
+        let mut from = vec![String::new()];
+        loop {
+            if !progress(found.len()) {
+                return Err(stopped());
+            }
+            let from_json = serde_json::to_string(&from).unwrap_or_default();
+            let mut out = Vec::new();
+            self.call(
+                &[
+                    ("do", "files"),
+                    ("skip", &skip),
+                    ("seconds", &seconds),
+                    ("from", &from_json),
+                ],
+                &mut out,
+            )?;
+            let page: helper::FilesPage = serde_json::from_slice(&out).map_err(|_| {
+                fail(format!(
+                    "the helper's file list could not be read: {}",
+                    String::from_utf8_lossy(&out[..out.len().min(300)])
+                ))
+            })?;
+            for (rel, size, modified) in page.files {
+                found.insert(rel, (size, (modified > 0).then_some(modified)));
+            }
+            if found.len() > remote::MAX_FILES {
+                return Err(fail(format!(
+                    "the live site has more than {} files",
+                    remote::MAX_FILES
+                )));
+            }
+            match page.next {
+                Some(next) if !next.is_empty() => from = next,
+                _ => return Ok(found),
+            }
+        }
+    }
+
+    /// Downloads `paths` into `root` through the helper, many files to an
+    /// answer, where over FTP each file is a connection of its own. Paths
+    /// are sent in groups small enough for one command-line argument over
+    /// SSH. Returns the paths written; the rest (too large, or gone) are
+    /// left for the caller to download one by one.
+    pub(super) fn helper_pack(
+        &self,
+        paths: &[String],
+        root: &Path,
+        progress: &mut dyn FnMut(usize) -> bool,
+    ) -> Result<BTreeSet<String>> {
+        const GROUP_JSON_BYTES: usize = 60_000;
+        let seconds = if self.php_cli {
+            helper::FILES_SECS_CLI
+        } else {
+            helper::FILES_SECS_HTTP
+        }
+        .to_string();
+        let bytes = helper::PACK_BYTES.to_string();
+        let mut written = BTreeSet::new();
+        let mut groups: Vec<Vec<String>> = vec![Vec::new()];
+        let mut group_len = 0;
+        for path in paths {
+            if group_len + path.len() + 4 > GROUP_JSON_BYTES {
+                groups.push(Vec::new());
+                group_len = 0;
+            }
+            group_len += path.len() + 4;
+            if let Some(group) = groups.last_mut() {
+                group.push(path.clone());
+            }
+        }
+        for group in groups.into_iter().filter(|g| !g.is_empty()) {
+            let wanted: BTreeSet<String> = group.iter().cloned().collect();
+            let list = serde_json::to_string(&group).unwrap_or_default();
+            let mut start = 0;
+            loop {
+                if !progress(written.len()) {
+                    return Err(stopped());
+                }
+                let mut unpacker = helper::Unpacker::new(root, &wanted);
+                let start_text = start.to_string();
+                self.call(
+                    &[
+                        ("do", "pack"),
+                        ("paths", &list),
+                        ("start", &start_text),
+                        ("bytes", &bytes),
+                        ("seconds", &seconds),
+                    ],
+                    &mut unpacker,
+                )?;
+                written.extend(unpacker.written.iter().cloned());
+                if let Some(e) = unpacker.error() {
+                    return Err(fail(format!("downloading through the helper: {e}")));
+                }
+                match (unpacker.done, unpacker.next) {
+                    (true, _) => break,
+                    (false, Some(next)) if next > start => start = next,
+                    _ => return Err(fail("the helper's answer broke off")),
+                }
+            }
+        }
+        Ok(written)
     }
 
     /// Asks the helper how much the site's files hold, by part.
@@ -1822,13 +2002,30 @@ fn clone_from_server<'a>(
         if options.media == Media::FromLive {
             skip.push("wp-content/uploads".into());
         }
+        let mut halt = false;
+        let quick = clone_by_helper(s, folder, &skip, &mut |message, done, total| {
+            let go = progress(Progress {
+                stage: Stage::Files,
+                message,
+                done,
+                total,
+            });
+            halt |= !go;
+            go
+        });
+        if halt {
+            return Err(stopped());
+        }
         let files = Connection {
             remote_dir: s.root.clone(),
             skip,
             ..connection.clone()
         };
         let mut last = None;
-        for attempt in 0..3 {
+        // What the helper could not do, the walk below does, checking
+        // every file again.
+        let attempts = if quick.is_ok() { 0 } else { 3 };
+        for attempt in 0..attempts {
             say(progress, Stage::Files, "Comparing files with the server…")?;
             let mut halt = false;
             let plan = sessions.plan(

@@ -17,7 +17,7 @@ use crate::{Error, Result};
 
 /// More files than any site should have; stops a wrong folder (say `/`)
 /// from being walked for ever.
-const MAX_FILES: usize = 200_000;
+pub(crate) const MAX_FILES: usize = 200_000;
 /// Seconds two modification times may differ by and still count as the same.
 const SLACK: i64 = 2;
 /// Failures in a row after which the server is taken to be gone.

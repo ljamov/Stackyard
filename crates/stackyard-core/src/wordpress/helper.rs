@@ -143,6 +143,20 @@ pub struct Sizes {
 /// The seconds the helper counts files for before it answers with what it has.
 pub const SIZES_SECS: u64 = 15;
 
+/// The seconds one `do=files` request lists for over HTTPS, kept well under
+/// the time proxies and hosts allow a request; over SSH nothing cuts it off.
+pub const FILES_SECS_HTTP: u64 = 20;
+pub const FILES_SECS_CLI: u64 = 120;
+
+/// One answer of `do=files`: each file as `[path, size, date]`, and the
+/// folders still to list when its time ran out.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FilesPage {
+    pub files: Vec<(String, u64, i64)>,
+    #[serde(default)]
+    pub next: Option<Vec<String>>,
+}
+
 impl Sizes {
     /// Everything that is copied.
     pub fn total(&self) -> Part {
@@ -265,6 +279,155 @@ pub fn meta_from_errors(errors: &str) -> Option<Chunk> {
         .rev()
         .find_map(|line| line.strip_prefix(META_MARK))
         .and_then(|json| serde_json::from_str(json).ok())
+}
+
+/// The largest file `do=pack` sends; larger ones are downloaded one by one.
+pub const PACK_FILE_BYTES: u64 = 8 * 1024 * 1024;
+/// About how much one `do=pack` answer holds.
+pub const PACK_BYTES: u64 = 64 * 1024 * 1024;
+
+/// One line of a `do=pack` answer.
+#[derive(Debug, Deserialize)]
+struct PackLine {
+    #[serde(default)]
+    p: Option<String>,
+    #[serde(default)]
+    s: Option<u64>,
+    #[serde(default)]
+    m: i64,
+    #[serde(default)]
+    missing: bool,
+    #[serde(default)]
+    next: Option<usize>,
+    #[serde(default)]
+    done: bool,
+}
+
+/// Writes the files of a `do=pack` answer under `root` as the answer
+/// arrives. Only paths in `wanted` are written, so an answer can't put a
+/// file anywhere else.
+pub struct Unpacker<'a> {
+    root: &'a std::path::Path,
+    wanted: &'a std::collections::BTreeSet<String>,
+    buf: Vec<u8>,
+    body: Option<(String, u64, i64, Vec<u8>)>,
+    /// Paths written so far.
+    pub written: Vec<String>,
+    /// Where the next request starts, when the answer stopped early.
+    pub next: Option<usize>,
+    /// The answer reached its end.
+    pub done: bool,
+    error: Option<String>,
+}
+
+impl<'a> Unpacker<'a> {
+    pub fn new(root: &'a std::path::Path, wanted: &'a std::collections::BTreeSet<String>) -> Self {
+        Unpacker {
+            root,
+            wanted,
+            buf: Vec::new(),
+            body: None,
+            written: Vec::new(),
+            next: None,
+            done: false,
+            error: None,
+        }
+    }
+
+    /// What went wrong reading the answer, if anything.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    fn step(&mut self) -> std::result::Result<bool, String> {
+        if let Some((_, left, _, data)) = self.body.as_mut() {
+            let take = (*left).min(self.buf.len() as u64) as usize;
+            data.extend(self.buf.drain(..take));
+            *left -= take as u64;
+            if *left > 0 {
+                return Ok(false);
+            }
+            let (rel, _, modified, data) = self.body.take().unwrap_or_default();
+            self.save(&rel, modified, &data)?;
+            self.written.push(rel);
+            return Ok(true);
+        }
+        let Some(end) = self.buf.iter().position(|&b| b == b'\n') else {
+            return Ok(false);
+        };
+        let line: Vec<u8> = self.buf.drain(..=end).collect();
+        let line: PackLine = serde_json::from_slice(&line).map_err(|_| {
+            format!(
+                "the helper sent {:?}",
+                String::from_utf8_lossy(&line[..line.len().min(120)])
+            )
+        })?;
+        match line {
+            PackLine { done: true, .. } => self.done = true,
+            PackLine { next: Some(n), .. } => self.next = Some(n),
+            PackLine {
+                p: Some(_),
+                missing: true,
+                ..
+            } => {}
+            PackLine {
+                p: Some(p),
+                s: Some(s),
+                m,
+                ..
+            } if s <= PACK_FILE_BYTES => {
+                self.body = Some((p, s, m, Vec::with_capacity(s as usize)));
+            }
+            _ => return Err("the helper's answer could not be read".into()),
+        }
+        Ok(true)
+    }
+
+    fn save(&self, rel: &str, modified: i64, data: &[u8]) -> std::result::Result<(), String> {
+        // A backslash or colon would be a separator or a drive on Windows.
+        if !self.wanted.contains(rel)
+            || rel.contains(['\\', ':'])
+            || rel.split('/').any(|p| p.is_empty() || p == "..")
+        {
+            return Err(format!("the helper sent {rel}, which was not asked for"));
+        }
+        let path = self.root.join(rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        std::fs::write(&path, data).map_err(|e| format!("{}: {e}", path.display()))?;
+        if modified > 0 {
+            let time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(modified as u64);
+            if let Ok(file) = std::fs::File::options().write(true).open(&path) {
+                let _ = file.set_modified(time);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl std::io::Write for Unpacker<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.error.is_none() {
+            self.buf.extend_from_slice(bytes);
+            loop {
+                match self.step() {
+                    Ok(true) => continue,
+                    Ok(false) => break,
+                    Err(e) => {
+                        self.error = Some(e);
+                        self.buf.clear();
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 const SOURCE: &str = r#"<?php
@@ -451,6 +614,111 @@ function sy_sizes( $root, $skip, $seconds ) {
 if ( 'sizes' === $sy_do ) {
 	$sy_skip = isset( $sy_args['skip'] ) ? json_decode( (string) $sy_args['skip'], true ) : array();
 	sy_json( sy_sizes( __DIR__, is_array( $sy_skip ) ? $sy_skip : array(), isset( $sy_args['seconds'] ) ? max( 1, (int) $sy_args['seconds'] ) : 15 ) );
+}
+
+// Lists the files under this folder with their size and date, for at most
+// $seconds; `next` holds the folders still to list, for the next request.
+// Linked folders are left out (they can loop); linked files are listed.
+function sy_files( $root, $skip, $seconds, $stack ) {
+	$files = array();
+	$until = microtime( true ) + $seconds;
+	$self  = basename( __FILE__ );
+	while ( $stack ) {
+		if ( microtime( true ) > $until ) {
+			break;
+		}
+		$rel = (string) array_pop( $stack );
+		// Never outside this folder, whatever `from` asked for.
+		if ( false !== strpos( '/' . $rel . '/', '/../' ) || 0 === strpos( $rel, '/' ) ) {
+			continue;
+		}
+		$handle = @opendir( '' === $rel ? $root : $root . '/' . $rel );
+		if ( ! $handle ) {
+			continue;
+		}
+		while ( false !== ( $name = readdir( $handle ) ) ) {
+			if ( '.' === $name || '..' === $name ) {
+				continue;
+			}
+			if ( '' === $rel && ( $self === $name || 0 === strpos( $name, 'stackyard-' ) ) ) {
+				continue;
+			}
+			$path = '' === $rel ? $name : $rel . '/' . $name;
+			if ( 'skipped' === sy_part( $path, $skip ) ) {
+				continue;
+			}
+			$full = $root . '/' . $path;
+			if ( is_dir( $full ) ) {
+				if ( ! is_link( $full ) ) {
+					$stack[] = $path;
+				}
+			} elseif ( is_file( $full ) ) {
+				$files[] = array( $path, (int) @filesize( $full ), (int) @filemtime( $full ) );
+			}
+		}
+		closedir( $handle );
+	}
+	return array(
+		'files' => $files,
+		'next'  => $stack ? array_values( $stack ) : null,
+	);
+}
+
+// Sends the files asked for in one answer, each as a JSON line followed by
+// exactly `s` bytes, until $bytes or $seconds are spent; the last line says
+// where to go on from. Only files up to SY_PACK_FILE_BYTES are packed, read
+// whole, so the size sent is the size of what follows even if a file
+// changes meanwhile.
+define( 'SY_PACK_FILE_BYTES', 8 * 1024 * 1024 );
+function sy_pack( $root, $paths, $start, $bytes, $seconds ) {
+	if ( ! sy_cli() ) {
+		header( 'Content-Type: application/octet-stream' );
+		header( 'Cache-Control: no-store' );
+	}
+	$until = microtime( true ) + $seconds;
+	$sent  = 0;
+	$count = count( $paths );
+	for ( $i = $start; $i < $count; $i++ ) {
+		if ( $i > $start && ( $sent >= $bytes || microtime( true ) > $until ) ) {
+			echo json_encode( array( 'next' => $i ) ) . "\n";
+			return;
+		}
+		$path = (string) $paths[ $i ];
+		$full = $root . '/' . $path;
+		$safe = '' !== $path && 0 !== strpos( $path, '/' ) && false === strpos( '/' . $path . '/', '/../' );
+		if ( ! $safe || ! is_file( $full ) || @filesize( $full ) > SY_PACK_FILE_BYTES ) {
+			echo json_encode( array( 'p' => $path, 'missing' => true ) ) . "\n";
+			continue;
+		}
+		$data = @file_get_contents( $full );
+		if ( false === $data ) {
+			echo json_encode( array( 'p' => $path, 'missing' => true ) ) . "\n";
+			continue;
+		}
+		echo json_encode( array( 'p' => $path, 's' => strlen( $data ), 'm' => (int) @filemtime( $full ) ) ) . "\n";
+		echo $data;
+		$sent += strlen( $data );
+		flush();
+	}
+	echo json_encode( array( 'done' => true ) ) . "\n";
+}
+
+if ( 'pack' === $sy_do ) {
+	$sy_paths = isset( $sy_args['paths'] ) ? json_decode( (string) $sy_args['paths'], true ) : array();
+	sy_pack(
+		__DIR__,
+		is_array( $sy_paths ) ? array_values( $sy_paths ) : array(),
+		isset( $sy_args['start'] ) ? max( 0, (int) $sy_args['start'] ) : 0,
+		isset( $sy_args['bytes'] ) ? max( 1, (int) $sy_args['bytes'] ) : 64 * 1024 * 1024,
+		isset( $sy_args['seconds'] ) ? max( 1, (int) $sy_args['seconds'] ) : 20
+	);
+	exit;
+}
+
+if ( 'files' === $sy_do ) {
+	$sy_skip = isset( $sy_args['skip'] ) ? json_decode( (string) $sy_args['skip'], true ) : array();
+	$sy_from = isset( $sy_args['from'] ) ? json_decode( (string) $sy_args['from'], true ) : array( '' );
+	sy_json( sy_files( __DIR__, is_array( $sy_skip ) ? $sy_skip : array(), isset( $sy_args['seconds'] ) ? max( 1, (int) $sy_args['seconds'] ) : 20, is_array( $sy_from ) ? $sy_from : array( '' ) ) );
 }
 
 if ( ! class_exists( 'mysqli' ) ) {
@@ -878,6 +1146,157 @@ mod tests {
             out.status.success(),
             "{}",
             String::from_utf8_lossy(&out.stdout)
+        );
+    }
+
+    fn wanted(paths: &[&str]) -> std::collections::BTreeSet<String> {
+        paths.iter().map(|p| p.to_string()).collect()
+    }
+
+    #[test]
+    fn unpacks_files_however_the_answer_is_cut() {
+        let dir = crate::testutil::tempdir();
+        let want = wanted(&["a.php", "wp-content/b.css", "empty.txt"]);
+        let answer = concat!(
+            "{\"p\":\"a.php\",\"s\":5,\"m\":1000000000}\nhello",
+            "{\"p\":\"gone.php\",\"missing\":true}\n",
+            "{\"p\":\"wp-content/b.css\",\"s\":3,\"m\":0}\nb{}",
+            "{\"p\":\"empty.txt\",\"s\":0,\"m\":0}\n",
+            "{\"done\":true}\n",
+        );
+        // Byte by byte: the network may cut it anywhere.
+        let mut unpacker = Unpacker::new(&dir, &want);
+        for byte in answer.bytes() {
+            std::io::Write::write(&mut unpacker, &[byte]).unwrap();
+        }
+        assert_eq!(unpacker.error(), None);
+        assert!(unpacker.done);
+        assert_eq!(unpacker.written, ["a.php", "wp-content/b.css", "empty.txt"]);
+        assert_eq!(std::fs::read(dir.join("a.php")).unwrap(), b"hello");
+        assert_eq!(std::fs::read(dir.join("wp-content/b.css")).unwrap(), b"b{}");
+        assert_eq!(std::fs::read(dir.join("empty.txt")).unwrap(), b"");
+        let modified = std::fs::metadata(dir.join("a.php"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_eq!(
+            modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            1_000_000_000
+        );
+    }
+
+    #[test]
+    fn writes_nothing_it_did_not_ask_for() {
+        let dir = crate::testutil::tempdir();
+        for (asked, sent) in [
+            ("a.php", "b.php"),
+            ("../evil.php", "../evil.php"),
+            ("x\\..\\evil.php", "x\\..\\evil.php"),
+            ("c:evil.php", "c:evil.php"),
+        ] {
+            let want = wanted(&[asked]);
+            let mut unpacker = Unpacker::new(&dir, &want);
+            let answer = format!(
+                "{{\"p\":{},\"s\":1,\"m\":0}}\nx",
+                serde_json::to_string(sent).unwrap()
+            );
+            std::io::Write::write(&mut unpacker, answer.as_bytes()).unwrap();
+            assert!(unpacker.error().is_some(), "{sent} was accepted");
+            assert!(unpacker.written.is_empty());
+        }
+        assert!(!dir.parent().unwrap().join("evil.php").exists());
+    }
+
+    #[test]
+    fn a_broken_answer_is_an_error() {
+        let dir = crate::testutil::tempdir();
+        let want = wanted(&["a.php"]);
+        let mut unpacker = Unpacker::new(&dir, &want);
+        std::io::Write::write(&mut unpacker, b"<html>Service Unavailable</html>\n").unwrap();
+        assert!(unpacker.error().is_some());
+        assert!(!unpacker.done);
+    }
+
+    /// The helper's own `files` and `pack` run with the PHP on this
+    /// computer, when there is one, and Rust reads what they answer.
+    #[test]
+    fn lists_and_packs_with_real_php() {
+        let site = crate::testutil::tempdir();
+        let files = [
+            ("index.php", "<?php // index".to_string()),
+            ("wp-content/plugins/p/p.php", "plugin".to_string()),
+            ("wp-content/cache/c.html", "cached".to_string()),
+            ("wp-content/uploads/big.bin", "x".repeat(3000)),
+        ];
+        for (rel, text) in &files {
+            let path = site.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        let helper = make(&db(), 600).unwrap();
+        std::fs::write(site.join(&helper.file), &helper.source).unwrap();
+        let php = |args: &[&str]| {
+            std::process::Command::new("php")
+                .current_dir(&site)
+                .arg(&helper.file)
+                .args(args)
+                .output()
+                .ok()
+        };
+        let Some(out) = php(&["do=files", r#"skip=["wp-content/cache"]"#]) else {
+            return; // no PHP here
+        };
+        let page: FilesPage = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(page.next, None);
+        let mut listed: Vec<&str> = page.files.iter().map(|(p, _, _)| p.as_str()).collect();
+        listed.sort();
+        assert_eq!(
+            listed,
+            [
+                "index.php",
+                "wp-content/plugins/p/p.php",
+                "wp-content/uploads/big.bin"
+            ]
+        );
+
+        // A byte budget of 1 sends one file per answer; `next` goes on.
+        let paths = [
+            "index.php",
+            "wp-content/plugins/p/p.php",
+            "wp-content/uploads/big.bin",
+            "gone.php",
+        ];
+        let list = format!("paths={}", serde_json::to_string(&paths).unwrap());
+        let want = wanted(&paths);
+        let copy = crate::testutil::tempdir();
+        let (mut start, mut rounds, mut written) = (0, 0, Vec::new());
+        loop {
+            rounds += 1;
+            let start_arg = format!("start={start}");
+            let out = php(&["do=pack", &list, &start_arg, "bytes=1"]).unwrap();
+            let mut unpacker = Unpacker::new(&copy, &want);
+            std::io::Write::write(&mut unpacker, &out.stdout).unwrap();
+            assert_eq!(unpacker.error(), None);
+            written.extend(unpacker.written.clone());
+            if unpacker.done {
+                break;
+            }
+            start = unpacker.next.unwrap();
+        }
+        // One file an answer, and the missing one is said in a fourth.
+        assert_eq!(rounds, 4);
+        assert_eq!(written, &paths[..3]);
+        for (rel, text) in &files[..2] {
+            assert_eq!(&std::fs::read_to_string(copy.join(rel)).unwrap(), text);
+        }
+        assert_eq!(
+            std::fs::read(copy.join("wp-content/uploads/big.bin"))
+                .unwrap()
+                .len(),
+            3000
         );
     }
 }

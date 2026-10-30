@@ -76,6 +76,18 @@ pub enum Way {
     Pull,
 }
 
+/// How the live site's files were listed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Lister {
+    /// Folder by folder over the connection. Plain FTP listings give dates
+    /// to the minute, in the server's own time zone.
+    #[default]
+    Walk,
+    /// By the helper on the server, in a few requests, dates to the second.
+    Helper,
+}
+
 // ---------------------------------------------------------------------------
 // The sync base
 
@@ -85,6 +97,9 @@ pub struct Base {
     pub at: u64,
     /// The live site's files: size and date, no checksums.
     pub live_files: Manifest,
+    /// How `live_files` was listed, since their dates differ in precision.
+    #[serde(default)]
+    pub live_lister: Lister,
     pub local_files: Manifest,
     pub live_facts: Option<Facts>,
     pub local_facts: Option<Facts>,
@@ -167,6 +182,8 @@ pub(super) fn record_after_clone(
         &Base {
             at: env::now(),
             live_files: as_live(&local_files, &content),
+            // The clone set each file's date from the walk's listing.
+            live_lister: Lister::Walk,
             local_files,
             live_facts,
             local_facts,
@@ -484,30 +501,50 @@ impl Server<'_> {
         result
     }
 
-    /// Every file of the live site, by path relative to WordPress's folder.
-    fn files(&self, skip_media: bool, progress: OnProgress) -> Result<Manifest> {
+    /// Every file of the live site, by path relative to WordPress's folder,
+    /// and how they were listed: by the helper on the server when it can,
+    /// else folder by folder over the connection.
+    fn files(&self, skip_media: bool, progress: OnProgress) -> Result<(Manifest, Lister)> {
         let mut skip = remote::default_skip();
         skip.extend(live::SKIP.iter().map(|s| s.to_string()));
         if skip_media {
             skip.push("wp-content/uploads".into());
         }
-        let listed = self
-            .sessions
-            .files(&self.connection, &self.root, &skip, &mut |p| {
-                let message = match &p {
-                    remote::Progress::Scanning { found, .. } => {
-                        format!("Listing files on the server… {found} found")
-                    }
-                    remote::Progress::Transfer { path, .. } => path.clone(),
-                };
-                progress(Progress {
-                    stage: Stage::Files,
-                    message,
-                    done: 0,
-                    total: 0,
-                })
-            })?;
-        Ok(listed
+        let mut halted = false;
+        let by_helper = self.helper_files(&skip, &mut |found| {
+            let going = progress(Progress {
+                stage: Stage::Files,
+                message: format!("Listing files on the server… {found} found"),
+                done: 0,
+                total: 0,
+            });
+            halted = !going;
+            going
+        });
+        let (listed, lister) = match by_helper {
+            Ok(listed) => (listed, Lister::Helper),
+            Err(_) if halted => return Err(stopped()),
+            Err(_) => {
+                let walked =
+                    self.sessions
+                        .files(&self.connection, &self.root, &skip, &mut |p| {
+                            let message = match &p {
+                                remote::Progress::Scanning { found, .. } => {
+                                    format!("Listing files on the server… {found} found")
+                                }
+                                remote::Progress::Transfer { path, .. } => path.clone(),
+                            };
+                            progress(Progress {
+                                stage: Stage::Files,
+                                message,
+                                done: 0,
+                                total: 0,
+                            })
+                        })?;
+                (walked, Lister::Walk)
+            }
+        };
+        let files = listed
             .into_iter()
             .filter(|(rel, _)| !(rel.starts_with("stackyard-") && !rel.contains('/')))
             .map(|(rel, (size, modified))| {
@@ -520,7 +557,8 @@ impl Server<'_> {
                     },
                 )
             })
-            .collect())
+            .collect();
+        Ok((files, lister))
     }
 
     /// Downloads every table into `dir`, returning the parts in order.
@@ -687,6 +725,21 @@ fn media_from_live(r: &Reached) -> bool {
     r.live.media == Media::FromLive
 }
 
+/// Takes the live dates in `base` from a listing made another way, wherever
+/// the size still matches, so the next comparisons are exact again. A file
+/// changed since the base that kept its size to the byte is missed this
+/// once; comparing dates of different precision would list every file.
+fn rekey(base: &mut Base, live: &Manifest, lister: Lister) {
+    for (rel, entry) in base.live_files.iter_mut() {
+        if let Some(now) = live.get(rel) {
+            if now.size == entry.size {
+                entry.modified = now.modified;
+            }
+        }
+    }
+    base.live_lister = lister;
+}
+
 /// The address rules from one side to the other.
 fn rules(r: &Reached, home: &Path, way: Way) -> replace::Rules {
     let local_url = super::home_url(home, &r.wp);
@@ -720,13 +773,14 @@ struct Compared {
     changes: SyncChanges,
     local_files: Manifest,
     live_files: Manifest,
+    live_lister: Lister,
     local_facts: Facts,
     live_facts: Facts,
 }
 
 fn compare(home: &Path, r: &Reached, way: Way, progress: OnProgress) -> Result<Compared> {
     let domain = r.site.domain();
-    let base = load_base(home, &domain);
+    let mut base = load_base(home, &domain);
     let content = merge::content_rel(&r.wp);
     let from_live = media_from_live(r);
 
@@ -736,7 +790,11 @@ fn compare(home: &Path, r: &Reached, way: Way, progress: OnProgress) -> Result<C
         .map(|b| b.local_files.clone())
         .unwrap_or_default();
     let local_files = snapshot::manifest_with(&r.site.path, &known)?;
-    let live_files = r.server.files(from_live, progress)?;
+    let (live_files, lister) = r.server.files(from_live, progress)?;
+    if let Some(b) = base.as_mut().filter(|b| b.live_lister != lister) {
+        rekey(b, &live_files, lister);
+        save_base(home, &domain, b)?;
+    }
 
     say(
         progress,
@@ -855,6 +913,7 @@ fn compare(home: &Path, r: &Reached, way: Way, progress: OnProgress) -> Result<C
         },
         local_files,
         live_files,
+        live_lister: lister,
         local_facts,
         live_facts,
     })
@@ -1457,7 +1516,7 @@ pub fn push(
 
     // In step again: the new base.
     say(progress, Stage::Finishing, "Noting where both sides stand…")?;
-    let live_files = s.files(media_from_live(&r), &mut |_| true)?;
+    let (live_files, live_lister) = s.files(media_from_live(&r), &mut |_| true)?;
     let live_facts = s.facts().ok();
     let content = merge::content_rel(&r.wp);
     let base = advance_base(
@@ -1465,6 +1524,7 @@ pub fn push(
         choice,
         Now {
             live_files,
+            live_lister,
             local_files: compared.local_files,
             live_facts,
             local_facts: Some(compared.local_facts),
@@ -1508,6 +1568,7 @@ fn answers(http: &ureq::Agent, url: &str) -> bool {
 /// Both sides as they are after a push or pull.
 struct Now {
     live_files: Manifest,
+    live_lister: Lister,
     local_files: Manifest,
     live_facts: Option<Facts>,
     local_facts: Option<Facts>,
@@ -1522,6 +1583,7 @@ fn advance_base(old: Option<Base>, choice: &Choice, now: Now, content: &str) -> 
         let mut base = Base {
             at: env::now(),
             live_files: now.live_files,
+            live_lister: now.live_lister,
             local_files: now.local_files,
             live_facts: now.live_facts,
             local_facts: now.local_facts,
@@ -1530,6 +1592,7 @@ fn advance_base(old: Option<Base>, choice: &Choice, now: Now, content: &str) -> 
         return base;
     };
     base.at = env::now();
+    base.live_lister = now.live_lister;
     for rel in &choice.files {
         for (side, current) in [
             (&mut base.live_files, &now.live_files),
@@ -1620,32 +1683,70 @@ pub fn pull(
     let mut notes = Vec::new();
     let mut snap = snapshot::take(home, &r.wp, "Pull from live")?;
 
-    let count = choice.files.len() as u64;
-    for (i, rel) in choice.files.iter().enumerate() {
-        if !progress(Progress {
-            stage: Stage::Files,
-            message: format!("Downloading {rel}"),
-            done: i as u64,
-            total: count,
-        }) {
-            return Err(stopped());
-        }
+    // Everything about to change goes into the snapshot first, so the pull
+    // can be undone however its files then arrive.
+    let mut fetch = Vec::new();
+    for rel in &choice.files {
         let local = r.site.path.join(rel);
         if local.is_file() {
             snap.save_file(home, &r.site.path, rel)?;
         } else {
             snap.note_added(home, rel)?;
         }
-        if compared.live_files.contains_key(rel) {
-            s.sessions.download(
-                &s.connection,
-                &remote::join(&s.root, rel),
-                &local,
-                &mut |_| true,
-            )?;
-        } else if local.is_file() {
-            std::fs::remove_file(&local).map_err(io(&local))?;
+        match compared.live_files.get(rel) {
+            Some(entry) => fetch.push((rel.clone(), entry.size)),
+            None if local.is_file() => std::fs::remove_file(&local).map_err(io(&local))?,
+            None => {}
         }
+    }
+    let count = fetch.len() as u64;
+    let downloading = |done: u64, what: String| Progress {
+        stage: Stage::Files,
+        message: what,
+        done,
+        total: count,
+    };
+    // Small files come many to a request through the helper; over FTP each
+    // one alone is a connection of its own. What it can't send comes below.
+    let small: Vec<String> = fetch
+        .iter()
+        .filter(|(_, size)| *size <= helper::PACK_FILE_BYTES)
+        .map(|(rel, _)| rel.clone())
+        .collect();
+    let mut halted = false;
+    let packed = if small.len() > 1 {
+        s.helper_pack(&small, &r.site.path, &mut |done| {
+            let going = progress(downloading(
+                done as u64,
+                format!("Downloading files… {done} of {count}"),
+            ));
+            halted = !going;
+            going
+        })
+        .unwrap_or_default()
+    } else {
+        BTreeSet::new()
+    };
+    if halted {
+        return Err(stopped());
+    }
+    for (i, (rel, _)) in fetch
+        .iter()
+        .filter(|(rel, _)| !packed.contains(rel))
+        .enumerate()
+    {
+        if !progress(downloading(
+            (packed.len() + i) as u64,
+            format!("Downloading {rel}"),
+        )) {
+            return Err(stopped());
+        }
+        s.sessions.download(
+            &s.connection,
+            &remote::join(&s.root, rel),
+            &r.site.path.join(rel),
+            &mut |_| true,
+        )?;
     }
 
     let mut switches = 0;
@@ -1709,6 +1810,7 @@ pub fn pull(
         choice,
         Now {
             live_files: compared.live_files,
+            live_lister: compared.live_lister,
             local_files: snapshot::manifest_with(&r.site.path, &compared.local_files)?,
             live_facts: Some(compared.live_facts),
             local_facts: snapshot::read_facts(&client, &local_db, r.wp.prefix()).ok(),
@@ -1954,9 +2056,57 @@ mod tests {
     }
 
     #[test]
+    fn a_listing_made_another_way_takes_its_dates_where_sizes_match() {
+        // Plain FTP gave the minute in the server's time zone; the helper
+        // gives the second, an hour off.
+        let mut base = Base {
+            at: 1,
+            live_files: files(&[
+                ("same.php", entry(10, 1_000_020, None)),
+                ("grew.php", entry(20, 1_000_020, None)),
+                ("gone.php", entry(30, 1_000_020, None)),
+            ]),
+            live_lister: Lister::Walk,
+            local_files: Manifest::new(),
+            live_facts: None,
+            local_facts: None,
+        };
+        let now = files(&[
+            ("same.php", entry(10, 1_003_637, None)),
+            ("grew.php", entry(25, 1_003_637, None)),
+        ]);
+        rekey(&mut base, &now, Lister::Helper);
+
+        assert_eq!(base.live_lister, Lister::Helper);
+        assert_eq!(base.live_files["same.php"].modified, 1_003_637);
+        assert_eq!(
+            change_of(base.live_files.get("same.php"), now.get("same.php")),
+            None
+        );
+        // A real change and a removal still show.
+        assert_eq!(
+            change_of(base.live_files.get("grew.php"), now.get("grew.php")),
+            Some(Change::Changed)
+        );
+        assert_eq!(
+            change_of(base.live_files.get("gone.php"), now.get("gone.php")),
+            Some(Change::Removed)
+        );
+    }
+
+    #[test]
+    fn a_base_saved_before_listers_were_kept_reads_as_walked() {
+        let old =
+            r#"{"at":1,"live_files":{},"local_files":{},"live_facts":null,"local_facts":null}"#;
+        let base: Base = serde_json::from_str(old).unwrap();
+        assert_eq!(base.live_lister, Lister::Walk);
+    }
+
+    #[test]
     fn lists_what_changed_on_each_side() {
         let base = Base {
             at: 1,
+            live_lister: Lister::Walk,
             local_files: files(&[
                 ("wp-content/themes/a/style.css", entry(10, 100, Some("x"))),
                 ("wp-content/themes/a/header.php", entry(20, 100, Some("h"))),
