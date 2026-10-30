@@ -20,6 +20,11 @@ Update button, and the app shows its own version's section after it updates.
   notes with the reason. WordPress's leftovers from updates (`wp-content/upgrade`), caches and
   backups kept inside the site are not unpacked at all.
 
+- **Plugin and theme zips land in the project's folder.** Build .zip in a WordPress plugin or theme's
+  Manage tab now saves to `dist\` in the project's own folder (not Stackyard's data folder), shows
+  that path, and Open folder opens it. A `dist\.gitignore` keeps the zips out of Git, and zips are
+  never packed into the next zip.
+
 ## 0.20.0
 
 - **Projects are apps or sites.** Projects lists everything; Apps and Sites, under it in the side
