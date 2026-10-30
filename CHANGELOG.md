@@ -4,6 +4,14 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Claude Code keeps working in the terminal.** When Claude Code's own update was cut off (for
+  example by closing or updating Stackyard), `claude` stopped with "is not recognized" until you
+  reinstalled it. Now each new terminal puts its program back. `npm install -g` also no longer
+  installs into the Node.js version's folder, which a Node.js update replaces, and the Terminal tab
+  finds what it installs.
+
 ## 0.19.0
 
 - **Projects, Apps and Sites.** Everything you make is in one of three lists, each with its own

@@ -14,8 +14,9 @@ use std::sync::Mutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use stackyard_core::paths;
+use stackyard_core::platform::Platform;
 use stackyard_core::settings::Settings;
-use stackyard_core::shell::shims;
+use stackyard_core::shell::{self, shims};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::{err, CmdResult};
@@ -140,12 +141,26 @@ pub fn console_open(
             let _ = shims::install(&home, &cli);
         }
     }
-    let mut path = vec![shims::bin_dir(&home)];
-    path.extend(std::env::split_paths(
-        &std::env::var_os("PATH").unwrap_or_default(),
-    ));
+    // An AI tool an update left without its program (Claude Code when its
+    // updater was cut off) gets it back before anyone types its name.
+    for name in stackyard_core::ai::repair(&home, &settings) {
+        crate::applog::info(&format!(
+            "put back {name}'s program after an unfinished update"
+        ));
+    }
+    // Then the commands of global npm packages (`npm install -g` goes to a
+    // folder of Stackyard's own, which Node.js updates leave alone).
+    let mut path = shell::terminal_path(&home, &settings, Platform::current().os);
+    let rest = std::env::var_os("PATH").unwrap_or_default();
+    let others: Vec<PathBuf> = std::env::split_paths(&rest)
+        .filter(|p| !path.contains(p))
+        .collect();
+    path.extend(others);
     if let Ok(joined) = std::env::join_paths(path) {
         cmd.env("PATH", joined);
+    }
+    if let Some((name, value)) = shell::npm_prefix_env(&home) {
+        cmd.env(name, value);
     }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");

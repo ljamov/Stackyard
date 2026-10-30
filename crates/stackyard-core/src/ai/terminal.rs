@@ -21,6 +21,8 @@ pub struct Window {
     /// Folders to put first on the `PATH` the window's shell already has
     /// (macOS and Linux, where the shell's start-up files may set their own).
     pub path_first: Vec<PathBuf>,
+    /// Other variables the program needs.
+    pub env: Vec<(String, OsString)>,
 }
 
 pub fn open(window: &Window) -> Result<()> {
@@ -47,6 +49,7 @@ fn open_windows(window: &Window) -> Result<()> {
         .raw_arg(cmd_line(window))
         .current_dir(&window.folder)
         .env("PATH", &window.path)
+        .envs(window.env.iter().map(|(k, v)| (k, v)))
         .creation_flags(CREATE_NEW_CONSOLE)
         .spawn()
         .map(drop)
@@ -80,6 +83,9 @@ fn script(window: &Window, stay: bool) -> String {
     if !window.path_first.is_empty() {
         let first: Vec<String> = window.path_first.iter().map(|p| sh_quote(p)).collect();
         text.push_str(&format!("export PATH={}:\"$PATH\"\n", first.join(":")));
+    }
+    for (name, value) in &window.env {
+        text.push_str(&format!("export {name}={}\n", sh_quote(Path::new(value))));
     }
     text.push_str(&sh_quote(&window.program));
     for arg in &window.args {
@@ -166,6 +172,7 @@ fn open_linux(window: &Window) -> Result<()> {
             .arg(&file)
             .current_dir(&window.folder)
             .env("PATH", &window.path)
+            .envs(window.env.iter().map(|(k, v)| (k, v)))
             .spawn();
         match started {
             Ok(_) => return Ok(()),
@@ -192,6 +199,7 @@ mod tests {
             args: vec!["/s/tools/ai/gemini/bundle/gemini.js".into()],
             path: OsString::from("/s/bin:/usr/bin"),
             path_first: vec![PathBuf::from("/s/bin"), PathBuf::from("/s/node bin")],
+            env: Vec::new(),
         }
     }
 
@@ -207,6 +215,11 @@ mod tests {
              exec \"${SHELL:-/bin/sh}\" -i\n"
         );
         assert!(!script(&window(), false).contains("exec"));
+        let mut w = window();
+        w.env.push(("DISABLE_AUTOUPDATER".into(), "1".into()));
+        assert!(script(&w, false).contains(
+            "export PATH='/s/bin':'/s/node bin':\"$PATH\"\nexport DISABLE_AUTOUPDATER='1'\n"
+        ));
     }
 
     #[test]

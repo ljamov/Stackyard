@@ -48,6 +48,11 @@ pub struct AiTool {
     pub min_node: u32,
     /// The maker's install and sign-in guide.
     pub docs: &'static str,
+    /// Variables it runs with. Claude Code's own updater replaces it in
+    /// place, which Windows refuses while it runs and which Stackyard
+    /// closing mid-way leaves half done; Stackyard updates it instead.
+    #[serde(skip)]
+    pub env: &'static [(&'static str, &'static str)],
 }
 
 /// Every tool here is installed with npm, as its maker's guide shows.
@@ -61,6 +66,7 @@ pub const TOOLS: &[AiTool] = &[
         command: "claude",
         min_node: 22,
         docs: "https://code.claude.com/docs/en/setup",
+        env: &[("DISABLE_AUTOUPDATER", "1")],
     },
     AiTool {
         id: "codex",
@@ -71,6 +77,7 @@ pub const TOOLS: &[AiTool] = &[
         command: "codex",
         min_node: 18,
         docs: "https://github.com/openai/codex",
+        env: &[],
     },
     AiTool {
         id: "gemini",
@@ -81,6 +88,7 @@ pub const TOOLS: &[AiTool] = &[
         command: "gemini",
         min_node: 20,
         docs: "https://github.com/google-gemini/gemini-cli",
+        env: &[],
     },
     AiTool {
         id: "copilot",
@@ -91,6 +99,7 @@ pub const TOOLS: &[AiTool] = &[
         command: "copilot",
         min_node: 22,
         docs: "https://github.com/github/copilot-cli",
+        env: &[],
     },
     AiTool {
         id: "qwen",
@@ -101,6 +110,7 @@ pub const TOOLS: &[AiTool] = &[
         command: "qwen",
         min_node: 22,
         docs: "https://github.com/QwenLM/qwen-code",
+        env: &[],
     },
     AiTool {
         id: "opencode",
@@ -111,6 +121,7 @@ pub const TOOLS: &[AiTool] = &[
         command: "opencode",
         min_node: 20,
         docs: "https://github.com/sst/opencode",
+        env: &[],
     },
 ];
 
@@ -445,17 +456,9 @@ fn program(dir: &Path, tool: &AiTool) -> Result<Program> {
         .map_err(|_| broken("its package.json is missing"))?;
     let json: serde_json::Value =
         serde_json::from_str(&text).map_err(|_| broken("its package.json is damaged"))?;
-    let bin = match &json["bin"] {
-        serde_json::Value::String(path) => Some(path.as_str()),
-        serde_json::Value::Object(map) => map
-            .get(tool.command)
-            .or_else(|| map.values().next())
-            .and_then(|v| v.as_str()),
-        _ => None,
-    }
-    .ok_or_else(|| broken("it names no program"))?;
-    let path = package.join(bin);
-    if !path.is_file() {
+    let bin = bin_entry(&json, tool).ok_or_else(|| broken("it names no program"))?;
+    let path = package.join(&bin);
+    if !path.is_file() && repair_package(&package, &package_root(dir), tool).is_none() {
         return Err(broken(&format!("{bin} is missing")));
     }
     let script = matches!(
@@ -467,6 +470,119 @@ fn program(dir: &Path, tool: &AiTool) -> Result<Program> {
     } else {
         Program::Native(path)
     })
+}
+
+/// The program a package.json names for `tool`.
+fn bin_entry(json: &serde_json::Value, tool: &AiTool) -> Option<String> {
+    match &json["bin"] {
+        serde_json::Value::String(path) => Some(path.clone()),
+        serde_json::Value::Object(map) => map
+            .get(tool.command)
+            .or_else(|| map.values().next())
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
+/// `node_modules` in a tool's own folder.
+fn package_root(dir: &Path) -> PathBuf {
+    dir.join("node_modules")
+}
+
+/// The `node_modules` folders that global npm packages a Stackyard
+/// terminal finds live in, next to the command folders of
+/// [`crate::shell::terminal_path`].
+fn global_roots(home: &Path, settings: &Settings, os: Os) -> Vec<PathBuf> {
+    crate::shell::terminal_path(home, settings, os)
+        .into_iter()
+        .filter(|dir| *dir != shims::bin_dir(home))
+        .filter_map(|dir| match os {
+            Os::Windows => Some(dir.join("node_modules")),
+            _ => dir.parent().map(|prefix| prefix.join("lib/node_modules")),
+        })
+        .collect()
+}
+
+/// Puts back the program of AI tools that an update left without one, in
+/// Stackyard's own installs and in global npm ones, and returns their names.
+///
+/// Claude Code's updater moves its running `claude.exe` aside, as
+/// `claude.exe.old.<time>`, before it writes the new one. When the update
+/// stops in between, because the terminal closed with Stackyard or the
+/// download failed, `claude` no longer starts. The package still holds the
+/// program in its part for this computer, which npm's install copies into
+/// place; that copy is made again.
+pub fn repair(home: &Path, settings: &Settings) -> Vec<&'static str> {
+    let os = Platform::current().os;
+    let mut roots = global_roots(home, settings, os);
+    roots.extend(TOOLS.iter().map(|t| package_root(&dir(home, t))));
+    let mut fixed = Vec::new();
+    for root in &roots {
+        for tool in TOOLS {
+            let package = tool
+                .package
+                .split('/')
+                .fold(root.clone(), |p, part| p.join(part));
+            if repair_package(&package, root, tool).is_some() && !fixed.contains(&tool.name) {
+                fixed.push(tool.name);
+            }
+        }
+    }
+    fixed
+}
+
+/// Restores the program of the package in `package` when it is missing;
+/// `root` is the `node_modules` folder it was installed into.
+fn repair_package(package: &Path, root: &Path, tool: &AiTool) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(package.join("package.json")).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let bin = package.join(bin_entry(&json, tool)?);
+    if bin.is_file() {
+        return None;
+    }
+    let name = bin.file_name()?.to_os_string();
+    let platform = platform_key(Platform::current());
+    let part = format!("{}-{platform}", tool.package);
+    let in_part = [package.join("node_modules"), root.to_path_buf()]
+        .into_iter()
+        .map(|modules| {
+            part.split('/')
+                .fold(modules, |p, piece| p.join(piece))
+                .join(&name)
+        })
+        .find(|p| p.is_file());
+    let restored = match in_part {
+        Some(source) => std::fs::copy(&source, &bin).is_ok(),
+        None => newest_set_aside(&bin).is_some_and(|old| std::fs::rename(old, &bin).is_ok()),
+    };
+    restored.then_some(bin)
+}
+
+/// The newest `<program>.old.<time>` an updater left next to `bin`.
+fn newest_set_aside(bin: &Path) -> Option<PathBuf> {
+    let prefix = format!("{}.old.", bin.file_name()?.to_string_lossy());
+    std::fs::read_dir(bin.parent()?)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
+        .map(|e| e.path())
+}
+
+/// How npm names a computer in package names: `win32-x64`, `darwin-arm64`.
+fn platform_key(platform: Platform) -> String {
+    let os = match platform.os {
+        Os::Windows => "win32",
+        Os::Macos => "darwin",
+        Os::Linux => "linux",
+    };
+    let arch = match platform.arch {
+        crate::platform::Arch::X64 => "x64",
+        crate::platform::Arch::Arm64 => "arm64",
+    };
+    format!("{os}-{arch}")
 }
 
 /// How to run `tool` with `args`.
@@ -511,7 +627,11 @@ pub fn launch(home: &Path, tool: &AiTool, args: Vec<OsString>) -> Result<Launch>
         program,
         args,
         path_first: node_bin,
-        env: Vec::new(),
+        env: tool
+            .env
+            .iter()
+            .map(|(k, v)| (k.to_string(), OsString::from(v)))
+            .collect(),
         summary: format!("{} {version} (Node.js {})", tool.name, node.version),
     })
 }
@@ -524,9 +644,11 @@ pub fn open(home: &Path, tool: &AiTool, folder: &Path) -> Result<()> {
         return Err(Error::NotAFolder(folder.to_owned()));
     }
     let run = launch(home, tool, Vec::new())?;
-    let mut path_first = Vec::new();
-    if shims::program_path(home).exists() {
-        path_first.push(shims::bin_dir(home));
+    let settings = Settings::load_from(&home.join("settings.toml"))?;
+    repair(home, &settings);
+    let mut path_first = crate::shell::terminal_path(home, &settings, Platform::current().os);
+    if !shims::program_path(home).exists() {
+        path_first.retain(|dir| *dir != shims::bin_dir(home));
     }
     path_first.push(run.path_first.clone());
     let refs: Vec<&Path> = path_first.iter().map(PathBuf::as_path).collect();
@@ -537,6 +659,11 @@ pub fn open(home: &Path, tool: &AiTool, folder: &Path) -> Result<()> {
         args: run.args,
         path: path_with(&refs),
         path_first,
+        env: run
+            .env
+            .into_iter()
+            .chain(crate::shell::npm_prefix_env(home))
+            .collect(),
     })
 }
 

@@ -322,6 +322,55 @@ impl Launch {
     }
 }
 
+/// Where `npm install -g` puts packages. Not the Node.js version's own
+/// folder, which an update or reinstall of that version replaces: on
+/// Windows the usual `%APPDATA%\npm`, which Node.js's own installer uses and
+/// puts on the user's Path, so the commands work in every terminal; else a
+/// folder of Stackyard's.
+pub fn npm_global_dir(home: &Path) -> PathBuf {
+    match Platform::current().os {
+        Os::Windows => {
+            dirs::data_dir().map_or_else(|| home.join("tools/npm-global"), |d| d.join("npm"))
+        }
+        _ => home.join("tools/npm-global"),
+    }
+}
+
+/// The folder npm puts those packages' commands in.
+pub fn npm_global_bin(home: &Path, os: Os) -> PathBuf {
+    match os {
+        Os::Windows => npm_global_dir(home),
+        _ => npm_global_dir(home).join("bin"),
+    }
+}
+
+/// `NPM_CONFIG_PREFIX` for [`npm_global_dir`], unless one is set already.
+pub fn npm_prefix_env(home: &Path) -> Option<(String, OsString)> {
+    let own = ["NPM_CONFIG_PREFIX", "npm_config_prefix"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty()));
+    (!own).then(|| {
+        (
+            "NPM_CONFIG_PREFIX".to_string(),
+            npm_global_dir(home).into_os_string(),
+        )
+    })
+}
+
+/// Folders a Stackyard terminal puts first on its `PATH`: the shims, the
+/// commands of global npm packages, and the default Node.js version's own
+/// folder, where `npm install -g` put them before [`npm_global_dir`].
+pub fn terminal_path(home: &Path, settings: &Settings, os: Os) -> Vec<PathBuf> {
+    let mut dirs = vec![shims::bin_dir(home), npm_global_bin(home, os)];
+    if let Some(node) = RuntimeManager::new(home).default_for(settings, RuntimeKind::Node) {
+        dirs.push(match os {
+            Os::Windows => node.path,
+            _ => node.path.join("bin"),
+        });
+    }
+    dirs
+}
+
 /// Everything needed to work out which program a shim runs.
 pub struct Context {
     pub home: PathBuf,
@@ -427,6 +476,9 @@ impl Context {
             if let Some(dir) = ini.parent() {
                 env.push(("PHPRC".to_string(), dir.as_os_str().to_owned()));
             }
+        }
+        if kind == RuntimeKind::Node {
+            env.extend(npm_prefix_env(&self.home));
         }
         if kind == RuntimeKind::Java {
             env.push((
@@ -933,6 +985,20 @@ mod tests {
             script.ends_with("node_modules/npm/bin/npm-cli.js"),
             "{script:?}"
         );
+        // `npm install -g` goes where a Node.js update leaves it alone.
+        if std::env::var_os("NPM_CONFIG_PREFIX").is_none()
+            && std::env::var_os("npm_config_prefix").is_none()
+        {
+            let prefix = (
+                "NPM_CONFIG_PREFIX".to_string(),
+                npm_global_dir(&home).into(),
+            );
+            assert!(npm.env.contains(&prefix), "{:?}", npm.env);
+            assert!(!npm_global_dir(&home).starts_with(home.join("runtimes")));
+        }
+        let first = terminal_path(&home, &context.settings, Platform::current().os);
+        assert_eq!(first[0], shims::bin_dir(&home));
+        assert_eq!(first[1], npm_global_bin(&home, Platform::current().os));
 
         pins::pin(&project, RuntimeKind::Node, "20").unwrap();
         let err = context.launch(Tool::Node, &project, vec![]).unwrap_err();
