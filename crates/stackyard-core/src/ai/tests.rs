@@ -241,3 +241,63 @@ fn live_install_ai_tool() {
     assert!(!mine.update);
     uninstall(&home, codex).unwrap();
 }
+
+#[test]
+fn puts_back_a_program_an_unfinished_update_removed() {
+    let home = crate::testutil::tempdir();
+    let claude = find("claude").unwrap();
+    let exe = format!("claude{}", std::env::consts::EXE_SUFFIX);
+    let dest = fake_tool(
+        &home,
+        claude,
+        "24",
+        serde_json::json!({ "claude": format!("bin/{exe}") }),
+    );
+    let package = package_dir(&dest, claude);
+    let bin = package.join("bin").join(&exe);
+    let settings = Settings::default();
+
+    // Claude Code's updater moved the program aside and stopped there.
+    std::fs::write(package.join("bin").join(format!("{exe}.old.1")), "old").unwrap();
+    std::fs::write(package.join("bin").join(format!("{exe}.old.2")), "older").unwrap();
+    let older = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    std::fs::File::options()
+        .write(true)
+        .open(package.join("bin").join(format!("{exe}.old.2")))
+        .unwrap()
+        .set_modified(older)
+        .unwrap();
+    assert_eq!(repair(&home, &settings), vec!["Claude Code"]);
+    assert_eq!(std::fs::read_to_string(&bin).unwrap(), "old");
+    assert!(repair(&home, &settings).is_empty(), "nothing left to fix");
+
+    // The program for this computer, in its own package, comes first.
+    std::fs::remove_file(&bin).unwrap();
+    let part = format!("{}-{}", claude.package, platform_key(Platform::current()));
+    let part = part
+        .split('/')
+        .fold(package.join("node_modules"), |p, piece| p.join(piece));
+    std::fs::create_dir_all(&part).unwrap();
+    std::fs::write(part.join(&exe), "new").unwrap();
+    assert_eq!(repair(&home, &settings), vec!["Claude Code"]);
+    assert_eq!(std::fs::read_to_string(&bin).unwrap(), "new");
+    assert!(part.join(&exe).is_file(), "copied, not moved");
+
+    // Launching repairs too.
+    std::fs::remove_file(&bin).unwrap();
+    fake_node(&home, "24");
+    let run = launch(&home, claude, vec![]).unwrap();
+    assert_eq!(run.program, bin);
+    assert!(run
+        .env
+        .contains(&("DISABLE_AUTOUPDATER".to_string(), OsString::from("1"))));
+}
+
+#[test]
+fn names_computers_the_way_npm_does() {
+    use crate::platform::Arch;
+    let key = |os, arch| platform_key(Platform { os, arch });
+    assert_eq!(key(Os::Windows, Arch::X64), "win32-x64");
+    assert_eq!(key(Os::Macos, Arch::Arm64), "darwin-arm64");
+    assert_eq!(key(Os::Linux, Arch::X64), "linux-x64");
+}

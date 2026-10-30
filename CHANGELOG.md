@@ -31,6 +31,12 @@ Update button, and the app shows its own version's section after it updates.
 - **Apps and sites everywhere.** The side bar lists your apps and your sites under their own
   headings, the status bar counts both, and both update as soon as one is made or removed.
 
+- **Claude Code keeps working in the terminal.** When Claude Code's own update was cut off (for
+  example by closing or updating Stackyard), `claude` stopped with "is not recognized" until you
+  reinstalled it. Now each new terminal puts its program back. `npm install -g` also no longer
+  installs into the Node.js version's folder, which a Node.js update replaces, and the Terminal tab
+  finds what it installs.
+
 - **WordPress themes and plugins without a whole WordPress.** Making a theme or plugin project
   now only makes its folder, with a starting theme or plugin when it is empty; nothing is
   downloaded and no database is needed. Its Manage tab has a Theme or Plugin section that sets the

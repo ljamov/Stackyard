@@ -590,6 +590,7 @@ fn open_terminal() -> Result<(), String> {
         args: vec!["shell".into()],
         path: std::env::var_os("PATH").unwrap_or_default(),
         path_first: Vec::new(),
+        env: Vec::new(),
     })
     .map_err(crate::err)
 }
