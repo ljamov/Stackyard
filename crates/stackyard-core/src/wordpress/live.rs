@@ -8,7 +8,12 @@
 //!   one-time PHP helper ([`super::helper`]) over HTTPS;
 //! - **backup files**: a backup made in the hosting panel (cPanel,
 //!   Plesk, DirectAdmin and others) or a zip of the files plus a `.sql`
-//!   file, picked on this computer.
+//!   file, picked on this computer;
+//! - **a connection code** from the Stackyard Connect plugin, when no
+//!   login is known: the plugin exports the site and Stackyard downloads
+//!   it ([`super::connect`]), then goes on as with backup files. The
+//!   copy keeps the code as its live connection, through which the
+//!   plugin stands in for FTP: push and pull then work as with FTP.
 //!
 //! Large sites can take hours, so every step can be picked up again: files
 //! already here with the same size and date are skipped, a file that broke
@@ -66,6 +71,8 @@ pub enum Source {
     /// Backup files on this computer: archives (`.zip`, `.tar.gz`, `.tar`)
     /// and `.sql` or `.sql.gz` files.
     Files(Vec<PathBuf>),
+    /// The live site's Stackyard Connect plugin, through its code.
+    Connect(Box<super::connect::Link>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -474,7 +481,7 @@ fn host_options(host: &str) -> String {
     )
 }
 
-pub(super) fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     use ureq::tls::{RootCerts, TlsConfig};
     ureq::Agent::config_builder()
         .tls_config(
@@ -548,6 +555,11 @@ impl<'a> Server<'a> {
                 .map(str::to_string)
                 .or_else(|| config.get("WP_SITEURL").map(str::to_string))
                 .or_else(|| config.get("WP_HOME").map(str::to_string))
+                // The plugin's connection is named after WordPress's address.
+                .or_else(|| {
+                    (connection.protocol == remote::Protocol::Plugin)
+                        .then(|| connection.host.clone())
+                })
                 .map(|u| u.trim_end_matches('/').to_string()),
             config_text,
             helper: None,
@@ -650,6 +662,8 @@ impl<'a> Server<'a> {
     fn address_needed(&self, tried: &[String]) -> Error {
         let why = if self.shell {
             "This server runs commands but has no command-line PHP Stackyard can use"
+        } else if self.connection.protocol == remote::Protocol::Plugin {
+            "Stackyard Connect reaches files only, not commands"
         } else if self.connection.protocol == remote::Protocol::Sftp {
             "This server allows file transfer only, not commands"
         } else {
@@ -1113,6 +1127,30 @@ pub fn inspect(
             })();
             let _ = std::fs::remove_dir_all(&temp);
             result
+        }
+        Source::Connect(link) => {
+            let info = link.info()?;
+            let mut notes = vec![
+                "Stackyard Connect on the live site exports the whole site, then Stackyard downloads it; the export is deleted from the live site after.".to_string(),
+            ];
+            if link.plain_http() {
+                notes.push("The live site has no HTTPS, so the export travels unencrypted.".into());
+            }
+            if info.multisite {
+                notes.push("This is a multisite network; every site in it is copied.".into());
+            }
+            Ok(Found {
+                route: Some(Route::Files),
+                url: info.url,
+                wordpress: info.wordpress,
+                php: info.php,
+                mysql: info.mysql,
+                prefix: info.prefix,
+                tables: info.tables,
+                database_bytes: info.database_bytes,
+                notes,
+                ..Found::default()
+            })
         }
     }
 }
@@ -1693,6 +1731,7 @@ pub fn clone(
             .map(|f| f.display().to_string())
             .collect::<Vec<_>>()
             .join("|"),
+        Source::Connect(link) => format!("connect:{}", link.url),
     };
     // A staging's work folder is named after its whole address, so it
     // can't be taken for a clone of the same name.
@@ -1783,6 +1822,27 @@ pub fn clone(
         Source::Files(files) => {
             clone_from_files(files, &mut work, &folder, &database, &client, progress)?
         }
+        Source::Connect(link) => {
+            let (archive, info) = link.download(&work.dir.join("connect"), progress)?;
+            let mut side =
+                clone_from_files(&[archive], &mut work, &folder, &database, &client, progress)?;
+            // Everything is here now; the export holds the whole site, so
+            // it doesn't stay on the live server.
+            if link.delete_export().is_err() {
+                notes.push("The export could not be deleted from the live site; delete it under Tools › Stackyard there (it goes by itself after a day).".into());
+            }
+            side.php = info.php;
+            if side.url.is_empty() {
+                side.url = info.url;
+            }
+            // Through the code, the plugin stands in for FTP from now on:
+            // push and pull use it, with the helper for the database.
+            if let Ok(root) = link.root() {
+                side.root = root;
+                side.route = Route::Helper;
+            }
+            side
+        }
     };
 
     say(progress, Stage::Finishing, "Setting up the copy…")?;
@@ -1851,7 +1911,34 @@ pub fn clone(
             }
             saved.map(|c| c.id)
         }
-        Source::Files(_) => None,
+        Source::Connect(link) if live.route == Route::Helper => {
+            let input = remote::ConnectionInput {
+                site: site.domain(),
+                name: "Live".into(),
+                protocol: Some(remote::Protocol::Plugin),
+                remote_dir: live.root.clone(),
+                password: Some(link.code().to_string()),
+                ..remote::ConnectionInput::default()
+            };
+            let saved = remote::RemoteStore::load().and_then(|mut store| {
+                let saved = store.add(input)?;
+                store.save()?;
+                Ok(saved)
+            });
+            match saved {
+                Ok(saved) => {
+                    if !link.write {
+                        notes.push("The connection code lets Stackyard pull the live site's changes, not push to it. To push, make a code that allows changes under Tools › Stackyard on the live site and paste it into the Live connection under Manage › Servers.".into());
+                    }
+                    Some(saved.id)
+                }
+                Err(e) => {
+                    notes.push(format!("The connection code could not be kept with the site ({e}), so push and pull aren't set up; add it under Manage › Servers."));
+                    None
+                }
+            }
+        }
+        Source::Files(_) | Source::Connect(_) => None,
     };
     let live_url = live.url.trim_end_matches('/').to_string();
     env::save(

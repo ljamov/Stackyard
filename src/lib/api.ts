@@ -436,7 +436,7 @@ export type NewSite = { name: string; path: string; runtime: string; https: bool
 /** A theme or plugin project; its WordPress is made with it. */
 export type NewProject = { name: string; kind: ProjectKind; path: string; https: boolean };
 
-export type RemoteProtocol = "sftp" | "ftps" | "ftp";
+export type RemoteProtocol = "sftp" | "ftps" | "ftp" | "plugin";
 
 export type RemoteConnection = {
   id: string;

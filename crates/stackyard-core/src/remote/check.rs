@@ -50,6 +50,7 @@ impl Stage {
             Protocol::Ftps | Protocol::Ftp => {
                 &[Stage::Find, Stage::Reach, Stage::Login, Stage::Files]
             }
+            Protocol::Plugin => &[Stage::Login, Stage::Files],
         }
     }
 }
@@ -200,6 +201,7 @@ pub(crate) fn reach(connection: &Connection, addrs: &[SocketAddr]) -> Result<Tcp
     let usual = match connection.protocol {
         Protocol::Sftp => "SFTP is usually port 22, but some hosts use their own (SiteGround 18765, Hostinger 65002, others 2222)",
         Protocol::Ftps | Protocol::Ftp => "FTP and FTPS are usually port 21",
+        Protocol::Plugin => "HTTPS is port 443",
     };
     let e = last.expect("find gives at least one address");
     Err(match e.kind() {

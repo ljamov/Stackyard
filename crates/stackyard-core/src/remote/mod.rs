@@ -1,5 +1,6 @@
 //! Remote servers for a site: browse, upload and download its files over
-//! SFTP (SSH), FTPS or plain FTP.
+//! SFTP (SSH), FTPS or plain FTP, or through the Stackyard Connect plugin
+//! on a WordPress site whose FTP login isn't known.
 //!
 //! Connections are kept in `remote.toml`. Passwords and key passphrases are
 //! never written there: they go to the system's own password store (see
@@ -9,6 +10,7 @@
 
 pub mod check;
 mod ftp;
+mod plugin;
 pub mod secrets;
 mod sftp;
 pub mod sync;
@@ -40,6 +42,9 @@ pub enum Protocol {
     Ftps,
     /// Plain FTP: the password and files travel unencrypted.
     Ftp,
+    /// The Stackyard Connect plugin on a WordPress site, over HTTPS; the
+    /// stored secret is its connection code, the host the site's address.
+    Plugin,
 }
 
 impl Protocol {
@@ -47,6 +52,7 @@ impl Protocol {
         match self {
             Protocol::Sftp => 22,
             Protocol::Ftps | Protocol::Ftp => 21,
+            Protocol::Plugin => 443,
         }
     }
 }
@@ -296,24 +302,42 @@ fn validate(id: String, input: ConnectionInput, old: Option<&Connection>) -> Res
     if name.is_empty() || name.chars().count() > MAX_NAME {
         return bad("give the connection a name of up to 80 characters, e.g. Production");
     }
-    let host = input.host.trim().trim_end_matches('/').to_string();
-    let host = host
-        .strip_prefix("sftp://")
-        .or_else(|| host.strip_prefix("ftp://"))
-        .or_else(|| host.strip_prefix("ftps://"))
-        .unwrap_or(&host)
-        .to_string();
-    if host.is_empty() || host.contains(char::is_whitespace) || host.contains('/') {
-        return bad("enter the server's address, e.g. 203.0.113.10 or ftp.example.com");
-    }
-    let user = input.user.trim().to_string();
-    if user.is_empty() {
-        return bad("enter the user name to log in with");
-    }
+    let protocol = input.protocol.unwrap_or(Protocol::Sftp);
+    let (host, user) = if protocol == Protocol::Plugin {
+        // The code says where the site is; a change without a new code
+        // keeps the one stored.
+        match input.password.as_deref().filter(|p| !p.is_empty()) {
+            Some(code) => {
+                let link = crate::wordpress::connect::Link::parse(code)?;
+                (link.site, "Stackyard Connect".to_string())
+            }
+            None => match old {
+                Some(o) if o.protocol == Protocol::Plugin => (o.host.clone(), o.user.clone()),
+                _ => {
+                    return bad("paste the connection code from Tools › Stackyard on the live site")
+                }
+            },
+        }
+    } else {
+        let host = input.host.trim().trim_end_matches('/').to_string();
+        let host = host
+            .strip_prefix("sftp://")
+            .or_else(|| host.strip_prefix("ftp://"))
+            .or_else(|| host.strip_prefix("ftps://"))
+            .unwrap_or(&host)
+            .to_string();
+        if host.is_empty() || host.contains(char::is_whitespace) || host.contains('/') {
+            return bad("enter the server's address, e.g. 203.0.113.10 or ftp.example.com");
+        }
+        let user = input.user.trim().to_string();
+        if user.is_empty() {
+            return bad("enter the user name to log in with");
+        }
+        (host, user)
+    };
     if input.site.trim().is_empty() {
         return bad("pick the site this connection belongs to");
     }
-    let protocol = input.protocol.unwrap_or(Protocol::Sftp);
     let port = input.port.unwrap_or(protocol.default_port());
     if port == 0 {
         return bad("the port must be between 1 and 65535");
@@ -463,6 +487,10 @@ fn open(
         }
         Protocol::Ftps | Protocol::Ftp => {
             let session = ftp::Ftp::connect(connection, secret.as_deref())?;
+            Ok((Box::new(session), None))
+        }
+        Protocol::Plugin => {
+            let session = plugin::Plugin::connect(connection, secret.as_deref())?;
             Ok((Box::new(session), None))
         }
     }
@@ -654,6 +682,7 @@ impl Sessions {
         let report = match connection.protocol {
             Protocol::Sftp => sftp::check(connection, secret),
             Protocol::Ftps | Protocol::Ftp => ftp::check(connection, secret.as_deref()),
+            Protocol::Plugin => plugin::check(connection, secret.as_deref()),
         };
         // A first connect to a saved connection remembers the key, as logging in does.
         if let (None, Some(key)) = (&connection.server_key, &report.server_key) {

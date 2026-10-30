@@ -6,6 +6,15 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Clone a site without its FTP login.** On a site with the Stackyard Connect plugin, open
+  Tools › Stackyard and make a connection code. In Stackyard, pick Clone › A connection code (no
+  FTP) and paste it. The live site exports itself in short steps and Stackyard downloads the
+  export, going on where it stopped if the connection drops, then deletes it from the live site.
+  The code stops working after a day without use, and can be stopped at any time on the live site.
+  The copy keeps the code as its Live connection, so pull works through the plugin, and push too
+  when the code was made to allow changes. Servers can also use the plugin instead of FTP: pick
+  Stackyard Connect plugin under Manage › Servers and paste a code.
+
 - **Stackyard Connect, a WordPress plugin, and drag and drop.** Install the plugin on a live site
   and click Tools › Stackyard › Export this site: you get one file with the whole site, files and
   database, made in short steps so it works on any host. Drop that file on the Sites screen and

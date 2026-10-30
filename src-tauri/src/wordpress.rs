@@ -14,8 +14,9 @@ use stackyard_core::remote::{self, Connection, ConnectionInput, RemoteStore, Ses
 use stackyard_core::settings::Settings;
 use stackyard_core::sites::Site;
 use stackyard_core::wordpress::{
-    self, env, live, merge, posts, snapshot, staging, sync, woo, CoreUpdate, DebugSettings,
-    DiskUse, Extension, ExtensionAction, Kind, LogTail, Overview, Replaced, User, WpSite,
+    self, connect, env, live, merge, posts, snapshot, staging, sync, woo, CoreUpdate,
+    DebugSettings, DiskUse, Extension, ExtensionAction, Kind, LogTail, Overview, Replaced, User,
+    WpSite,
 };
 
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -323,6 +324,9 @@ pub enum SourceInput {
     New { connection: Box<ConnectionInput> },
     /// Backup files on this computer.
     Files { files: Vec<String> },
+    /// A Stackyard Connect code from the live site. Saved clones keep it
+    /// in the keychain, not in `clones.json`: it copies the whole site.
+    Code { code: String },
 }
 
 #[derive(Serialize)]
@@ -388,6 +392,19 @@ fn source(
         SourceInput::Files { files } => Ok(live::Source::Files(
             files.into_iter().map(PathBuf::from).collect(),
         )),
+        SourceInput::Code { code } => {
+            let code = if code.is_empty() {
+                remote::secrets::get(&clone_secret(job))
+                    .ok()
+                    .flatten()
+                    .ok_or("the connection code was not kept; paste it again")?
+            } else {
+                code
+            };
+            Ok(live::Source::Connect(Box::new(
+                connect::Link::parse(&code).map_err(err)?,
+            )))
+        }
     }
 }
 
@@ -624,6 +641,7 @@ pub async fn wp_clone_check(
                 Ok(report)
             }
             SourceInput::Files { .. } => Err("backup files need no connection".into()),
+            SourceInput::Code { .. } => Err("a connection code needs no server login".into()),
         }
     })
     .await
@@ -669,6 +687,17 @@ pub async fn wp_clone(
             let _ = remote::secrets::set(&clone_secret(&job), password);
         }
     }
+    let kept_source = match &source {
+        SourceInput::Code { code } => {
+            if !code.is_empty() {
+                let _ = remote::secrets::set(&clone_secret(&job), code);
+            }
+            SourceInput::Code {
+                code: String::new(),
+            }
+        }
+        other => other.clone(),
+    };
     // Started again by the app after it quit under it: keep the count.
     let starts = {
         let _guard = SAVED_CLONES.lock().unwrap_or_else(|e| e.into_inner());
@@ -685,7 +714,7 @@ pub async fn wp_clone(
     let mut saved = SavedClone {
         job: job.clone(),
         from: from.unwrap_or_default(),
-        source: source.clone(),
+        source: kept_source,
         options: options.clone(),
         state: "running".into(),
         error: None,

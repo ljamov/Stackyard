@@ -19,7 +19,7 @@ import { ConnectionCheck } from "../ConnectionCheck";
 import { useBusy } from "../../lib/tabLife";
 
 type T = ReturnType<typeof useT>;
-type From = "saved" | "new" | "files";
+type From = "saved" | "new" | "files" | "code";
 
 /** The core's errors end with this when it needs the live site's address typed in. */
 const NEED_ADDRESS = "Type it in the Live site's address box";
@@ -119,6 +119,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
   const [keyFile, setKeyFile] = useState("");
   const [remoteDir, setRemoteDir] = useState("");
   const [files, setFiles] = useState<string[]>(job?.dropped ?? []);
+  const [code, setCode] = useState("");
   const [url, setUrl] = useState("");
   const [found, setFound] = useState<WpFound | null>(null);
   const [root, setRoot] = useState("");
@@ -163,6 +164,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
   function source(): WpCloneSource {
     if (from === "saved") return { kind: "saved", id: savedId };
     if (from === "files") return { kind: "files", files };
+    if (from === "code") return { kind: "code", code: code.trim() };
     return {
       kind: "new",
       connection: {
@@ -202,7 +204,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
     const live = url.trim() || found?.url || "";
     const label =
       live.replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "") ||
-      (from === "files" ? files.map((f) => f.split(/[\\/]/).pop()).join(", ") : host.trim() || saved.find((c) => c.id === savedId)?.host || "");
+      (from === "code" ? t("connection code") : from === "files" ? files.map((f) => f.split(/[\\/]/).pop()).join(", ") : host.trim() || saved.find((c) => c.id === savedId)?.host || "");
     void startClone(
       id,
       source(),
@@ -226,7 +228,8 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
 
   if (job && job.state !== "new") return <CloneJob id={id} onCloned={onCloned} />;
 
-  const ready = from === "files" ? files.length > 0 : from === "saved" ? !!savedId : !!host.trim() && !!user.trim();
+  const ready =
+    from === "code" ? code.trim().startsWith("stackyard-connect:") : from === "files" ? files.length > 0 : from === "saved" ? !!savedId : !!host.trim() && !!user.trim();
   return (
     <section className="card stack" aria-labelledby={`${id}-h`}>
       <div className="row between centered">
@@ -256,7 +259,34 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
             <input type="radio" checked={from === "files"} onChange={() => setFrom("files")} />
             {t("Backup files")}
           </label>
+          <label className="row centered small">
+            <input type="radio" checked={from === "code"} onChange={() => setFrom("code")} />
+            {t("A connection code (no FTP)")}
+          </label>
         </div>
+
+        {from === "code" && (
+          <div className="field">
+            <label htmlFor="cl-code">{t("Connection code")}</label>
+            <textarea
+              id="cl-code"
+              className="mono"
+              rows={3}
+              value={code}
+              placeholder="stackyard-connect:…"
+              spellCheck={false}
+              onChange={(e) => {
+                setCode(e.target.value);
+                setFound(null);
+              }}
+            />
+            <span className="muted small">
+              {t(
+                "For a site whose FTP login you don't have. Install the Stackyard Connect plugin on it, open Tools › Stackyard there, make a connection code and paste it here. The site then exports itself and Stackyard downloads it.",
+              )}
+            </span>
+          </div>
+        )}
 
         {from === "saved" && (
           <div className="field">
@@ -351,7 +381,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
           </div>
         )}
 
-        {from !== "files" && (
+        {from !== "files" && from !== "code" && (
           <div className="field">
             <label htmlFor="cl-url">{t("Live site's address")}</label>
             <input
@@ -386,7 +416,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
       {found && (
         <div className="stack">
           <dl className="facts">
-            {found.roots.length > 1 ? (
+            {!found.root ? null : found.roots.length > 1 ? (
               <div className="list-row">
                 <dt className="muted small">{t("WordPress folder")}</dt>
                 <dd className="small">
@@ -429,7 +459,9 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
             {found.files && <FileSizes sizes={found.files} />}
             <div className="list-row">
               <dt className="muted small">{t("How")}</dt>
-              <dd className="small">{routeText(t, found.route)}</dd>
+              <dd className="small">
+                {from === "code" ? t("Through the Stackyard Connect plugin on the live site") : routeText(t, found.route)}
+              </dd>
             </div>
           </dl>
           {found.files && !found.files.complete && (
@@ -454,7 +486,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
                 <span className="mono muted">.stack</span>
               </div>
             </div>
-            {from !== "files" && (
+            {from !== "files" && from !== "code" && (
               <div className="field">
                 <span className="small">{t("Media (wp-content/uploads)")}</span>
                 <label className="row centered small">
@@ -503,7 +535,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
           {error}
         </p>
       )}
-      {error && !needsAddress && from !== "files" && <ConnectionCheck run={() => wp.cloneCheck(source())} />}
+      {error && !needsAddress && from !== "files" && from !== "code" && <ConnectionCheck run={() => wp.cloneCheck(source())} />}
     </section>
   );
 }
@@ -578,7 +610,7 @@ function CloneJob({ id, onCloned }: { id: string; onCloned: (domain: string) => 
           {job.error}
         </p>
       )}
-      {job.state === "failed" && job.source && job.source.kind !== "files" && (
+      {job.state === "failed" && job.source && job.source.kind !== "files" && job.source.kind !== "code" && (
         <ConnectionCheck run={() => wp.cloneCheck(job.source!)} />
       )}
       <div className="row">

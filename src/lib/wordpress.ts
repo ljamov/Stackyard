@@ -61,7 +61,7 @@ export type WooStatus = {
 export type WooGateway = { id: string; title: string; enabled: boolean; test_mode: boolean | null };
 export type WooView = { status: WooStatus; gateways: WooGateway[] };
 
-export type WpProtocol = "sftp" | "ftps" | "ftp";
+export type WpProtocol = "sftp" | "ftps" | "ftp" | "plugin";
 export type WpRoute = "ssh" | "helper" | "files";
 export type WpMedia = "download" | "from-live";
 export type WpSavedConnection = { id: string; name: string; site: string; host: string; user: string; protocol: WpProtocol };
@@ -79,7 +79,9 @@ export type WpConnectionInput = {
 export type WpCloneSource =
   | { kind: "saved"; id: string }
   | { kind: "new"; connection: WpConnectionInput }
-  | { kind: "files"; files: string[] };
+  | { kind: "files"; files: string[] }
+  /** A code from the Stackyard Connect plugin; empty in a saved clone, whose code is in the keychain. */
+  | { kind: "code"; code: string };
 /** A clone kept from before the app last quit; `running` ones start again. */
 export type WpSavedClone = {
   job: string;
@@ -497,7 +499,7 @@ function mockWp(): WpApi {
     },
     cloneInspect: async (_job, source) => {
       await wait(900);
-      const files = source.kind === "files";
+      const files = source.kind === "files" || source.kind === "code";
       return {
         route: files ? "files" : source.kind === "new" && source.connection.protocol !== "sftp" ? "helper" : "ssh",
         roots: files ? ["backup/public_html"] : ["/home/master/applications/shop/public_html"],

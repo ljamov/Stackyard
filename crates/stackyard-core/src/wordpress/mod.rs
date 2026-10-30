@@ -9,6 +9,7 @@
 
 pub mod cli;
 pub mod config;
+pub mod connect;
 pub mod copy;
 pub mod env;
 pub mod helper;

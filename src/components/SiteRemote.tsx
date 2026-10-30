@@ -32,6 +32,7 @@ const PROTOCOLS: { value: RemoteProtocol; label: string }[] = [
   { value: "sftp", label: "SFTP (SSH)" },
   { value: "ftps", label: "FTPS (FTP with TLS)" },
   { value: "ftp", label: "FTP (not encrypted)" },
+  { value: "plugin", label: "Stackyard Connect plugin (no FTP)" },
 ];
 
 const DEFAULT_SKIP = [".git", "node_modules", ".DS_Store", "Thumbs.db", ".env"];
@@ -208,6 +209,7 @@ function ConnectionForm({
   const set = <K extends keyof RemoteInput>(key: K, value: RemoteInput[K]) => setForm((f) => ({ ...f, [key]: value }));
   const id = existing?.id ?? "new";
   const defaultPort = form.protocol === "sftp" ? 22 : 21;
+  const plugin = form.protocol === "plugin";
 
   async function browseKey() {
     const [file] = await api.pickFiles("Select your private key", form.key_file ?? undefined, false);
@@ -277,9 +279,12 @@ function ConnectionForm({
           </select>
           <Tip id={`r-proto-tip-${id}`}>
             Your host's control panel says which it offers. SFTP is the safest and works on VPS servers and Cloudways.
-            FTPS is FTP with encryption. Plain FTP works almost everywhere but is not encrypted.
+            FTPS is FTP with encryption. Plain FTP works almost everywhere but is not encrypted. Without any of them, a
+            WordPress site with the Stackyard Connect plugin works through a connection code.
           </Tip>
         </div>
+        {!plugin && (
+          <>
         <div className="field has-tip">
           <label htmlFor={`r-host-${id}`}>
             Server address
@@ -340,9 +345,11 @@ function ConnectionForm({
             host's website.
           </Tip>
         </div>
+          </>
+        )}
         <div className="field has-tip">
           <label htmlFor={`r-pass-${id}`}>
-            {useKey && form.protocol === "sftp" ? "Key passphrase" : "Password"}
+            {plugin ? "Connection code" : useKey && form.protocol === "sftp" ? "Key passphrase" : "Password"}
             <TipMark />
           </label>
           <input
@@ -351,12 +358,20 @@ function ConnectionForm({
             autoComplete="new-password"
             value={form.password ?? ""}
             placeholder={
-              existing?.has_password ? "Saved; type to change" : useKey ? "Only if the key has one" : "The user's password"
+              existing?.has_password
+                ? "Saved; type to change"
+                : plugin
+                  ? "stackyard-connect:…"
+                  : useKey
+                    ? "Only if the key has one"
+                    : "The user's password"
             }
             aria-describedby={`r-pass-tip-${id}`}
             onChange={(e) => set("password", e.target.value)}
           />
           <Tip id={`r-pass-tip-${id}`}>
+            {plugin &&
+              "Make it under Tools › Stackyard on the live site; tick the box there to allow push. "}
             Kept in {secretStore}, never in Stackyard's files.
             {existing?.has_password && " Leave it empty to keep the saved one."}
           </Tip>
@@ -370,7 +385,7 @@ function ConnectionForm({
             id={`r-rdir-${id}`}
             className="mono"
             value={form.remote_dir}
-            placeholder="Empty = where you land after logging in"
+            placeholder={plugin ? "Empty = WordPress's folder" : "Empty = where you land after logging in"}
             aria-describedby={`r-rdir-tip-${id}`}
             onChange={(e) => set("remote_dir", e.target.value)}
           />
