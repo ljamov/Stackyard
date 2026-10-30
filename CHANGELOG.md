@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.19.0
 
 - **Projects, Apps and Sites.** Everything you make is in one of three lists, each with its own
   place in the side bar. New asks first what you are making, then what it starts from. Sites can
