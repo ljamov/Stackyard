@@ -74,13 +74,14 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
   // A copy of a live WordPress site pushes and pulls in Servers & Git.
   const [live, setLive] = useState<WpEnvironment["live"]>(null);
   const [liveAsk, setLiveAsk] = useState<LiveAsk | null>(null);
+  const [linked, setLinked] = useState(0);
   useEffect(() => {
     setLive(null);
     if (!wordpress || !isOn("wordpress")) return;
     wp.environment(site.domain)
       .then((env) => setLive(env?.live ?? null))
       .catch(() => setLive(null));
-  }, [site.domain, wordpress, isOn]);
+  }, [site.domain, wordpress, isOn, linked]);
   const sections = [
     wordpress && isOn("wordpress") && { id: "WordPress", label: "WordPress", icon: "wordpress" },
     isOn("sitesettings") && { id: "Settings", label: t("Settings"), icon: "manage" },
@@ -159,7 +160,7 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
         )}
         {has("Servers & Git") && (
           <Keep shown={shown === "Servers & Git"}>
-            <SiteRemote site={site} live={live} liveAsk={liveAsk} />
+            <SiteRemote site={site} live={live} liveAsk={liveAsk} onLinked={() => setLinked((n) => n + 1)} />
           </Keep>
         )}
       </section>

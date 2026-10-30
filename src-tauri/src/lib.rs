@@ -2313,6 +2313,7 @@ pub fn run() {
             wordpress::wp_sync_changes,
             wordpress::wp_push,
             wordpress::wp_pull,
+            wordpress::wp_install,
             wordpress::wp_sync_stop,
             wordpress::wp_live_backups,
             wordpress::wp_live_backup_restore,

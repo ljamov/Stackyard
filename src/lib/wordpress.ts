@@ -213,6 +213,7 @@ export type WpSyncChanges = {
   notes: string[];
 };
 export type WpPushed = { backup: string; files: number; switches: number; settings: number; site_answers: boolean; notes: string[] };
+export type WpInstalled = { backup: string; files: number; site_answers: boolean; notes: string[] };
 export type WpPulled = { snapshot: string; files: number; switches: number; settings: number; notes: string[] };
 export type WpLiveBackup = { id: string; domain: string; created_at: number; database: string[]; saved: string[]; added: string[]; bytes: number };
 export type WpSyncProgress = { domain: string; stage: WpCloneStage; message: string; done: number; total: number };
@@ -286,6 +287,8 @@ export interface WpApi {
   /** `confirm` is the main site's name, typed for an Everything push. */
   push(domain: string, choice: WpMergeChoice, confirm: string): Promise<WpPushed>;
   pull(domain: string, choice: WpMergeChoice): Promise<WpPulled>;
+  /** Puts a site made here on a host through one of its servers, replacing what is there. */
+  install(domain: string, connection: string, url: string, confirm: string): Promise<WpInstalled>;
   syncStop(): Promise<void>;
   onSyncProgress(handler: (p: WpSyncProgress) => void): Promise<() => void>;
   liveBackups(domain: string): Promise<WpLiveBackup[]>;
@@ -358,6 +361,7 @@ const tauriWp: WpApi = {
   syncChanges: (domain, way) => invoke("wp_sync_changes", { domain, way }),
   push: (domain, choice, confirm) => invoke("wp_push", { domain, choice, confirm }),
   pull: (domain, choice) => invoke("wp_pull", { domain, choice }),
+  install: (domain, connection, url, confirm) => invoke("wp_install", { domain, connection, url, confirm }),
   syncStop: () => invoke("wp_sync_stop"),
   onSyncProgress: (handler) => listen<WpSyncProgress>("wp-sync-progress", (e) => handler(e.payload)),
   liveBackups: (domain) => invoke("wp_live_backups", { domain }),
@@ -747,6 +751,10 @@ function mockWp(): WpApi {
       await wait(1000);
       snapshots.unshift({ id: `${Date.now()}`, domain, reason: "Pull from live", created_at: Date.now() / 1000, saved: choice.files, added: [], bytes: 1.1e7 });
       return { snapshot: snapshots[0].id, files: choice.files.length, switches: choice.switches.length, settings: choice.settings.length, notes: [] };
+    },
+    install: async () => {
+      await wait(1500);
+      return { backup: `${Date.now()}`, files: 4210, site_answers: true, notes: [] };
     },
     syncStop: async () => {},
     onSyncProgress: async (handler) => {

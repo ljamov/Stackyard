@@ -894,5 +894,11 @@
   "Through the Stackyard Connect plugin on the live site": "Tramite il plugin Stackyard Connect sul sito live",
   "connection code": "codice di connessione",
   "plugin": "plugin",
-  "theme": "tema"
+  "theme": "tema",
+  "Add the host under Servers first: SFTP, FTP, or the Stackyard Connect plugin with a code that allows changes.": "Aggiungi prima l'host in Server: SFTP, FTP o il plugin Stackyard Connect con un codice che consente modifiche.",
+  "Open Live site": "Apri il sito live",
+  "Put it on the host": "Mettilo sull'host",
+  "This site isn't linked to a live site yet. Put it on a host: Stackyard uploads every file and the database into a WordPress already installed there, with every address changed to the host's. After that, push and pull work as for a cloned site.": "Questo sito non è ancora collegato a un sito live. Mettilo su un host: Stackyard carica tutti i file e il database in un WordPress già installato lì, cambiando ogni indirizzo con quello dell'host. Dopo, push e pull funzionano come per un sito clonato.",
+  "Type {host} to confirm: the site there is replaced": "Scrivi {host} per confermare: il sito lì viene sostituito",
+  "{domain} is on {url}. {count} files were sent; the host's database was backed up first.": "{domain} è su {url}. Sono stati inviati {count} file; prima è stato fatto il backup del database dell'host."
 }

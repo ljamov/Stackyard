@@ -19,6 +19,10 @@
 //!
 //! A pull takes a snapshot of the copy first, so it can be undone like a
 //! merge.
+//!
+//! [`install`] goes the other way round from a clone: a site made on this
+//! computer is put on a host whole, into a WordPress already there, and is
+//! from then on a copy of it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, Write};
@@ -1225,8 +1229,12 @@ pub struct Pushed {
     pub notes: Vec<String>,
 }
 
+/// Options of the Stackyard Connect plugin that belong to the live site:
+/// its connection code (a push through it must not end it) and its export.
+const CONNECT_OPTIONS: [&str; 2] = ["stackyard_connect_link", "stackyard_connect_export"];
+
 /// Option names a push at the Everything level keeps from the live site:
-/// payment settings (the copy's are in test mode).
+/// payment settings (the copy's are in test mode), and Stackyard Connect's.
 fn kept_live_options(home: &Path, wp: &WpSite) -> Vec<String> {
     let mut names: Vec<String> = super::woo::gateways(home, wp)
         .map(|g| {
@@ -1247,6 +1255,7 @@ fn kept_live_options(home: &Path, wp: &WpSite) -> Vec<String> {
             names.push(known.into());
         }
     }
+    names.extend(CONNECT_OPTIONS.map(String::from));
     names
 }
 
@@ -1445,7 +1454,7 @@ pub fn push(
                         ));
                     }
                     fix.push_str(&format!(
-                        "DELETE FROM {table} WHERE option_name LIKE 'stackyard\\_%';\n"
+                        "DELETE FROM {table} WHERE option_name LIKE 'stackyard\\_%' AND option_name NOT LIKE 'stackyard\\_connect\\_%';\n"
                     ));
                     client.execute(&scratch, &fix)?;
                     let dump = r.work.join("everything.sql.gz");
@@ -2036,6 +2045,346 @@ pub fn move_posts(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Install
+
+/// What putting a site on a host did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Installed {
+    /// The backup of the host's database taken first, restorable with
+    /// [`restore_backup`].
+    pub backup: String,
+    pub files: usize,
+    /// The home page and login page answered afterwards.
+    pub site_answers: bool,
+    pub notes: Vec<String>,
+}
+
+/// The host's name in `url`, e.g. `example.com` in `https://example.com/shop`.
+fn url_host(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    rest.split(['/', '?', '#'])
+        .next()
+        .filter(|h| !h.is_empty() && !h.contains(char::is_whitespace))
+}
+
+/// Puts a site made on this computer on a host, through one of its saved
+/// connections (SFTP, FTP or the Stackyard Connect plugin): every file,
+/// and the whole database with every local address changed to `url`. The
+/// host must have WordPress installed already, whose `wp-config.php` says
+/// which database to use; what is there is replaced. `confirm` must be
+/// `url`'s host name.
+///
+/// The host's database is backed up first and put back if a step fails.
+/// Files on the host that the site doesn't have are left alone, and so is
+/// the host's `wp-config.php`; Stackyard Connect stays switched on, with
+/// its connection code. After, the site is a copy of the host's, to push
+/// and pull as if it had been cloned from it.
+pub fn install(
+    home: &Path,
+    sessions: &Sessions,
+    domain: &str,
+    connection_id: &str,
+    url: &str,
+    confirm: &str,
+    progress: OnProgress,
+) -> Result<Installed> {
+    let url = url.trim().trim_end_matches('/').to_string();
+    let host = url_host(&url)
+        .ok_or_else(|| fail("give the live site's address, e.g. https://example.com"))?
+        .to_string();
+    if confirm.trim() != host {
+        return Err(fail(format!(
+            "type {host} to confirm; the site there is replaced"
+        )));
+    }
+    let site = site_of(home, domain)?;
+    let wp = WpSite::open(&site)?;
+    let environment = env::load(home, domain)?.unwrap_or_default();
+    let connection = RemoteStore::load()?.get(connection_id)?.clone();
+    if connection.site != domain {
+        return Err(fail(format!(
+            "{} is a server of {}; add one for {domain} under Servers",
+            connection.name, connection.site
+        )));
+    }
+    let work = home.join("tmp").join(format!(
+        "install-{}-{}",
+        domain.replace('.', "-"),
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&work).map_err(io(&work))?;
+    say(progress, Stage::Connecting, "Connecting to the host…")?;
+    let mut roots = Vec::new();
+    let server = match Server::open(sessions, &connection, None, Some(&url), &work, &mut roots) {
+        Ok(server) => server,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&work);
+            let text = e.to_string();
+            return Err(if text.contains("no WordPress found") {
+                fail(format!("{text}. The site goes into a WordPress already on the host: install WordPress there first (most hosts do it in one click), then try again"))
+            } else {
+                e
+            });
+        }
+    };
+    let live = Live {
+        url: url.clone(),
+        connection: Some(connection.id.clone()),
+        path: server.root.clone(),
+        route: server.route(),
+        media: Media::Download,
+        synced_at: 0,
+    };
+    let mut r = Reached {
+        site,
+        wp,
+        env: environment,
+        live,
+        server,
+        info: Info::default(),
+        work,
+    };
+    r.server.upload_helper_with(&r.work, true)?;
+    r.info = r.server.info()?;
+    let s = &r.server;
+    let rules = rules(&r, home, Way::Push);
+    let client = Client::open(home)?;
+    let local_db = r.wp.database()?;
+    let prefix = r.wp.prefix().to_string();
+    let mut notes = Vec::new();
+
+    // The host's database, to put back if something fails.
+    let id = format!("{}", env::now());
+    let dir = backups_dir(home, domain).join(&id);
+    std::fs::create_dir_all(&dir).map_err(io(&dir))?;
+    let parts = s.backup_database(&r.info.tables, &dir.join("database"), progress)?;
+    let mut backup = LiveBackup {
+        id: id.clone(),
+        domain: domain.to_string(),
+        created_at: env::now(),
+        database: parts
+            .iter()
+            .filter_map(|p| p.strip_prefix(&dir).ok())
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect(),
+        ..LiveBackup::default()
+    };
+    backup.bytes = dir_size(&dir);
+    save_backup_info(&dir, &backup)?;
+
+    // What the host keeps of its own: Stackyard Connect, switched on.
+    let mut names: Vec<String> = CONNECT_OPTIONS.map(String::from).to_vec();
+    names.push("active_plugins".into());
+    let kept = s.option_values(&names)?;
+    let connect_on = kept.get("active_plugins").is_some_and(|(value, _)| {
+        replace::contains(value, b"stackyard-connect/stackyard-connect.php")
+    });
+
+    say(
+        progress,
+        Stage::Loading,
+        "Putting together the database for the host…",
+    )?;
+    let dump = r.work.join("local.sql.gz");
+    client.dump_portable(&local_db, &dump)?;
+    let moved = r.work.join("moved.sql.gz");
+    {
+        let input = flate2::read::GzDecoder::new(std::io::BufReader::new(
+            std::fs::File::open(&dump).map_err(io(&dump))?,
+        ));
+        let out = std::fs::File::create(&moved).map_err(io(&moved))?;
+        let mut gz = flate2::write::GzEncoder::new(out, flate2::Compression::fast());
+        replace::rewrite(input, &mut gz, &rules).map_err(io(&moved))?;
+        gz.finish().map_err(io(&moved))?;
+    }
+    let _ = std::fs::remove_file(&dump);
+    let ready = r.work.join("ready.sql.gz");
+    portable(&moved, &ready)?;
+    let _ = std::fs::remove_file(&moved);
+    let options = ident(&format!("{prefix}options"));
+    let mut after = format!(
+        "DELETE FROM {options} WHERE option_name LIKE 'stackyard\\_%' AND option_name NOT LIKE 'stackyard\\_connect\\_%';\n"
+    );
+    for name in CONNECT_OPTIONS {
+        if let Some((value, autoload)) = kept.get(name) {
+            after.push_str(&format!(
+                "INSERT INTO {options} (option_name, option_value, autoload) VALUES ({}, {}, {}) ON DUPLICATE KEY UPDATE option_value = VALUES(option_value);\n",
+                literal(name),
+                literal(&String::from_utf8_lossy(value)),
+                literal(autoload)
+            ));
+        }
+    }
+    if connect_on {
+        let mut active = snapshot::read_facts(&client, &local_db, &prefix)?.active_plugins;
+        let plugin = "stackyard-connect/stackyard-connect.php".to_string();
+        if !active.contains(&plugin) {
+            active.push(plugin);
+            after.push_str(&format!(
+                "UPDATE {options} SET option_value = {} WHERE option_name = 'active_plugins';\n",
+                literal(&serialize_list(&active))
+            ));
+        }
+    }
+
+    say(progress, Stage::Files, "Listing the files on the host…")?;
+    let (live_files, _) = s.files(false, progress)?;
+    say(progress, Stage::Files, "Listing the files here…")?;
+    let content = merge::content_rel(&r.wp);
+    let local_files = snapshot::manifest(&r.site.path)?;
+    let sending: Vec<&String> = local_files
+        .iter()
+        .filter(|(rel, entry)| {
+            !left_out(rel, &content) && !same_across(Some(entry), live_files.get(*rel), false)
+        })
+        .map(|(rel, _)| rel)
+        .collect();
+
+    say(
+        progress,
+        Stage::Files,
+        "Switching the host's site to maintenance mode…",
+    )?;
+    s.maintenance(true, &r.work)?;
+    let applied = (|| -> Result<()> {
+        let count = sending.len() as u64;
+        for (i, rel) in sending.iter().enumerate() {
+            if !progress(Progress {
+                stage: Stage::Files,
+                message: format!("Uploading {rel}"),
+                done: i as u64,
+                total: count,
+            }) {
+                return Err(stopped());
+            }
+            s.sessions.upload_into(
+                &s.connection,
+                &r.site.path.join(rel.as_str()),
+                &remote::join(&s.root, rel),
+            )?;
+        }
+        say(
+            progress,
+            Stage::Loading,
+            "Loading the database on the host…",
+        )?;
+        s.import(&ready, false, &mut |at| {
+            progress(Progress {
+                stage: Stage::Loading,
+                message: "Loading the database on the host…".into(),
+                done: at,
+                total: 0,
+            })
+        })?;
+        let file = sql_file(&r.work, "after.sql.gz", &after)?;
+        s.import(&file, true, &mut |_| true)?;
+        if prefix != s.db.prefix {
+            set_live_prefix(s, &r.work, &prefix)?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = applied {
+        say(
+            progress,
+            Stage::Finishing,
+            "Something went wrong; putting the host's database back…",
+        )
+        .ok();
+        let put = put_back(&r, &dir, &backup, &mut |_| true);
+        return Err(match put {
+            Ok(()) => fail(format!("putting the site on the host failed ({e}); the host's database was put back. Files already uploaded stay there")),
+            Err(again) => fail(format!(
+                "putting the site on the host failed ({e}) and putting its database back failed too ({again}); the backup is in {}",
+                dir.display()
+            )),
+        });
+    }
+    if prefix != s.db.prefix {
+        notes.push(format!("The host's wp-config.php now uses this site's table prefix, {prefix}. The tables it used before, {}…, are still in its database.", s.db.prefix));
+    }
+    say(
+        progress,
+        Stage::Finishing,
+        "Switching maintenance mode off…",
+    )?;
+    s.maintenance(false, &r.work)?;
+    say(
+        progress,
+        Stage::Finishing,
+        "Checking the site on the host answers…",
+    )?;
+    let site_answers = answers(&s.http, &url);
+    if !site_answers {
+        notes.push("The home page or login page did not answer as expected. Open the site; if it is broken, put the backup back under Live site › Backups.".into());
+    }
+    notes.push("The host now has this site's database as it is here. If payments or mail were switched to test mode here, switch them back on the host.".into());
+
+    say(progress, Stage::Finishing, "Noting where both sides stand…")?;
+    let mut environment = r.env.clone();
+    environment.live = Some(Live {
+        synced_at: env::now(),
+        ..r.live.clone()
+    });
+    env::save(home, domain, &environment)?;
+    if let Err(e) = record_after_clone(home, &r.site, s.facts().ok()) {
+        notes.push(format!("Stackyard could not note how the site and the host match ({e}); the first push or pull lists every difference."));
+    }
+    Ok(Installed {
+        backup: id,
+        files: sending.len(),
+        site_answers,
+        notes,
+    })
+}
+
+/// Points the host's `wp-config.php` at the tables with `prefix`.
+fn set_live_prefix(s: &Server, work: &Path, prefix: &str) -> Result<()> {
+    if prefix.is_empty()
+        || !prefix
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return Err(fail(format!(
+            "{prefix} is not a table prefix WordPress allows"
+        )));
+    }
+    let text = &s.config_text;
+    let at = text
+        .find("$table_prefix")
+        .ok_or_else(|| fail("the host's wp-config.php has no $table_prefix"))?;
+    let rest = &text[at..];
+    let open = rest.find(['\'', '"']).ok_or_else(|| {
+        fail("the host's wp-config.php sets $table_prefix in a way Stackyard can't change")
+    })?;
+    let quote = rest.as_bytes()[open] as char;
+    let close = rest[open + 1..].find(quote).ok_or_else(|| {
+        fail("the host's wp-config.php sets $table_prefix in a way Stackyard can't change")
+    })?;
+    let start = at + open + 1;
+    let changed = format!("{}{prefix}{}", &text[..start], &text[start + close..]);
+    let local = work.join("wp-config.host.php");
+    std::fs::write(&local, &changed).map_err(io(&local))?;
+    // It is in WordPress's folder, or the one above.
+    for dir in std::iter::once(s.root.clone()).chain(live::parent(&s.root)) {
+        let remote_file = remote::join(&dir, "wp-config.php");
+        if s.sessions
+            .download(
+                &s.connection,
+                &remote_file,
+                &work.join("wp-config.check.php"),
+                &mut |_| true,
+            )
+            .is_ok()
+        {
+            return s.sessions.upload(&s.connection, &local, &remote_file);
+        }
+    }
+    Err(fail("could not find the host's wp-config.php again"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2213,6 +2562,17 @@ mod tests {
             serialize_list(&list),
             r#"a:2:{i:0;s:22:"fast-checkout/fast.php";i:1;s:27:"woocommerce/woocommerce.php";}"#
         );
+    }
+
+    #[test]
+    fn reads_the_host_of_an_address() {
+        assert_eq!(url_host("https://example.com"), Some("example.com"));
+        assert_eq!(
+            url_host("http://shop.example.com/store?x"),
+            Some("shop.example.com")
+        );
+        assert_eq!(url_host("example.com"), None);
+        assert_eq!(url_host("https://"), None);
     }
 
     #[test]

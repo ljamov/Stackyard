@@ -23,6 +23,7 @@ import { useModules } from "../lib/modules";
 import { useT } from "../lib/i18n";
 import type { WpEnvironment } from "../lib/wordpress";
 import { LiveSiteTab, type LiveAsk } from "./wordpress/Live";
+import { InstallOnHost } from "./wordpress/InstallOnHost";
 import { Tip, TipMark } from "./Tip";
 import { ConnectionCheck } from "./ConnectionCheck";
 
@@ -49,11 +50,24 @@ function plural(n: number, one: string, many = `${one}s`) {
 }
 
 /** Remote servers and Git for one site, shown in its Servers & Git tab. A
- * copy of a live WordPress site also gets Live site, to push and pull. */
-export function SiteRemote({ site, live, liveAsk }: { site: Site; live?: WpLive | null; liveAsk?: LiveAsk | null }) {
+ * copy of a live WordPress site also gets Live site, to push and pull; a
+ * WordPress site that isn't one yet gets it to be put on a host. */
+export function SiteRemote({
+  site,
+  live,
+  liveAsk,
+  onLinked,
+}: {
+  site: Site;
+  live?: WpLive | null;
+  liveAsk?: LiveAsk | null;
+  /** The site was put on a host and is now a copy of it. */
+  onLinked?: () => void;
+}) {
   const { isOn } = useModules();
   const t = useT();
-  const tabs = [live && isOn("wordpress") && "Live site", isOn("remote") && "Servers", isOn("git") && "Git"].filter(Boolean) as string[];
+  const wordpress = site.framework === "WordPress" || site.framework === "WooCommerce";
+  const tabs = [(live || wordpress) && isOn("wordpress") && "Live site", isOn("remote") && "Servers", isOn("git") && "Git"].filter(Boolean) as string[];
   const [tab, setTab] = useRememberedTab(`remote:${site.domain}`, liveAsk ? "Live site" : "");
   useEffect(() => {
     if (liveAsk) setTab("Live site");
@@ -84,6 +98,11 @@ export function SiteRemote({ site, live, liveAsk }: { site: Site; live?: WpLive 
       {tabs.includes("Live site") && live && (
         <Keep shown={shown === "Live site"}>
           <LiveSiteTab domain={site.domain} live={live} ask={liveAsk} />
+        </Keep>
+      )}
+      {tabs.includes("Live site") && !live && (
+        <Keep shown={shown === "Live site"}>
+          <InstallOnHost site={site} onInstalled={() => onLinked?.()} />
         </Keep>
       )}
       {tabs.includes("Servers") && (

@@ -1195,6 +1195,30 @@ pub async fn wp_pull(
     .await
 }
 
+/// Puts a site made here on a host through one of its servers, replacing
+/// what is there; it is then a copy of the host's site.
+#[tauri::command]
+pub async fn wp_install(
+    app: AppHandle,
+    domain: String,
+    connection: String,
+    url: String,
+    confirm: String,
+) -> CmdResult<sync::Installed> {
+    with_live(app, domain, move |home, sessions, domain, progress| {
+        sync::install(
+            home,
+            sessions,
+            domain,
+            &connection,
+            &url,
+            &confirm,
+            progress,
+        )
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn wp_sync_stop(state: State<'_, SyncState>) {
     state.stop.store(true, Ordering::SeqCst);

@@ -24,7 +24,7 @@ type Live = NonNullable<WpEnvironment["live"]>;
 export type LiveAsk = { way: WpWay; at: number };
 
 /** Progress of the push, pull or live read running for this copy. */
-function useSyncProgress(domain: string) {
+export function useSyncProgress(domain: string) {
   const [progress, setProgress] = useState<WpSyncProgress | null>(null);
   useEffect(() => {
     let off: (() => void) | undefined;
@@ -43,7 +43,7 @@ function useSyncProgress(domain: string) {
   return [progress, setProgress] as const;
 }
 
-function Progress({ progress, onStop }: { progress: WpSyncProgress | null; onStop: () => void }) {
+export function Progress({ progress, onStop }: { progress: WpSyncProgress | null; onStop: () => void }) {
   const t = useT();
   return (
     <div className="stack" role="status">

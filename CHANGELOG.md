@@ -6,6 +6,14 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Put a site made here on a host.** A WordPress site that isn't a copy of a live one gets a
+  Live site tab under Servers & Git: pick one of its servers (SFTP, FTP or the Stackyard Connect
+  plugin) and the address, type the host's name to confirm, and Stackyard uploads every file and
+  the whole database into the WordPress already on the host, with every address changed to it.
+  The host's database is backed up first and put back if a step fails. From then on the site
+  pushes and pulls like a cloned one. An Everything push now also keeps the plugin's connection
+  code on the live site.
+
 - **Clone a site without its FTP login.** On a site with the Stackyard Connect plugin, open
   Tools › Stackyard and make a connection code. In Stackyard, pick Clone › A connection code (no
   FTP) and paste it. The live site exports itself in short steps and Stackyard downloads the

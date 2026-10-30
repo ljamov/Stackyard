@@ -894,5 +894,11 @@
   "Through the Stackyard Connect plugin on the live site": "Преку приклучокот Stackyard Connect на сајтот во живо",
   "connection code": "код за поврзување",
   "plugin": "приклучок",
-  "theme": "тема"
+  "theme": "тема",
+  "Add the host under Servers first: SFTP, FTP, or the Stackyard Connect plugin with a code that allows changes.": "Прво додајте го хостот под Сервери: SFTP, FTP или приклучокот Stackyard Connect со код што дозволува промени.",
+  "Open Live site": "Отвори го сајтот во живо",
+  "Put it on the host": "Стави го на хостот",
+  "This site isn't linked to a live site yet. Put it on a host: Stackyard uploads every file and the database into a WordPress already installed there, with every address changed to the host's. After that, push and pull work as for a cloned site.": "Овој сајт сè уште не е поврзан со сајт во живо. Ставете го на хост: Stackyard ги прикачува сите датотеки и базата на податоци во WordPress што веќе е инсталиран таму, со секоја адреса сменета во адресата на хостот. Потоа push и pull работат како за клониран сајт.",
+  "Type {host} to confirm: the site there is replaced": "Напишете {host} за потврда: сајтот таму ќе биде заменет",
+  "{domain} is on {url}. {count} files were sent; the host's database was backed up first.": "{domain} е на {url}. Испратени се {count} датотеки; базата на податоци на хостот претходно е зачувана."
 }

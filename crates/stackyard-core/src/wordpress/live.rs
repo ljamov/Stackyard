@@ -434,7 +434,7 @@ fn find_roots(sessions: &Sessions, connection: &Connection, start: &str) -> Resu
     Ok(found)
 }
 
-fn parent(dir: &str) -> Option<String> {
+pub(super) fn parent(dir: &str) -> Option<String> {
     let trimmed = dir.trim_end_matches('/');
     let at = trimmed.rfind('/')?;
     Some(if at == 0 {
