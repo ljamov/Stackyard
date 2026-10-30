@@ -898,7 +898,7 @@ export interface Api {
   /** Packs it into a zip WordPress installs from. */
   wpPackageBuild(domain: string): Promise<WpBuilt>;
   /** Opens the folder built zips go in. */
-  openWpBuilds(): Promise<void>;
+  openWpBuilds(domain: string): Promise<void>;
   /** Removes the WordPress Stackyard made for a theme or plugin before. */
   wpRemoveOldWordPress(domain: string): Promise<WpPackage>;
   /** Points an added site at another folder; its settings stay. */
@@ -1125,7 +1125,7 @@ const tauriApi: Api = {
   wpPackage: (domain) => invoke("wp_package", { domain }),
   wpPackageSetVersion: (domain, version) => invoke("wp_package_set_version", { domain, version }),
   wpPackageBuild: (domain) => invoke("wp_package_build", { domain }),
-  openWpBuilds: () => invoke("open_wp_builds"),
+  openWpBuilds: (domain: string) => invoke("open_wp_builds", { domain }),
   wpRemoveOldWordPress: (domain) => invoke("wp_remove_old_wordpress", { domain }),
   changeSiteFolder: (domain, path) => invoke("change_site_folder", { domain, path }),
   moveSite: (domain, into) => invoke("move_site", { domain, into }),
@@ -2345,7 +2345,7 @@ function browserApi(): Api {
         main_file: site.project.kind === "wordpress-theme" ? "style.css" : `${slug}.php`,
         name: site.name,
         version,
-        builds: "C:\\Users\\you\\AppData\\Roaming\\Stackyard\\builds",
+        builds: `${site.project.folder}\\dist`,
         old_wordpress: null,
       };
     },

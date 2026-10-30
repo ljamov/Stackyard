@@ -597,7 +597,7 @@ pub fn share_stop(engine: State<'_, Arc<Engine>>, domain: String) -> CmdResult<S
 pub struct WpPackageView {
     #[serde(flatten)]
     package: stackyard_core::wppackage::Package,
-    /// The folder built zips go in.
+    /// The folder built zips go in: `dist` in the project's own folder.
     builds: String,
     /// The WordPress Stackyard made for it before, while it is still there.
     old_wordpress: Option<String>,
@@ -618,7 +618,7 @@ fn wp_package_view(site: &Site) -> CmdResult<WpPackageView> {
     Ok(WpPackageView {
         package: stackyard_core::wppackage::read(site.settings.project.kind, folder)
             .map_err(err)?,
-        builds: stackyard_core::wppackage::builds_dir(&home)
+        builds: stackyard_core::wppackage::builds_dir(folder)
             .display()
             .to_string(),
         old_wordpress: stackyard_core::projects::old_wordpress(&home, site)
@@ -646,17 +646,18 @@ pub fn wp_package_set_version(domain: String, version: String) -> CmdResult<WpPa
 pub async fn wp_package_build(domain: String) -> CmdResult<stackyard_core::wppackage::Built> {
     let (site, kind) = wp_package_site(&domain)?;
     blocking(move || {
-        let out = stackyard_core::wppackage::builds_dir(&paths::home());
-        stackyard_core::wppackage::build_zip(kind, stackyard_core::projects::folder(&site), &out)
-            .map_err(err)
+        let folder = stackyard_core::projects::folder(&site);
+        let out = stackyard_core::wppackage::builds_dir(folder);
+        stackyard_core::wppackage::build_zip(kind, folder, &out).map_err(err)
     })
     .await
 }
 
-/// Opens the folder built zips go in.
+/// Opens the folder a theme's or plugin's built zips go in.
 #[tauri::command]
-pub fn open_wp_builds() -> CmdResult<()> {
-    let out = stackyard_core::wppackage::builds_dir(&paths::home());
+pub fn open_wp_builds(domain: String) -> CmdResult<()> {
+    let (site, _) = wp_package_site(&domain)?;
+    let out = stackyard_core::wppackage::builds_dir(stackyard_core::projects::folder(&site));
     std::fs::create_dir_all(&out)
         .map_err(|e| format!("could not create {}: {e}", out.display()))?;
     open_with_system(out.as_os_str())
