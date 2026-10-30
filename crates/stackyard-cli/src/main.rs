@@ -1831,27 +1831,33 @@ fn run_in_place(mut command: Process, program: &Path) -> stackyard_core::Result<
 
 /// Starts the user's shell with the shims first on its PATH.
 fn open_shell() -> stackyard_core::Result<()> {
-    Settings::load()?.require_module("shell")?;
+    let settings = Settings::load()?;
+    settings.require_module("shell")?;
     let home = paths::home();
     if !shims::installed(&home) {
         shims::install(&home, &own_program()?)?;
     }
-    let bin = shims::bin_dir(&home);
+    for name in ai::repair(&home, &settings) {
+        eprintln!("Put back {name}'s program, which an unfinished update had removed.");
+    }
+    let first =
+        stackyard_core::shell::terminal_path(&home, &settings, platform::Platform::current().os);
     let program = if cfg!(windows) {
         std::env::var_os("STACKYARD_SHELL_PROGRAM").unwrap_or_else(|| "powershell.exe".into())
     } else {
         std::env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into())
     };
     let rest = std::env::var_os("PATH").unwrap_or_default();
-    let path =
-        std::env::join_paths(std::iter::once(bin.clone()).chain(std::env::split_paths(&rest)))
-            .map_err(|e| Error::Shell(format!("could not build PATH: {e}")))?;
+    let others = std::env::split_paths(&rest).filter(|p| !first.contains(p));
+    let path = std::env::join_paths(first.iter().cloned().chain(others))
+        .map_err(|e| Error::Shell(format!("could not build PATH: {e}")))?;
     println!(
         "Stackyard Shell: php, composer, node, npm and mysql use each project's versions here."
     );
     println!("Run `stackyard which` to see them. Type `exit` to leave.");
     let mut command = Process::new(&program);
     command.env("PATH", path).env("STACKYARD_SHELL", "1");
+    command.envs(stackyard_core::shell::npm_prefix_env(&home));
     let _ = ctrlc::set_handler(|| {});
     let status = command.status().map_err(|source| Error::Spawn {
         program: PathBuf::from(&program).display().to_string(),
