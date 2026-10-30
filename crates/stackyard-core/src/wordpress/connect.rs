@@ -1,7 +1,7 @@
 //! Copying a live site through the Stackyard Connect plugin, for sites whose
 //! FTP or SSH log-in isn't known.
 //!
-//! The plugin (kept apart, in `wordpress-plugin/` of the local copy) makes a
+//! The plugin (a repository of its own, `stackyard-connect`) makes a
 //! connection code on the live site's Tools › Stackyard page. The code
 //! holds the site's address, its `admin-ajax.php` address and a random key.
 //! With it Stackyard asks the plugin to export the whole site, steps the
@@ -571,8 +571,8 @@ mod tests {
         }
     }
 
-    /// PHP's own web server running the plugin in a fake WordPress
-    /// (`wordpress-plugin/tests/fake-wordpress.php`); stopped when dropped.
+    /// PHP's own web server running the plugin in a fake WordPress (its
+    /// `tests/fake-wordpress.php`); stopped when dropped.
     struct FakeSite {
         server: std::process::Child,
         api: String,
@@ -587,11 +587,16 @@ mod tests {
     }
 
     impl FakeSite {
-        /// None when this computer has no PHP, or the plugin isn't in this
-        /// copy of the repository (it is kept apart from the app's).
+        /// None when this computer has no PHP, or no copy of the plugin's
+        /// repository: the folder in STACKYARD_CONNECT_DIR, else
+        /// `stackyard-connect` beside this repository's folder.
         fn start(dir: &Path) -> Option<FakeSite> {
-            let router = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../wordpress-plugin/tests/fake-wordpress.php");
+            let plugin = std::env::var_os("STACKYARD_CONNECT_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../stackyard-connect")
+                });
+            let router = plugin.join("tests/fake-wordpress.php");
             if !router.is_file() {
                 return None;
             }
