@@ -746,6 +746,76 @@ mod tests {
     }
 
     #[test]
+    fn the_plugin_keeps_pieces_and_links_out_of_reach_with_real_php() {
+        let dir = crate::testutil::tempdir();
+        let Some(site) = FakeSite::start(&dir) else {
+            return; // no PHP here
+        };
+        let link = site.link_with(true);
+        let agent = crate::wordpress::live::agent();
+        let root = link.root().unwrap();
+
+        // A piece of an upload waits in the plugin's protected folder, not
+        // beside the file, where the web could fetch a half-sent file.
+        let target = format!("{root}/wp-config-sample.php");
+        link.put::<serde_json::Value>(
+            &agent,
+            &[("path", target.as_str()), ("offset", "0")],
+            b"<?php // half",
+        )
+        .unwrap();
+        let site_dir = dir.join("site");
+        assert!(!site_dir.join("wp-config-sample.php").exists());
+        assert!(!site_dir
+            .join("wp-config-sample.php.stackyard-part")
+            .exists());
+        let parts = site_dir.join("wp-content/uploads/stackyard-exports/uploads");
+        assert!(parts.join(".htaccess").is_file(), "the folder is protected");
+        assert_eq!(std::fs::read_dir(&parts).unwrap().count(), 4, "one piece");
+        link.put::<serde_json::Value>(
+            &agent,
+            &[("path", target.as_str()), ("offset", "13"), ("last", "1")],
+            b" and the rest",
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(site_dir.join("wp-config-sample.php")).unwrap(),
+            "<?php // half and the rest"
+        );
+        assert_eq!(std::fs::read_dir(&parts).unwrap().count(), 3, "piece gone");
+
+        // A link out of WordPress's folder is neither listed nor read.
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&dir, site_dir.join("wp-content/out")).unwrap();
+            std::os::unix::fs::symlink(
+                dir.join("wp-config.php"),
+                site_dir.join("wp-content/config-link.php"),
+            )
+            .unwrap();
+            let listed: Vec<serde_json::Value> = link
+                .request(&agent, "ls", &[("path", &format!("{root}/wp-content"))])
+                .unwrap();
+            let names: Vec<&str> = listed.iter().filter_map(|e| e["name"].as_str()).collect();
+            assert!(
+                !names.contains(&"out") && !names.contains(&"config-link.php"),
+                "{names:?}"
+            );
+            for path in ["wp-content/out/options.json", "wp-content/config-link.php"] {
+                let read = link.get(&agent, "get", &[("path", &format!("{root}/{path}"))], 0);
+                assert!(read.is_err(), "{path} was read");
+            }
+        }
+
+        // The wp-config.php above is reachable only while WordPress's
+        // folder has none of its own.
+        let above = format!("{}/wp-config.php", root.trim_end_matches("/site"));
+        assert!(link.get(&agent, "get", &[("path", &above)], 0).is_ok());
+        std::fs::write(site_dir.join("wp-config.php"), "<?php // own").unwrap();
+        assert!(link.get(&agent, "get", &[("path", &above)], 0).is_err());
+    }
+
+    #[test]
     fn the_plugin_stands_in_for_ftp_with_real_php() {
         use crate::remote::{self, ConnectionInput, Protocol, Sessions};
         let dir = crate::testutil::tempdir();
