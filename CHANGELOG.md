@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.18.0
 
 - **Put a site made here on a host.** A WordPress site that isn't a copy of a live one gets a
   Live site tab under Servers & Git: pick one of its servers (SFTP, FTP or the Stackyard Connect
