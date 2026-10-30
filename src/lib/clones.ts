@@ -23,6 +23,8 @@ export type Clone = {
   progress: WpCloneProgress | null;
   result: WpCloned | null;
   error: string | null;
+  /** Backup files dropped on the window, which the form starts with. */
+  dropped?: string[];
 };
 
 let clones: Clone[] = [];
@@ -107,10 +109,16 @@ export async function restoreClones() {
 }
 
 /** Opens a new, empty clone form on the Sites screen; returns its id. */
-export function newClone() {
+export function newClone(dropped?: string[]) {
   const id = `clone-${Date.now().toString(36)}-${++count}`;
-  set([...clones, { id, state: "new", open: true, name: "", from: "", source: null, options: null, progress: null, result: null, error: null }]);
+  set([...clones, { id, state: "new", open: true, name: "", from: "", source: null, options: null, progress: null, result: null, error: null, dropped }]);
   return id;
+}
+
+/** Files a site backup can be made of: a Stackyard Connect export (.tar),
+ * a hosting panel backup, a zip of the files, a database export. */
+export function isSiteBackup(path: string) {
+  return /\.(tar|tar\.gz|tgz|zip|sql|sql\.gz)$/i.test(path);
 }
 
 async function run(id: string) {

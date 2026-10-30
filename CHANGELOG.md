@@ -6,6 +6,11 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Stackyard Connect, a WordPress plugin, and drag and drop.** Install the plugin on a live site
+  and click Tools › Stackyard › Export this site: you get one file with the whole site, files and
+  database, made in short steps so it works on any host. Drop that file on the Sites screen and
+  Clone opens with it, ready to make the local copy. Any site backup can be dropped the same way.
+
 - **New project, not just new site.** The Sites screen asks what you are making: a website, a
   WordPress theme, a WordPress plugin, a PHP package or a Node.js app. A theme or plugin keeps its
   own folder (an empty one gets a starting theme or plugin) and Stackyard makes a WordPress to try

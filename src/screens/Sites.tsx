@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, errorText, inWordPress, projectKinds, siteAddress, type PackProgress, type ProjectKind, type RuntimeFamily, type Site, type SiteFile, type SiteSize, type SystemStatus } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
@@ -9,12 +9,12 @@ import { SiteThumb } from "../components/SiteThumb";
 import { SiteDatabaseLine } from "../components/SiteDatabase";
 import { CloneSite } from "../components/wordpress/CloneSite";
 import { ClonesList } from "../components/wordpress/Clones";
-import { newClone, showClone, useClones } from "../lib/clones";
+import { isSiteBackup, newClone, showClone, useClones } from "../lib/clones";
 import { useT } from "../lib/i18n";
 import { Progress, packState, type ProgressState } from "../components/Progress";
 import { SiteActions } from "../components/SiteActions";
 import { SiteList, type RowParts } from "../components/SiteList";
-import { useBusy } from "../lib/tabLife";
+import { useBusy, useShown } from "../lib/tabLife";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
 
@@ -93,6 +93,27 @@ export function Sites() {
   const chosenKind = projectKinds.find((k) => k.id === kind) ?? projectKinds[0];
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
+
+  // A site backup dropped on the window while this screen is shown (an
+  // export from the Stackyard Connect plugin, a hosting panel backup)
+  // opens Clone with those files.
+  const shown = useShown();
+  const shownNow = useRef(shown);
+  shownNow.current = shown;
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let cancelled = false;
+    api
+      .onDrop((dropped) => {
+        const backups = dropped.filter(isSiteBackup);
+        if (shownNow.current && backups.length > 0) newClone(backups);
+      })
+      .then((unsubscribe) => (cancelled ? unsubscribe() : (off = unsubscribe)));
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, []);
   const reloadSites = sites.reload;
   const reloadParked = parked.reload;
   useEffect(() => {

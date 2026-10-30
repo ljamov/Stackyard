@@ -108,7 +108,7 @@ function FileSizes({ sizes }: { sizes: WpSizes }) {
 export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: string) => void }) {
   const t = useT();
   const job = useClones().find((c) => c.id === id);
-  const [from, setFrom] = useState<From>("new");
+  const [from, setFrom] = useState<From>(job?.dropped?.length ? "files" : "new");
   const [saved, setSaved] = useState<WpSavedConnection[]>([]);
   const [savedId, setSavedId] = useState("");
   const [protocol, setProtocol] = useState<WpProtocol>("sftp");
@@ -118,7 +118,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
   const [password, setPassword] = useState("");
   const [keyFile, setKeyFile] = useState("");
   const [remoteDir, setRemoteDir] = useState("");
-  const [files, setFiles] = useState<string[]>([]);
+  const [files, setFiles] = useState<string[]>(job?.dropped ?? []);
   const [url, setUrl] = useState("");
   const [found, setFound] = useState<WpFound | null>(null);
   const [root, setRoot] = useState("");
@@ -343,6 +343,9 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
             <span className="muted small">
               {t(
                 "A full backup from the hosting panel (cPanel, Plesk, DirectAdmin) or a zip of the site's files, plus the database export (.sql or .sql.gz) if it is separate.",
+              )}{" "}
+              {t(
+                "An export from the Stackyard Connect plugin (Tools › Stackyard in the site's admin) is one file with both. You can also drop it on the Sites screen.",
               )}
             </span>
           </div>
