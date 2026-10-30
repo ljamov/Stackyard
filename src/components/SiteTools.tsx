@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   api,
+  categories,
   errorText,
   inWordPress,
   projectKinds,
+  type Category,
   type PackProgress,
   type ProjectKind,
   type Packed,
@@ -179,6 +181,19 @@ function ProjectType({ site, onChanged }: { site: Site; onChanged: Changed }) {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => setKind(from), [from]);
 
+  async function changeCategory(to: Category) {
+    setChanging(true);
+    try {
+      await api.setSiteCategory(site.domain, to);
+      setError(null);
+      onChanged(site.domain);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setChanging(false);
+    }
+  }
+
   async function change() {
     setChanging(true);
     try {
@@ -206,6 +221,26 @@ function ProjectType({ site, onChanged }: { site: Site; onChanged: Changed }) {
     <div className="stack project-type">
       <div className="form-grid">
         <div className="field">
+          <label htmlFor={`st-cat-${site.domain}`}>{t("Type")}</label>
+          <select
+            id={`st-cat-${site.domain}`}
+            value={site.project.category}
+            disabled={changing}
+            onChange={(e) => void changeCategory(e.target.value as Category)}
+          >
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {t(c.name)}
+              </option>
+            ))}
+          </select>
+          <span className="muted small">
+            {site.parked
+              ? t("Found in a parked folder. Changing anything here saves it, as if it was made in Stackyard.")
+              : t("Which list it is in: Projects, Apps or Sites.")}
+          </span>
+        </div>
+        <div className="field">
           <label htmlFor={`st-kind-${site.domain}`}>{t("Project type")}</label>
           <div className="row">
             <select
@@ -232,6 +267,8 @@ function ProjectType({ site, onChanged }: { site: Site; onChanged: Changed }) {
           <span className="mono small">{site.project.folder}</span>
           {inWordPress(from) ? (
             <span className="muted small">{t("The editor, the terminal and Git open this folder.")}</span>
+          ) : site.parked ? (
+            <span className="muted small">{t("It is in a parked folder, so it stays where it is; move the folder in File Explorer to move it.")}</span>
           ) : (
             <SiteFolder site={site} onChanged={onChanged} />
           )}
@@ -393,14 +430,6 @@ function SettingsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
   }
 
   if (!info) return error ? <p className="error small">{error}</p> : <p className="muted small">Loading…</p>;
-  if (info.parked) {
-    return (
-      <p className="muted small">
-        This site comes from a parked folder, so it uses the usual settings. To change them, add its folder as a site
-        above (New site › Project folder).
-      </p>
-    );
-  }
   const name = site.domain.slice(0, site.domain.length - info.tld.length);
   const ownServer = info.port !== null;
   return (

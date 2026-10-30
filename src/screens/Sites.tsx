@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api, errorText, inWordPress, projectKinds, siteAddress, type PackProgress, type ProjectKind, type RuntimeFamily, type Site, type SiteFile, type SiteSize, type SystemStatus } from "../lib/api";
+import { api, categories, errorText, inWordPress, siteAddress, type Category, type PackProgress, type ProjectKind, type RuntimeFamily, type Site, type SiteFile, type SiteSize, type Starter, type SystemStatus } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
-import { closeTab, openTab, setLayout, siteTab, useLayout } from "../lib/layout";
+import { closeTab, openTab, setLayout, showNewSite, siteTab, useLayout } from "../lib/layout";
 import { Icon } from "../components/Icon";
+import { BrandIcon } from "../components/BrandIcon";
+import { SCREEN_ICON } from "../components/Sidebar";
+import { CATEGORY_SCREEN } from "../lib/screens";
 import { SiteVersions } from "../components/SiteVersions";
 import { SiteThumb } from "../components/SiteThumb";
 import { SiteDatabaseLine } from "../components/SiteDatabase";
@@ -38,6 +41,45 @@ function optionsFor(kind: ProjectKind, options: { value: string; label: string }
   return options;
 }
 
+/**
+ * What a new project, app or site can start from: an empty or existing
+ * folder (with a runtime to pick), a starter the app makes, or a WordPress
+ * theme or plugin, tried in a WordPress made for it.
+ */
+type Template = { id: string; name: string; description: string; brand: string } & (
+  | { via: "folder"; kind: ProjectKind }
+  | { via: "starter"; starter: Starter }
+  | { via: "wordpress"; kind: ProjectKind }
+);
+
+/** Starters' logos, where the starter's own id is not a logo's. */
+const STARTER_BRAND: Record<string, string> = { react: "createreactapp", vue: "vite", svelte: "sveltekit", "node-server": "node", "python-scripts": "python", static: "" };
+
+function templatesFor(category: Category, starters: Starter[]): Template[] {
+  const folder: Template = {
+    id: "folder",
+    name: "Empty or existing folder",
+    description: "A new folder, or one with your files in it already; pick what it runs on",
+    brand: "",
+    via: "folder",
+    kind: category === "app" ? "node-app" : "website",
+  };
+  const fromStarters = starters
+    .filter((s) => s.category === category)
+    .map((s): Template => ({ id: s.id, name: s.name, description: s.description, brand: STARTER_BRAND[s.id] ?? s.id, via: "starter", starter: s }));
+  if (category === "project") {
+    return [
+      { ...folder, kind: "website" },
+      { id: "wordpress-theme", name: "WordPress theme", description: "Stackyard makes a WordPress to try the theme in, with the theme switched on", brand: "wordpress", via: "wordpress", kind: "wordpress-theme" },
+      { id: "wordpress-plugin", name: "WordPress plugin", description: "Stackyard makes a WordPress to try the plugin in, with the plugin switched on", brand: "wordpress", via: "wordpress", kind: "wordpress-plugin" },
+      { id: "php-package", name: "PHP package", description: "A PHP library, served with PHP so you can try it in a page", brand: "php", via: "folder", kind: "php-package" },
+      ...fromStarters,
+    ];
+  }
+  if (category === "app") return [{ ...folder, kind: "website" }, ...fromStarters];
+  return [...fromStarters, { ...folder, kind: "website" }];
+}
+
 /** A starter's step ("Downloading WordPress… 40%") as words and a bar. */
 function starterState(message: string): ProgressState {
   const m = /^(.*?)\s*(\d{1,3})%$/.exec(message);
@@ -53,8 +95,12 @@ function siteName(typed: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-export function Sites() {
+export function Sites({ category }: { category: Category }) {
   const t = useT();
+  const about = categories.find((c) => c.id === category) ?? categories[2];
+  // Clones and dropped backups are WordPress sites: only Sites handles them,
+  // so they don't show three times while the other lists are open too.
+  const forSites = category === "site";
   // The New site and Parked folders forms fold away; open or closed is kept.
   const { newSiteOpen } = useLayout();
   const sites = useLoad(api.listSites, []);
@@ -75,22 +121,22 @@ export function Sites() {
   const [typedName, setTypedName] = useState("");
   const name = siteName(typedName);
   const [path, setPath] = useState("");
-  const [kind, setKind] = useState<ProjectKind>("website");
   const [runtime, setRuntime] = useState("Auto");
   const [https, setHttps] = useState(true);
   const [parkDraft, setParkDraft] = useState("");
   const [settingUp, setSettingUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const starters = useLoad(api.listStarters, []);
-  const [starter, setStarter] = useState("");
+  const templates = templatesFor(category, starters.data);
+  const [templateId, setTemplateId] = useState("");
+  const template = templates.find((x) => x.id === templateId) ?? templates[0];
+  const kind: ProjectKind = template && template.via !== "starter" ? template.kind : "website";
   const [making, setMaking] = useState<string | null>(null);
   useBusy(making !== null);
   const [made, setMade] = useState<Site | null>(null);
   // The address being made, for the progress box.
   const [makingDomain, setMakingDomain] = useState("");
-  // Starters make websites; a theme or plugin gets its WordPress instead.
-  const chosenStarter = kind === "website" ? starters.data.find((s) => s.id === starter) : undefined;
-  const chosenKind = projectKinds.find((k) => k.id === kind) ?? projectKinds[0];
+  const chosenStarter = template?.via === "starter" ? template.starter : undefined;
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
 
@@ -106,14 +152,14 @@ export function Sites() {
     api
       .onDrop((dropped) => {
         const backups = dropped.filter(isSiteBackup);
-        if (shownNow.current && backups.length > 0) newClone(backups);
+        if (forSites && shownNow.current && backups.length > 0) newClone(backups);
       })
       .then((unsubscribe) => (cancelled ? unsubscribe() : (off = unsubscribe)));
     return () => {
       cancelled = true;
       off?.();
     };
-  }, []);
+  }, [forSites]);
   const reloadSites = sites.reload;
   const reloadParked = parked.reload;
   useEffect(() => {
@@ -130,6 +176,7 @@ export function Sites() {
       off?.();
     };
   }, [reloadSites, reloadParked]);
+  const listed = sites.data.filter((x) => x.project.category === category);
   const kindOptions = optionsFor(kind, options);
   const chosenRuntime = kindOptions.some((o) => o.value === runtime) ? runtime : (kindOptions[0]?.value ?? "Auto");
 
@@ -182,14 +229,14 @@ export function Sites() {
       setMakingDomain(name + tldDraft);
       let list: Site[] = [];
       ok = await attempt(async () => {
-        list = await api.addStarterSite({ name, starter: chosenStarter.id, path: path.trim(), https });
+        list = await api.addStarterSite({ name, starter: chosenStarter.id, path: path.trim(), https, category });
       });
       setMaking(null);
       if (ok) setMade(list.find((s) => s.name === name) ?? null);
     } else {
       // An empty folder means a new folder in the sites folder, made by the app.
       setMaking(t("Making the folder and adding the site…"));
-      ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https, kind }));
+      ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https, kind, category }));
       setMaking(null);
       if (ok) setMade((await api.listSites()).find((s) => s.name === name) ?? null);
     }
@@ -270,11 +317,11 @@ export function Sites() {
     <>
       <header className="page-header">
         <div>
-          <h1>{t("Sites")}</h1>
-          <p className="muted">{t("Local domains with HTTPS, each with its own runtime version.")}</p>
+          <h1>{t(about.plural)}</h1>
+          <p className="muted">{t(about.hint)}</p>
         </div>
         <div className="row">
-          {isOn("wordpress") && isOn("remote") && (
+          {forSites && isOn("wordpress") && isOn("remote") && (
             <button type="button" className="btn" onClick={() => newClone()}>
               {t("Clone from a live server…")}
             </button>
@@ -286,14 +333,14 @@ export function Sites() {
           )}
         </div>
       </header>
-      {clones.some((c) => c.state !== "new" && !c.open) && (
+      {forSites && clones.some((c) => c.state !== "new" && !c.open) && (
         <section className="card stack" aria-labelledby="clones-h">
           <h2 id="clones-h">{t("Clones running in the background")}</h2>
           <ClonesList minimized onShow={showClone} />
         </section>
       )}
       {clones
-        .filter((c) => c.open)
+        .filter((c) => forSites && c.open)
         .map((c) => (
           <CloneSite
             key={c.id}
@@ -371,47 +418,77 @@ export function Sites() {
         type="button"
         className="disclosure"
         aria-expanded={newSiteOpen}
-        aria-controls="sites-top"
+        aria-controls={`sites-top-${category}`}
         onClick={() => setLayout({ newSiteOpen: !newSiteOpen })}
       >
         <Icon name="chevron" />
-        {t("New project and parked folders")}
+        {t("New and parked folders")}
       </button>
 
       {newSiteOpen && (
-        <div id="sites-top" className="sites-top">
-          <form className="card stack form new-site" aria-labelledby="new-h" onSubmit={create}>
-            <h2 id="new-h">New project</h2>
+        <div id={`sites-top-${category}`} className="sites-top">
+          <form className="card stack form new-site" aria-labelledby={`new-h-${category}`} onSubmit={create}>
+            <h2 id={`new-h-${category}`}>{t("What are you making?")}</h2>
+            <div className="category-picker" role="group" aria-label={t("What are you making?")}>
+              {categories.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className="category-choice"
+                  aria-pressed={c.id === category}
+                  disabled={making !== null}
+                  onClick={() => c.id !== category && showNewSite(c.id)}
+                >
+                  <Icon name={SCREEN_ICON[CATEGORY_SCREEN[c.id]]} />
+                  <span>
+                    <strong>{t(c.name)}</strong>
+                    <span className="muted small">{t(c.hint)}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="field">
+              <span className="label" id={`f-start-${category}`}>
+                {t("Start from")}
+              </span>
+              <div className="template-list" role="radiogroup" aria-labelledby={`f-start-${category}`}>
+                {templates.map((x) => (
+                  <button
+                    key={x.id}
+                    type="button"
+                    role="radio"
+                    className="template-choice"
+                    aria-checked={x.id === template?.id}
+                    disabled={making !== null}
+                    title={t(x.description)}
+                    onClick={() => setTemplateId(x.id)}
+                  >
+                    <BrandIcon id={x.brand} fallback={x.via === "folder" ? "folder" : "code"} />
+                    <span className="template-name">{t(x.name)}</span>
+                  </button>
+                ))}
+              </div>
+              {template && <span className="muted small">{t(template.description)}</span>}
+            </div>
             <div className="form-grid">
               <div className="field">
-                <label htmlFor="f-kind">What is it?</label>
-                <select id="f-kind" value={kind} onChange={(e) => setKind(e.target.value as ProjectKind)}>
-                  {projectKinds.map((k) => (
-                    <option key={k.id} value={k.id}>
-                      {t(k.name)}
-                    </option>
-                  ))}
-                </select>
-                <span className="muted small">{t(chosenKind.hint)}</span>
-              </div>
-              <div className="field">
-                <label htmlFor="f-name">Name</label>
+                <label htmlFor={`f-name-${category}`}>Name</label>
                 <div className="input-affix">
                   <input
-                    id="f-name"
+                    id={`f-name-${category}`}
                     className="mono"
                     value={typedName}
                     placeholder="hello"
                     required
                     autoComplete="off"
                     spellCheck={false}
-                    aria-describedby="f-name-hint"
+                    aria-describedby={`f-name-hint-${category}`}
                     title={t("Letters, numbers and dashes. Spaces and other characters become dashes.")}
                     onChange={(e) => setTypedName(e.target.value)}
                   />
                   <span className="mono muted">{tldDraft}</span>
                 </div>
-                <span id="f-name-hint" className="muted small">
+                <span id={`f-name-hint-${category}`} className="muted small">
                   {typedName && name !== typedName ? (
                     name ? (
                       <>
@@ -426,12 +503,12 @@ export function Sites() {
                 </span>
               </div>
               <div className="field">
-                <label htmlFor="f-folder">
+                <label htmlFor={`f-folder-${category}`}>
                   {kind === "wordpress-theme" ? t("Theme folder") : kind === "wordpress-plugin" ? t("Plugin folder") : t("Project folder")}
                 </label>
                 <div className="row folder-input">
                   <input
-                    id="f-folder"
+                    id={`f-folder-${category}`}
                     className="mono grow"
                     value={path}
                     placeholder={folderFor(name || "hello")}
@@ -442,28 +519,10 @@ export function Sites() {
                   </button>
                 </div>
               </div>
-              {kind === "website" && (
+              {inWordPress(kind) || chosenStarter ? null : (
                 <div className="field">
-                  <label htmlFor="f-starter">Start from</label>
-                  <select id="f-starter" value={starter} onChange={(e) => setStarter(e.target.value)}>
-                    <option value="">Empty or existing folder</option>
-                    {starters.data.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {inWordPress(kind) ? null : chosenStarter ? (
-                <div className="field">
-                  <span className="label">What you get</span>
-                  <span className="muted small">{chosenStarter.description}</span>
-                </div>
-              ) : (
-                <div className="field">
-                  <label htmlFor="f-rt">Runtime</label>
-                  <select id="f-rt" value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
+                  <label htmlFor={`f-rt-${category}`}>Runtime</label>
+                  <select id={`f-rt-${category}`} value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
                     {kindOptions.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
@@ -473,9 +532,9 @@ export function Sites() {
                 </div>
               )}
               <div className="field">
-                <label htmlFor="f-tld">Domain ending</label>
+                <label htmlFor={`f-tld-${category}`}>Domain ending</label>
                 <input
-                  id="f-tld"
+                  id={`f-tld-${category}`}
                   className="mono"
                   value={tldDraft}
                   onChange={(e) => setTldDraft(e.target.value)}
@@ -509,16 +568,15 @@ export function Sites() {
                 Secure with local HTTPS (SSL) certificate
               </label>
               <button type="submit" className="btn primary" disabled={making !== null || !name}>
-                {making ? t("Creating…") : chosenStarter ? t("Create {name} site", { name: chosenStarter.name }) : kind === "website" ? t("Create site") : t("Create {name}", { name: t(chosenKind.name) })}
+                {making ? t("Creating…") : chosenStarter ? t("Create {name}", { name: chosenStarter.name }) : inWordPress(kind) ? t("Create {name}", { name: t(template?.name ?? "") }) : t("Create {what}", { what: t(about.name).toLowerCase() })}
               </button>
             </div>
           </form>
 
-          <form className="card stack form parked" aria-labelledby="park-h" onSubmit={park}>
-            <h2 id="park-h">Parked folders</h2>
+          <form className="card stack form parked" aria-labelledby={`park-h-${category}`} onSubmit={park}>
+            <h2 id={`park-h-${category}`}>Parked folders</h2>
             <p className="muted small">
-              Every folder inside a parked folder is a site, named after the folder. New folders show up within a few
-              seconds.
+              {t("Every folder inside a parked folder shows up within a few seconds, named after the folder. A folder you make there yourself is a project; change its type in its Manage tab.")}
             </p>
             {parked.data.map((folder) => (
               <div key={folder} className="list-row">
@@ -546,10 +604,10 @@ export function Sites() {
               </div>
             ))}
             <div className="field">
-              <label htmlFor="f-park">Folder</label>
+              <label htmlFor={`f-park-${category}`}>Folder</label>
               <div className="row folder-input">
                 <input
-                  id="f-park"
+                  id={`f-park-${category}`}
                   className="mono grow"
                   value={parkDraft}
                   placeholder={sitesFolder.data || "~/Code"}
@@ -568,11 +626,11 @@ export function Sites() {
         </div>
       )}
 
-      <section aria-label={t("Site list")} className="card table-wrap">
+      <section aria-label={t("{what} list", { what: t(about.plural) })} className="card table-wrap">
         <table className="sites-table">
           <thead>
             <tr>
-              <th>Site</th>
+              <th>{t(about.name)}</th>
               <th>Runs with</th>
               <th>Folder</th>
               <th>
@@ -581,16 +639,16 @@ export function Sites() {
             </tr>
           </thead>
           <tbody>
-            {sites.data.length === 0 && (
+            {listed.length === 0 && (
               <tr>
                 <td colSpan={4} className="muted">
-                  No sites yet. Create one above, or add a folder to a parked folder.
+                  {t("Nothing here yet. Create one above, or add a folder to a parked folder.")}
                 </td>
               </tr>
             )}
-            {sites.data.length > 0 && (
+            {listed.length > 0 && (
               <SiteList
-                sites={sites.data}
+                sites={listed}
                 columns={4}
                 onError={setError}
                 renderSite={(site, parts) => (

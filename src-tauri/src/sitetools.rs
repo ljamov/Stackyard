@@ -91,7 +91,7 @@ pub struct SiteSettingsView {
     tld: String,
     https: bool,
     settings: SiteSettings,
-    /// Found in a parked folder, so its settings can't be changed until it is added.
+    /// Found in a parked folder; saving its settings saves it as a site.
     parked: bool,
     /// The folder served when none is picked, inside the project, e.g. `public`.
     detected_root: String,
@@ -145,11 +145,8 @@ pub fn save_site_settings(
     settings: SiteSettings,
 ) -> CmdResult<SavedSettings> {
     require("sitesettings")?;
-    let (_, parked) = find_site(&domain)?;
-    if parked {
-        return Err("This site comes from a parked folder. Add its folder as a site to change its settings.".into());
-    }
-    let mut store = SiteStore::load().map_err(err)?;
+    // One from a parked folder is saved first, like one made in the app.
+    let mut store = crate::saved_store(&domain)?;
     let (before, after) = store
         .configure(&domain, &tld, https, settings)
         .map_err(err)?;

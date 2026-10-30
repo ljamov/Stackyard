@@ -400,6 +400,16 @@ impl SiteStore {
         moved
     }
 
+    /// Saves a site found in a parked folder as it is listed, so it can be
+    /// changed like one made in the app; a saved site is left alone.
+    /// Returns the saved site.
+    pub fn adopt(&mut self, site: &Site) -> Result<Site> {
+        if let Some(saved) = self.sites.iter().find(|s| s.domain() == site.domain()) {
+            return Ok(saved.clone());
+        }
+        Ok(self.add(site.clone())?.clone())
+    }
+
     /// Removes a site by its domain (`myapp.stack`) or bare name (`myapp`).
     pub fn remove(&mut self, name_or_domain: &str) -> Result<Site> {
         let index = self

@@ -317,11 +317,12 @@ enum SitesCommand {
     List,
     /// Add a site
     Add(AddSite),
-    /// Make a new site from a starter: wordpress, laravel or astro
+    /// Make a new site, app or project from a starter, e.g. wordpress
     New {
         /// Site name, e.g. `blog` for blog.stack
         name: String,
-        /// wordpress, laravel or astro
+        /// wordpress, woocommerce, laravel, astro, react, vue, svelte, nextjs,
+        /// static, node-server or python-scripts
         starter: String,
         /// Project folder, new or empty (default: the sites folder)
         #[arg(long)]
@@ -560,7 +561,8 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
         } => {
             let starter = starters::Starter::from_id(&starter).ok_or_else(|| {
                 Error::Shell(format!(
-                    "unknown starter {starter:?}; pick wordpress, laravel or astro"
+                    "unknown starter {starter:?}; pick one of: {}",
+                    starters::Starter::ALL.map(|s| s.id()).join(", ")
                 ))
             })?;
             domain::validate_site_name(&name)?;
@@ -616,6 +618,10 @@ fn run(cli: Cli) -> stackyard_core::Result<()> {
                             server: "mysql".into(),
                             name,
                         }),
+                        project: stackyard_core::projects::Project {
+                            category: Some(starter.category()),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     },
                 })?

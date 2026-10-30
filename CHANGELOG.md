@@ -6,6 +6,23 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Projects, Apps and Sites.** Everything you make is in one of three lists, each with its own
+  place in the side bar. New asks first what you are making, then what it starts from. Sites can
+  start as WordPress, WordPress with WooCommerce (switched on once WordPress's install page is
+  done), Laravel, Astro, React, Vue, Svelte, Next.js or static HTML; apps as a small Node.js
+  server; projects as a WordPress theme or plugin, a PHP package or Python scripts. Any of them
+  can also start from an empty or existing folder.
+
+- **Change what something is.** Manage › Settings has a Type picker that moves it between
+  Projects, Apps and Sites. Sites saved before this stay under Sites, themes and plugins go under
+  Projects, and Node.js apps under Apps.
+
+- **Folders you make yourself count too.** A folder you create in a parked folder shows up under
+  Projects. Its settings and type can now be changed like one made in the app; the first change
+  saves it. Before, a parked folder's settings could not be changed at all.
+
+- **Windows only.** Checks and installers are built for Windows alone from now on.
+
 - **Sites follow their folder to another drive.** A site whose folder was moved into a parked
   folder (say, from C:\stackyard\www to D:\Sites) now uses the new folder by itself and keeps its
   settings, database and connections, instead of showing the old path. Before, the old entry won

@@ -99,7 +99,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
           {sites.data.length === 0 && (
             <div className="item">
               <span className="grow muted">{t("No sites yet.")}</span>
-              <button type="button" className="btn primary small" onClick={showNewSite}>
+              <button type="button" className="btn primary small" onClick={() => showNewSite()}>
                 {t("New site")}
               </button>
             </div>

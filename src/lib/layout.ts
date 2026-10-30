@@ -2,7 +2,8 @@
 // Kept in the window's own storage so the app opens the way it was left.
 
 import { useEffect, useState } from "react";
-import { isTabScreen, type TabScreen } from "./screens";
+import { CATEGORY_SCREEN, isTabScreen, type TabScreen } from "./screens";
+import type { Category } from "./api";
 import { isTabBusy } from "./tabLife";
 
 /**
@@ -128,11 +129,11 @@ export function showScreen(screen: TabId) {
   });
 }
 
-/** Shows the Sites screen with the New site form open, its name box focused. */
-export function showNewSite() {
+/** Shows the Projects, Apps or Sites screen with its New form open, its name box focused. */
+export function showNewSite(category: Category = "site") {
   setLayout({ newSiteOpen: true });
-  showScreen("Sites");
-  requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("f-name")?.focus()));
+  showScreen(CATEGORY_SCREEN[category]);
+  requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById(`f-name-${category}`)?.focus()));
 }
 
 /** Closes a tab; the one beside it is shown if it was the shown one. */

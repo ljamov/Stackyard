@@ -1,14 +1,20 @@
-//! Starters: a new site that begins as a WordPress, Laravel or Astro project
+//! Starters: a new site, app or project that begins from a template
 //! instead of an empty folder.
 //!
 //! - WordPress comes from wordpress.org, checked against the SHA-1 published
 //!   next to it (the only checksum WordPress publishes). Stackyard makes its
 //!   database and writes `wp-config.php`; the browser shows WordPress's own
 //!   install page next.
+//! - WordPress with WooCommerce adds the WooCommerce plugin from
+//!   wordpress.org, each file checked against the SHA-256 list wordpress.org
+//!   publishes for that version, and a must-use plugin that switches it on
+//!   once WordPress's install page is done.
 //! - Laravel is made by Composer (`composer create-project`), with SQLite
 //!   as Laravel's default database.
-//! - Astro is made by its own `create-astro`, and Stackyard runs its dev
-//!   server while the web server runs.
+//! - Astro, React, Vue, Svelte and Next.js are made by their own `create-*`
+//!   tools, and Stackyard runs their dev server while the web server runs.
+//! - A static site, a Node.js server and Python scripts are a few files
+//!   Stackyard writes itself.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -19,6 +25,7 @@ use serde::Serialize;
 use crate::catalog::RuntimeKind;
 use crate::download::Http;
 use crate::install::Step;
+use crate::projects::Category;
 use crate::runtimes::RuntimeManager;
 use crate::settings::Settings;
 use crate::shell::{self, Context, Tool};
@@ -27,15 +34,23 @@ use crate::{archive, ports, web, Error, Result};
 
 const WORDPRESS_VERSIONS: &str = "https://api.wordpress.org/core/version-check/1.7/";
 const WORDPRESS_FILES: &str = "https://wordpress.org";
-/// Astro's dev server port; the next free one is used when it is taken.
-const ASTRO_PORT: u16 = 4321;
+const WOOCOMMERCE_INFO: &str = "https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request[slug]=woocommerce&request[fields][sections]=0";
+const PLUGIN_CHECKSUMS: &str = "https://downloads.wordpress.org/plugin-checksums";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Starter {
     WordPress,
+    WooCommerce,
     Laravel,
     Astro,
+    React,
+    Vue,
+    Svelte,
+    NextJs,
+    Static,
+    NodeServer,
+    PythonScripts,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -43,24 +58,54 @@ pub struct StarterInfo {
     pub id: &'static str,
     pub name: &'static str,
     pub description: &'static str,
+    /// The list it goes in: `site`, `app` or `project`.
+    pub category: &'static str,
 }
 
 impl Starter {
-    pub const ALL: [Starter; 3] = [Starter::WordPress, Starter::Laravel, Starter::Astro];
+    pub const ALL: [Starter; 11] = [
+        Starter::WordPress,
+        Starter::WooCommerce,
+        Starter::Laravel,
+        Starter::Astro,
+        Starter::React,
+        Starter::Vue,
+        Starter::Svelte,
+        Starter::NextJs,
+        Starter::Static,
+        Starter::NodeServer,
+        Starter::PythonScripts,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
             Starter::WordPress => "wordpress",
+            Starter::WooCommerce => "woocommerce",
             Starter::Laravel => "laravel",
             Starter::Astro => "astro",
+            Starter::React => "react",
+            Starter::Vue => "vue",
+            Starter::Svelte => "svelte",
+            Starter::NextJs => "nextjs",
+            Starter::Static => "static",
+            Starter::NodeServer => "node-server",
+            Starter::PythonScripts => "python-scripts",
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
             Starter::WordPress => "WordPress",
+            Starter::WooCommerce => "WordPress + WooCommerce",
             Starter::Laravel => "Laravel",
             Starter::Astro => "Astro",
+            Starter::React => "React",
+            Starter::Vue => "Vue",
+            Starter::Svelte => "Svelte",
+            Starter::NextJs => "Next.js",
+            Starter::Static => "Static HTML",
+            Starter::NodeServer => "Node.js server",
+            Starter::PythonScripts => "Python scripts",
         }
     }
 
@@ -68,11 +113,26 @@ impl Starter {
         Self::ALL.into_iter().find(|s| s.id() == id)
     }
 
-    /// The runtime the project runs on.
-    pub fn runtime(self) -> RuntimeKind {
+    /// The runtime the project runs on; `None` for plain files.
+    pub fn runtime(self) -> Option<RuntimeKind> {
         match self {
-            Starter::WordPress | Starter::Laravel => RuntimeKind::Php,
-            Starter::Astro => RuntimeKind::Node,
+            Starter::WordPress | Starter::WooCommerce | Starter::Laravel => Some(RuntimeKind::Php),
+            Starter::Astro
+            | Starter::React
+            | Starter::Vue
+            | Starter::Svelte
+            | Starter::NextJs
+            | Starter::NodeServer => Some(RuntimeKind::Node),
+            Starter::Static | Starter::PythonScripts => None,
+        }
+    }
+
+    /// The list a new one goes in.
+    pub fn category(self) -> Category {
+        match self {
+            Starter::NodeServer => Category::App,
+            Starter::PythonScripts => Category::Project,
+            _ => Category::Site,
         }
     }
 
@@ -80,19 +140,41 @@ impl Starter {
         StarterInfo {
             id: self.id(),
             name: self.name(),
+            category: self.category().id(),
             description: match self {
                 Starter::WordPress => {
                     "The latest WordPress, with its database made in MySQL or MariaDB"
                 }
+                Starter::WooCommerce => {
+                    "The latest WordPress with the WooCommerce shop plugin, switched on after WordPress's install page"
+                }
                 Starter::Laravel => "A new Laravel app, made with Composer",
                 Starter::Astro => "A new Astro site; Stackyard runs its dev server",
+                Starter::React => "A React app with Vite and TypeScript; Stackyard runs its dev server",
+                Starter::Vue => "A Vue app with Vite and TypeScript; Stackyard runs its dev server",
+                Starter::Svelte => "A Svelte app with Vite and TypeScript; Stackyard runs its dev server",
+                Starter::NextJs => "A Next.js app with TypeScript; Stackyard runs its dev server",
+                Starter::Static => "An index.html, a stylesheet and a script, served as they are",
+                Starter::NodeServer => {
+                    "A small Node.js server with no packages; Stackyard runs it and restarts it on changes"
+                }
+                Starter::PythonScripts => "A main.py to start from; run it in the terminal",
             },
         }
     }
 
     /// Whether the project needs MySQL or MariaDB running while it is made.
     pub fn needs_database(self) -> bool {
-        self == Starter::WordPress
+        matches!(self, Starter::WordPress | Starter::WooCommerce)
+    }
+
+    /// The port its dev server usually takes, for the Node starters.
+    fn dev_port(self) -> u16 {
+        match self {
+            Starter::Astro => 4321,
+            Starter::NextJs | Starter::NodeServer => 3000,
+            _ => 5173,
+        }
     }
 }
 
@@ -133,11 +215,25 @@ pub fn create(
             folder.display()
         )));
     }
-    let version = ensure_runtime(home, starter.runtime(), progress)?;
+    let version = match starter.runtime() {
+        Some(kind) => ensure_runtime(home, kind, progress)?,
+        None => String::new(),
+    };
+    let node = |version: String| Made {
+        runtime: SiteRuntime::Node {
+            version,
+            port: free_dev_port(home, starter.dev_port()),
+        },
+        dev_server: true,
+        database: None,
+    };
     let made = match starter {
-        Starter::WordPress => {
+        Starter::WordPress | Starter::WooCommerce => {
             let database = database_name(name);
             wordpress(home, folder, &database, progress)?;
+            if starter == Starter::WooCommerce {
+                woocommerce(home, folder, progress)?;
+            }
             Made {
                 runtime: SiteRuntime::Php { version },
                 dev_server: false,
@@ -154,12 +250,29 @@ pub fn create(
         }
         Starter::Astro => {
             astro(home, folder, progress)?;
+            node(version)
+        }
+        Starter::React | Starter::Vue | Starter::Svelte => {
+            vite(home, starter, folder, progress)?;
+            node(version)
+        }
+        Starter::NextJs => {
+            next(home, folder, progress)?;
+            node(version)
+        }
+        Starter::NodeServer => {
+            write_files(folder, &node_server_files(name))?;
+            node(version)
+        }
+        Starter::Static | Starter::PythonScripts => {
+            let files = match starter {
+                Starter::Static => static_files(name),
+                _ => python_files(name),
+            };
+            write_files(folder, &files)?;
             Made {
-                runtime: SiteRuntime::Node {
-                    version,
-                    port: free_dev_port(home),
-                },
-                dev_server: true,
+                runtime: SiteRuntime::Static,
+                dev_server: false,
                 database: None,
             }
         }
@@ -430,6 +543,270 @@ fn astro(home: &Path, folder: &Path, progress: &mut dyn FnMut(String)) -> Result
     )
 }
 
+/// The newest WooCommerce, unpacked into `wp-content/plugins` with every
+/// file checked against wordpress.org's list for that version, and a
+/// must-use plugin that switches it on once WordPress is installed.
+fn woocommerce(home: &Path, wp: &Path, progress: &mut dyn FnMut(String)) -> Result<()> {
+    #[derive(serde::Deserialize)]
+    struct Info {
+        version: String,
+        download_link: String,
+    }
+    let fail = |message: String| Error::Starter {
+        name: Starter::WooCommerce.name().into(),
+        message,
+    };
+    let http = Http::new();
+    progress("Finding the latest WooCommerce…".into());
+    let info: Info = serde_json::from_str(&http.get_text(WOOCOMMERCE_INFO)?)
+        .map_err(|e| fail(format!("unexpected answer from wordpress.org: {e}")))?;
+    if !info
+        .version
+        .bytes()
+        .all(|b| b.is_ascii_digit() || b == b'.')
+        || !info
+            .download_link
+            .starts_with("https://downloads.wordpress.org/plugin/")
+    {
+        return Err(fail(format!(
+            "unexpected version {:?} or link {:?}",
+            info.version, info.download_link
+        )));
+    }
+    let sums_url = format!("{PLUGIN_CHECKSUMS}/woocommerce/{}.json", info.version);
+    let sums: serde_json::Value = serde_json::from_str(&http.get_text(&sums_url)?)
+        .map_err(|e| fail(format!("unexpected checksum list: {e}")))?;
+    let what = format!("WooCommerce {}", info.version);
+    let zip = home
+        .join("downloads")
+        .join(format!("woocommerce-{}.zip", info.version));
+    http.download_unverified(&info.download_link, &zip, &mut |done, total| {
+        progress(step_text(&what, &Step::Downloading { done, total }))
+    })?;
+    progress(format!("Checking {what}…"));
+    let temp = home
+        .join("downloads")
+        .join(format!("woocommerce-{}-unpacked", info.version));
+    let _ = std::fs::remove_dir_all(&temp);
+    let unpacked = archive::extract(&zip, &temp).and_then(|root| {
+        check_plugin_files(&root, &sums).map_err(fail)?;
+        Ok(root)
+    });
+    let root = match unpacked {
+        Ok(root) => root,
+        Err(e) => {
+            // A bad download is not kept to be used again.
+            let _ = std::fs::remove_file(&zip);
+            let _ = std::fs::remove_dir_all(&temp);
+            return Err(e);
+        }
+    };
+    move_contents(&root, &wp.join("wp-content/plugins/woocommerce"))?;
+    let _ = std::fs::remove_dir_all(&temp);
+    write_files(
+        wp,
+        &[(
+            "wp-content/mu-plugins/stackyard-switch-on-woocommerce.php".into(),
+            WOOCOMMERCE_SWITCH_ON.into(),
+        )],
+    )
+}
+
+/// Switches WooCommerce on at the first page after WordPress's install,
+/// then removes itself.
+const WOOCOMMERCE_SWITCH_ON: &str = "<?php
+// Written by Stackyard: switches WooCommerce on once WordPress is installed, then removes itself.
+add_action( 'wp_loaded', function () {
+	if ( wp_installing() || ! is_blog_installed() ) {
+		return;
+	}
+	require_once ABSPATH . 'wp-admin/includes/plugin.php';
+	if ( ! is_wp_error( activate_plugin( 'woocommerce/woocommerce.php' ) ) ) {
+		@unlink( __FILE__ );
+	}
+} );
+";
+
+/// Every file under `root` must be in wordpress.org's list (`files`:
+/// path → `sha256`, a hash or a list of them) with a matching SHA-256.
+fn check_plugin_files(root: &Path, sums: &serde_json::Value) -> std::result::Result<(), String> {
+    let files = sums
+        .get("files")
+        .and_then(|f| f.as_object())
+        .ok_or("the checksum list has no files")?;
+    let mut checked = 0;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let sum = crate::download::sha256_file(&path).map_err(|e| e.to_string())?;
+            let listed = files.get(&relative).and_then(|f| f.get("sha256"));
+            let matches = match listed {
+                Some(serde_json::Value::String(s)) => s.eq_ignore_ascii_case(&sum),
+                Some(serde_json::Value::Array(list)) => list
+                    .iter()
+                    .any(|s| s.as_str().is_some_and(|s| s.eq_ignore_ascii_case(&sum))),
+                _ => false,
+            };
+            if !matches {
+                return Err(format!(
+                    "{relative} does not match wordpress.org's checksum; nothing was installed"
+                ));
+            }
+            checked += 1;
+        }
+    }
+    if checked == 0 {
+        return Err("the download was empty".into());
+    }
+    Ok(())
+}
+
+/// React, Vue or Svelte with Vite's own `create-vite`, then its packages.
+fn vite(
+    home: &Path,
+    starter: Starter,
+    folder: &Path,
+    progress: &mut dyn FnMut(String),
+) -> Result<()> {
+    progress(format!(
+        "Making the {} app and installing its packages (this can take a few minutes)…",
+        starter.name()
+    ));
+    let template = match starter {
+        Starter::Vue => "vue-ts",
+        Starter::Svelte => "svelte-ts",
+        _ => "react-ts",
+    };
+    let (parent, dir_name) = split(folder)?;
+    run(
+        home,
+        starter,
+        Tool::Npx,
+        &parent,
+        [
+            "--yes",
+            "create-vite@latest",
+            &dir_name,
+            "--template",
+            template,
+            "--no-interactive",
+            "--no-immediate",
+        ],
+        &[],
+    )?;
+    run(
+        home,
+        starter,
+        Tool::Npm,
+        folder,
+        ["install", "--no-audit", "--no-fund"],
+        &[],
+    )
+}
+
+fn next(home: &Path, folder: &Path, progress: &mut dyn FnMut(String)) -> Result<()> {
+    progress(
+        "Making the Next.js app and installing its packages (this can take a few minutes)…".into(),
+    );
+    let (parent, dir_name) = split(folder)?;
+    run(
+        home,
+        Starter::NextJs,
+        Tool::Npx,
+        &parent,
+        [
+            "--yes",
+            "create-next-app@latest",
+            &dir_name,
+            "--yes",
+            "--use-npm",
+            "--disable-git",
+        ],
+        &[("NEXT_TELEMETRY_DISABLED", "1")],
+    )
+}
+
+/// Writes `files` (path inside `folder`, text) into `folder`.
+fn write_files(folder: &Path, files: &[(String, String)]) -> Result<()> {
+    for (name, text) in files {
+        let path = folder.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|source| Error::Io {
+                path: parent.to_owned(),
+                source,
+            })?;
+        }
+        std::fs::write(&path, text).map_err(|source| Error::Io { path, source })?;
+    }
+    Ok(())
+}
+
+/// What goes in HTML: `<`, `>`, `&` and `"` written out.
+fn html_text(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn static_files(name: &str) -> Vec<(String, String)> {
+    let title = html_text(name);
+    vec![
+        (
+            "index.html".into(),
+            format!(
+                "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>{title}</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <main>\n    <h1>{title}</h1>\n    <p>Edit index.html to start.</p>\n  </main>\n  <script src=\"script.js\"></script>\n</body>\n</html>\n"
+            ),
+        ),
+        (
+            "style.css".into(),
+            "body {\n  margin: 0 auto;\n  max-width: 48rem;\n  padding: 2rem;\n  font-family: system-ui, sans-serif;\n}\n".into(),
+        ),
+        ("script.js".into(), "// Your script.\n".into()),
+    ]
+}
+
+/// A server with no packages. Stackyard's dev server runs `npm run dev --
+/// --port N`, so it takes the port from `--port`, else `PORT`.
+fn node_server_files(name: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "package.json".into(),
+            format!(
+                "{{\n  \"name\": \"{name}\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"dev\": \"node --watch server.js\",\n    \"start\": \"node server.js\"\n  }}\n}}\n"
+            ),
+        ),
+        (
+            "server.js".into(),
+            "import { createServer } from \"node:http\";\n\nconst flag = process.argv.indexOf(\"--port\");\nconst port = Number(flag > 0 ? process.argv[flag + 1] : process.env.PORT) || 3000;\n\ncreateServer((req, res) => {\n  res.writeHead(200, { \"content-type\": \"text/html; charset=utf-8\" });\n  res.end(\"<h1>Hello from Node.js</h1><p>Edit server.js to start.</p>\");\n}).listen(port, \"127.0.0.1\", () => console.log(`Listening on http://127.0.0.1:${port}`));\n".into(),
+        ),
+    ]
+}
+
+fn python_files(name: &str) -> Vec<(String, String)> {
+    vec![
+        (
+            "main.py".into(),
+            "def main():\n    print(\"Hello from Python\")\n\n\nif __name__ == \"__main__\":\n    main()\n".into(),
+        ),
+        (
+            "README.md".into(),
+            format!("# {name}\n\nRun it in Stackyard's terminal:\n\n```\npython main.py\n```\n"),
+        ),
+    ]
+}
+
 /// The folder's parent (created) and its own name, since project makers
 /// create the folder themselves.
 fn split(folder: &Path) -> Result<(PathBuf, String)> {
@@ -501,9 +878,9 @@ fn run<const N: usize>(
     )))
 }
 
-/// A port for a new dev server: Astro's usual one unless another site or
-/// program has it.
-fn free_dev_port(home: &Path) -> u16 {
+/// A port for a new dev server: `usual` unless another site or program
+/// has it.
+fn free_dev_port(home: &Path, usual: u16) -> u16 {
     let taken: Vec<u16> = crate::sites::SiteStore::load_from(&home.join("sites.toml"))
         .map(|store| {
             store
@@ -513,9 +890,9 @@ fn free_dev_port(home: &Path) -> u16 {
                 .collect()
         })
         .unwrap_or_default();
-    (ASTRO_PORT..ASTRO_PORT + 100)
+    (usual..usual + 100)
         .find(|p| !taken.contains(p) && ports::is_free(*p))
-        .unwrap_or(ASTRO_PORT)
+        .unwrap_or(usual)
 }
 
 #[cfg(test)]
@@ -528,7 +905,10 @@ mod tests {
             assert_eq!(Starter::from_id(starter.id()), Some(starter));
         }
         assert_eq!(Starter::from_id("drupal"), None);
-        assert_eq!(list().len(), 3);
+        assert_eq!(list().len(), Starter::ALL.len());
+        assert_eq!(Starter::PythonScripts.category(), Category::Project);
+        assert_eq!(Starter::NodeServer.category(), Category::App);
+        assert_eq!(Starter::React.category(), Category::Site);
     }
 
     #[test]
@@ -571,7 +951,7 @@ mod tests {
                 path: home.join("docs"),
                 runtime: SiteRuntime::Node {
                     version: "22".into(),
-                    port: ASTRO_PORT,
+                    port: 4321,
                 },
                 https: true,
                 dev_server: true,
@@ -579,7 +959,49 @@ mod tests {
             })
             .unwrap();
         store.save().unwrap();
-        assert_ne!(free_dev_port(&home), ASTRO_PORT);
+        assert_ne!(free_dev_port(&home, 4321), 4321);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn plain_starters_write_their_files() {
+        let home = crate::testutil::tempdir();
+        let site = home.join("www").join("page");
+        let made = create(&home, Starter::Static, "page", &site, &mut |_| {}).unwrap();
+        assert_eq!(made.runtime, SiteRuntime::Static);
+        let index = std::fs::read_to_string(site.join("index.html")).unwrap();
+        assert!(index.contains("<title>page</title>"), "{index}");
+        let scripts = home.join("www").join("tools");
+        create(
+            &home,
+            Starter::PythonScripts,
+            "tools",
+            &scripts,
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(scripts.join("main.py").is_file());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn plugin_files_must_match_the_published_list() {
+        let home = crate::testutil::tempdir();
+        let root = home.join("woocommerce");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("woocommerce.php"), "<?php").unwrap();
+        std::fs::write(root.join("src/a.php"), "a").unwrap();
+        let sum = |p: &str| crate::download::sha256_file(&root.join(p)).unwrap();
+        let good = serde_json::json!({"files": {
+            "woocommerce.php": {"md5": "x", "sha256": sum("woocommerce.php")},
+            "src/a.php": {"md5": "x", "sha256": ["0", sum("src/a.php")]},
+        }});
+        check_plugin_files(&root, &good).unwrap();
+        std::fs::write(root.join("src/a.php"), "changed").unwrap();
+        assert!(check_plugin_files(&root, &good).is_err());
+        std::fs::write(root.join("src/a.php"), "a").unwrap();
+        std::fs::write(root.join("extra.php"), "").unwrap();
+        assert!(check_plugin_files(&root, &good).is_err(), "not in the list");
         let _ = std::fs::remove_dir_all(&home);
     }
 

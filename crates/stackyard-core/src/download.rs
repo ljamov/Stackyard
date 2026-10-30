@@ -12,6 +12,9 @@ use ureq::tls::{RootCerts, TlsConfig};
 
 use crate::{Error, Result};
 
+/// Stands in for a SHA-256 checksum where only its kind matters.
+const ANY_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
 /// Largest index or checksum file we will read into memory.
 const TEXT_LIMIT: u64 = 16 * 1024 * 1024;
 
@@ -88,14 +91,37 @@ impl Http {
         checksum: &str,
         progress: &mut dyn FnMut(u64, Option<u64>),
     ) -> Result<()> {
+        self.fetch(url, dest, Some(checksum), progress)
+    }
+
+    /// Downloads `url` to `dest` with no checksum for the whole file, for
+    /// sources that publish one per file inside it instead (WordPress
+    /// plugins): the caller checks each unpacked file before using any.
+    pub fn download_unverified(
+        &self,
+        url: &str,
+        dest: &Path,
+        progress: &mut dyn FnMut(u64, Option<u64>),
+    ) -> Result<()> {
+        self.fetch(url, dest, None, progress)
+    }
+
+    fn fetch(
+        &self,
+        url: &str,
+        dest: &Path,
+        checksum: Option<&str>,
+        progress: &mut dyn FnMut(u64, Option<u64>),
+    ) -> Result<()> {
         let fail = |e: ureq::Error| download_error(url, e);
         let io = |source| Error::Io {
             path: dest.to_owned(),
             source,
         };
-        let mut hasher = Hasher::for_checksum(checksum).ok_or_else(|| Error::Download {
+        let like = checksum.unwrap_or(ANY_SHA256);
+        let mut hasher = Hasher::for_checksum(like).ok_or_else(|| Error::Download {
             url: url.to_string(),
-            message: format!("{checksum:?} is not a SHA-1, SHA-256 or SHA-512 checksum"),
+            message: format!("{like:?} is not a SHA-1, SHA-256 or SHA-512 checksum"),
         })?;
         let mut response = self.agent.get(url).call().map_err(fail)?;
         let total = response.body().content_length();
@@ -132,9 +158,13 @@ impl Http {
                 last_report = Instant::now();
             }
         };
-        let result = result
-            .and_then(|()| file.sync_all().map_err(io))
-            .and_then(|()| check_checksum(dest, checksum, &hasher.finish()));
+        let result =
+            result
+                .and_then(|()| file.sync_all().map_err(io))
+                .and_then(|()| match checksum {
+                    Some(expected) => check_checksum(dest, expected, &hasher.finish()),
+                    None => Ok(()),
+                });
         drop(file);
         if let Err(e) = result {
             let _ = std::fs::remove_file(&part);
