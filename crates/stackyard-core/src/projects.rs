@@ -101,9 +101,11 @@ impl ProjectKind {
     }
 }
 
-/// Which list an item is in: a project (scripts, a theme or plugin,
-/// plain files), an app, or a site. It only sorts and labels; every one is
-/// served and opened the same way, and it can be changed at any time.
+/// Which list an item is in: an app (scripts, a server, a theme or plugin)
+/// or a site. Every one is a project and the Projects list shows both. It
+/// only sorts and labels; it can be changed at any time. `Project` is how
+/// items were saved when Projects was a third list: it reads as an app or
+/// a site, see [`Project::category`] and [`crate::web::sites`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
@@ -126,6 +128,9 @@ impl Category {
     pub fn from_id(id: &str) -> Option<Category> {
         Category::ALL.into_iter().find(|c| c.id() == id)
     }
+
+    /// The two lists a new item can go in.
+    pub const LISTS: [Category; 2] = [Category::App, Category::Site];
 }
 
 /// What a site is for, kept with its settings.
@@ -148,16 +153,20 @@ impl Project {
         *self == Project::default()
     }
 
-    /// The list it is in: the one picked, else a theme, plugin or package
-    /// is a project, a Node.js app an app, and the rest sites.
+    /// The list it is in, app or site: the one picked, else a theme,
+    /// plugin, package or Node.js app is an app and the rest sites.
     pub fn category(&self) -> Category {
-        self.category.unwrap_or(match self.kind {
-            ProjectKind::WordpressTheme
-            | ProjectKind::WordpressPlugin
-            | ProjectKind::PhpPackage => Category::Project,
-            ProjectKind::NodeApp => Category::App,
-            ProjectKind::Website => Category::Site,
-        })
+        match self.category {
+            Some(Category::App) => Category::App,
+            Some(Category::Site) => Category::Site,
+            Some(Category::Project) | None => match self.kind {
+                ProjectKind::WordpressTheme
+                | ProjectKind::WordpressPlugin
+                | ProjectKind::PhpPackage
+                | ProjectKind::NodeApp => Category::App,
+                ProjectKind::Website => Category::Site,
+            },
+        }
     }
 }
 
@@ -479,7 +488,11 @@ mod tests {
         let mut project = Project::default();
         assert_eq!(project.category(), Category::Site);
         project.kind = ProjectKind::WordpressPlugin;
-        assert_eq!(project.category(), Category::Project);
+        assert_eq!(project.category(), Category::App);
+        // Saved when Projects was a list of its own: an app or a site now.
+        project.category = Some(Category::Project);
+        assert_eq!(project.category(), Category::App);
+        project.category = None;
         project.kind = ProjectKind::NodeApp;
         assert_eq!(project.category(), Category::App);
         project.category = Some(Category::Site);

@@ -210,3 +210,20 @@
 .template-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-new-choices { display: flex; flex-direction: column; margin: -4px 0 8px 14px; }
 .sidebar[data-collapsed] .side-new-choices { margin-left: 0; }
+
+/* Remove: keep the files or delete the folder (components/RemoveDialog.tsx). */
+.dialog-backdrop { align-items: center; padding-top: 0; background: var(--shadow); }
+.dialog { width: min(480px, calc(100vw - 32px)); box-shadow: 0 12px 32px var(--shadow); }
+.radio-list { border: 0; margin: 0; padding: 0; }
+.radio-list .check { align-items: flex-start; }
+.radio-list .check input { margin-top: 3px; }
+.block { display: block; }
+.dialog .btn.danger { background: var(--error); border-color: var(--error); color: var(--on-accent); font-weight: 600; }
+
+/* The side bar's Apps and Sites sit under Projects. */
+.side-item.side-sub { padding-left: 26px; }
+.sidebar[data-collapsed] .side-item.side-sub { padding-left: 0; }
+.side-group { display: flex; flex-direction: column; gap: 2px; }
+.sidebar[data-collapsed] .side-group { width: 100%; align-items: center; }
+.side-sites h3 { margin: 0; padding: 8px 8px 2px; font: 400 11px var(--body); color: var(--muted); }
+.sidebar[data-collapsed] .side-sites h3 { display: none; }

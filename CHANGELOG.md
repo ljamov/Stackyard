@@ -4,6 +4,33 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Projects are apps or sites.** Projects lists everything; Apps and Sites, under it in the side
+  bar, list each kind. New project asks first whether it is an app or a site, then what it starts
+  from, with an empty app or site first. Sites start as WordPress, WooCommerce, Laravel, Astro,
+  Next.js, React, Vue, Svelte or static HTML, or as a clone of a live WordPress site or a
+  Stackyard site file. Apps start as a WordPress plugin or theme, a PHP package, a Node.js server
+  or Python scripts. What was under the old Projects list moves to Apps, or to Sites when its
+  folder has a start page or a framework.
+
+- **Apps need no address.** An app gets no `.stack` name unless you ask for one: one with its own
+  server opens at `http://localhost:<port>`, and one served by PHP or as plain files at its
+  `.localhost` name. Manage › Settings turns the address on or off; clearing an app's domain
+  ending turns it off instead of failing.
+
+- **Groups stay in their list.** A group made under Apps shows only there and under Projects, not
+  under Sites too.
+
+- **Remove can delete the files.** Remove asks whether to keep the folder or delete it with
+  everything in it. It refuses a folder that holds a parked folder or another project.
+
+- **Version numbers on the lists.** Lists show which PHP or Node.js version each one uses; you
+  change it in its own tab (Manage).
+
+- **Apps and sites everywhere.** The side bar lists your apps and your sites under their own
+  headings, the status bar counts both, and both update as soon as one is made or removed.
+
 ## 0.19.0
 
 - **Projects, Apps and Sites.** Everything you make is in one of three lists, each with its own

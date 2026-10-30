@@ -237,7 +237,7 @@ function ProjectType({ site, onChanged }: { site: Site; onChanged: Changed }) {
           <span className="muted small">
             {site.parked
               ? t("Found in a parked folder. Changing anything here saves it, as if it was made in Stackyard.")
-              : t("Which list it is in: Projects, Apps or Sites.")}
+              : t("An app needs no address; a site has its own. Both are in Projects.")}
           </span>
         </div>
         <div className="field">
@@ -384,6 +384,7 @@ function SettingsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
   const [command, setCommand] = useState("");
   const [dbName, setDbName] = useState("");
   const [dbServer, setDbServer] = useState<"mysql" | "postgres">("mysql");
+  const [noAddress, setNoAddress] = useState(false);
   const [saving, setSaving] = useState(false);
   useBusy(saving);
   const [error, setError] = useState<string | null>(null);
@@ -402,23 +403,34 @@ function SettingsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
         setCommand(i.settings.command ?? "");
         setDbName(i.settings.database?.name ?? "");
         setDbServer(i.settings.database?.server ?? i.detected_database?.server ?? "mysql");
+        setNoAddress(i.settings.no_address ?? false);
       })
       .catch((e) => setError(errorText(e)));
   }, [site.domain]);
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setSaved(false);
+    // An app's ending cleared means no address; a site always has one.
+    const cleared = tld.trim() === "" || tld.trim() === ".";
+    if (cleared && site.project.category === "site") {
+      setError("A site needs a domain ending, like .stack. To have no address, make it an app (Type above).");
+      return;
+    }
+    const none = site.project.category === "app" && (noAddress || cleared);
+    setSaving(true);
     try {
       const settings = {
+        no_address: none,
         root: root.trim() || null,
         env: parseLines(env, "="),
         php: parseLines(php, "="),
         command: command.trim() || null,
         database: dbName.trim() ? { server: dbServer, name: dbName.trim() } : null,
       };
-      const result = await api.saveSiteSettings(site.domain, tld, https, settings);
+      const result = await api.saveSiteSettings(site.domain, cleared ? info!.tld : tld, https, settings);
+      if (cleared) setTld(info!.tld);
+      setNoAddress(none);
       setError(null);
       setSaved(true);
       onChanged(result.domain);
@@ -447,9 +459,24 @@ function SettingsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
                 value={tld}
                 onChange={(e) => setTld(e.target.value)}
                 spellCheck={false}
+                disabled={noAddress}
               />
             </div>
-            <span className="muted small">Just for this site, e.g. .test. Other sites keep theirs.</span>
+            {site.project.category === "app" ? (
+              <label className="check small">
+                <input type="checkbox" checked={!noAddress} onChange={(e) => setNoAddress(!e.target.checked)} />
+                Give this app a local address
+              </label>
+            ) : (
+              <span className="muted small">Just for this site, e.g. .test. Other sites keep theirs.</span>
+            )}
+            {noAddress && (
+              <span className="muted small">
+                {ownServer
+                  ? `Opens at http://localhost:${info.port}, nothing else.`
+                  : `No ${name}${tld}: it opens only at http://${site.name}.localhost.`}
+              </span>
+            )}
           </div>
           <div className="field">
             <label htmlFor={`st-root-${site.domain}`}>Folder served</label>

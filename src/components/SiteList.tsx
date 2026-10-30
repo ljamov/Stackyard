@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { api, errorText, type Site } from "../lib/api";
+import { api, errorText, type ListKind, type Site } from "../lib/api";
 import { useT } from "../lib/i18n";
 import {
   arrange,
   isGroup,
+  flatten,
   keyOf,
+  mergeShown,
   move,
   newGroupName,
+  shownIn,
   step,
   type Moved,
   type Place,
@@ -27,24 +30,32 @@ const id = (m: Moved) => ("site" in m ? `site:${m.site}` : `group:${m.group}`);
 const parse = (s: string): Moved => (s.startsWith("site:") ? { site: s.slice(5) } : { group: s.slice(6) });
 
 /**
- * The rows of the Sites table in the user's order, with their groups. Each
- * row has a handle: drag it to move the site or group, or focus it and use
- * the arrow keys. Dropped on a group's heading, a site goes into the group.
+ * The rows of a Projects, Apps or Sites table in the user's order, with
+ * that list's groups. Each row has a handle: drag it to move the site or
+ * group, or focus it and use the arrow keys. Dropped on a group's heading,
+ * a site goes into the group. One order is kept for everything; each list
+ * changes only its own part of it.
  */
 export function SiteList({
   sites,
+  list,
   columns,
   onError,
   renderSite,
 }: {
   sites: Site[];
+  list: ListKind;
   columns: number;
   onError: (message: string | null) => void;
   renderSite: (site: Site, parts: RowParts) => ReactNode;
 }) {
   const t = useT();
   const [saved, setSaved] = useState<SiteItem[]>([]);
-  const items = arrange(saved, sites.map((s) => s.domain));
+  const domains = sites.map((s) => s.domain);
+  const shown = new Set(domains);
+  // Everything, the other lists' sites too, so saving keeps them.
+  const whole = arrange(saved, [...flatten(saved), ...domains]);
+  const items = shownIn(whole, list, shown);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ moved: Moved; target: Moved; where: Where } | null>(null);
   const start = useRef<{ moved: Moved; y: number; active: boolean } | null>(null);
@@ -65,7 +76,8 @@ export function SiteList({
   }, [reload]);
 
   /** Shows the change at once, then keeps what the app saved. */
-  async function save(next: SiteItem[]) {
+  async function save(shownNext: SiteItem[]) {
+    const next = mergeShown(whole, list, shown, shownNext);
     setSaved(next);
     try {
       setSaved(await api.setSiteLayout(next));
@@ -77,9 +89,17 @@ export function SiteList({
   }
 
   function newGroup() {
-    const name = newGroupName(items, t("New group"));
-    void save([{ group: name, sites: [] }, ...items]);
+    // Named unlike every group, the other lists' too.
+    const name = newGroupName(whole, t("New group"));
+    void save([{ group: name, sites: [], ...(list === "all" ? {} : { list }) }, ...items]);
     setRenaming(name);
+  }
+
+  /** A group of the other list can't hold this site (on Projects, where both show). */
+  function fits(group: string, domain: string) {
+    const g = items.find((i) => isGroup(i) && i.group === group) as SiteGroup | undefined;
+    const site = sites.find((s) => s.domain === domain);
+    return !g?.list || !site || site.project.category === g.list;
   }
 
   function rename(group: SiteGroup, name: string) {
@@ -106,6 +126,11 @@ export function SiteList({
     if (e.key === "End" && items.length) next = move(items, moved, { after: keyOf(items[items.length - 1]) });
     if (!next) return;
     e.preventDefault();
+    const holder = "site" in moved ? next.find((i) => isGroup(i) && i.sites.includes(moved.site)) : undefined;
+    if (holder && isGroup(holder) && "site" in moved && !fits(holder.group, moved.site)) {
+      onError(t("{group} is a group of the other list.", { group: holder.group }));
+      return;
+    }
     void save(next);
     // The handle moved with its row; keep the focus on it.
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-handle="${CSS.escape(id(moved))}"]`)?.focus());
@@ -142,6 +167,10 @@ export function SiteList({
     start.current = null;
     setDrag(null);
     if (!d || !moved) return;
+    if (d.where === "into" && "group" in d.target && "site" in d.moved && !fits(d.target.group, d.moved.site)) {
+      onError(t("{group} is a group of the other list.", { group: d.target.group }));
+      return;
+    }
     const place: Place =
       d.where === "into" && "group" in d.target
         ? { into: d.target.group }
@@ -206,7 +235,7 @@ export function SiteList({
       <tr className="site-list-tools">
         <td colSpan={columns}>
           <div className="row between centered">
-            <span className="muted small">{t("Drag a site by its handle to change the order or put it in a group.")}</span>
+            <span className="muted small">{t("Drag by the handle to change the order or put it in a group.")}</span>
             <button type="button" className="btn small" onClick={newGroup}>
               <Icon name="plus" />
               {t("New group")}
@@ -247,9 +276,7 @@ export function SiteList({
                   >
                     <Icon name="chevron" />
                     <strong>{item.group}</strong>
-                    <span className="muted small">
-                      {count === 1 ? t("1 site") : t("{count} sites", { count })}
-                    </span>
+                    <span className="muted small">{countText(t, list, count)}</span>
                   </button>
                 )}
                 <span className="grow" />
@@ -257,7 +284,7 @@ export function SiteList({
                 <IconButton icon="close" label={t("Ungroup {name}", { name: item.group })} onClick={() => ungroup(item)} />
               </div>
               {count === 0 && !item.collapsed && (
-                <div className="muted small group-empty">{t("Drag sites here to add them to this group.")}</div>
+                <div className="muted small group-empty">{t("Drag items here to add them to this group.")}</div>
               )}
             </td>
           </tr>,
@@ -266,4 +293,11 @@ export function SiteList({
       })}
     </>
   );
+}
+
+/** "3 apps", "1 site", "2 projects": how many a group holds, in the list's words. */
+export function countText(t: ReturnType<typeof useT>, list: ListKind, count: number) {
+  if (list === "app") return count === 1 ? t("1 app") : t("{count} apps", { count });
+  if (list === "site") return count === 1 ? t("1 site") : t("{count} sites", { count });
+  return count === 1 ? t("1 project") : t("{count} projects", { count });
 }

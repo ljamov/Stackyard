@@ -12,6 +12,7 @@ import { SiteSizeFacts } from "../components/SiteSize";
 import { SiteThumb } from "../components/SiteThumb";
 import { SiteTools } from "../components/SiteTools";
 import { SiteVersions } from "../components/SiteVersions";
+import { RemoveDialog } from "../components/RemoveDialog";
 
 /** One site in a tab of its own: its addresses, versions and every site tool, across the whole window. */
 export function SitePage({ domain }: { domain: string }) {
@@ -21,6 +22,7 @@ export function SitePage({ domain }: { domain: string }) {
   const system = useLoad(api.systemStatus, null);
   const { isOn } = useModules();
   const [error, setError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
   const hasTools = ["sitesettings", "sitebackups", "sitetransfer", "share", "remote", "git", "wordpress"].some(isOn);
 
   const reloadSites = sites.reload;
@@ -36,8 +38,8 @@ export function SitePage({ domain }: { domain: string }) {
 
   if (!sites.data) return null;
   const site = sites.data.find((s) => s.domain === domain);
-  if (!site) return <p className="muted">{t("This site isn't in Stackyard any more.")}</p>;
-  const address = siteAddress(site, system.data);
+  if (!site) return <p className="muted">{t("This isn't in Stackyard any more.")}</p>;
+  const address = site.address ? siteAddress(site, system.data) : site.url;
 
   async function run(open: () => Promise<unknown>) {
     setError(null);
@@ -48,14 +50,11 @@ export function SitePage({ domain }: { domain: string }) {
     }
   }
 
-  async function remove() {
-    setError(null);
-    try {
-      await api.removeSite(domain);
-      closeTab(siteTab(domain));
-    } catch (e) {
-      setError(errorText(e));
-    }
+  function removed(problem: string | null) {
+    setRemoving(false);
+    // Taken off the list even when deleting its files then failed.
+    if (problem) setError(problem);
+    closeTab(siteTab(domain));
   }
 
   return (
@@ -64,9 +63,9 @@ export function SitePage({ domain }: { domain: string }) {
         <SiteThumb site={site} large />
         <div className="site-hero-main">
           <div className="page-title">
-            <BrandIcon id={siteBrand(site) ?? ""} fallback="sites" />
+            <BrandIcon id={siteBrand(site) ?? ""} fallback={site.project.category === "app" ? "apps" : "sites"} />
             <div>
-              <h1>{site.domain}</h1>
+              <h1>{site.address ? site.domain : site.name}</h1>
               <p className="muted">
                 {site.framework ? `${site.framework} · ` : ""}
                 {site.runtime}
@@ -79,11 +78,12 @@ export function SitePage({ domain }: { domain: string }) {
               <Icon name="external" />
               {t("Open in browser")}
             </button>
-            <SiteActions site={site} onRun={(open) => void run(open)} onRemove={remove} />
+            <SiteActions site={site} onRun={(open) => void run(open)} onRemove={() => setRemoving(true)} />
           </div>
         </div>
       </header>
 
+      {removing && <RemoveDialog site={site} onClose={() => setRemoving(false)} onRemoved={removed} />}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -98,6 +98,7 @@ export function SitePage({ domain }: { domain: string }) {
             <button type="button" className="link mono" onClick={() => api.openLocalPage(address)}>
               {address}
             </button>
+            {!site.address && <span className="muted small"> · {t("No .stack address; give it one in Settings")}</span>}
           </dd>
           <dt>{t("Folder")}</dt>
           <dd className="mono connect">{site.root}</dd>

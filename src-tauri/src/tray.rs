@@ -359,7 +359,7 @@ fn show(app: &AppHandle, model: Model) -> tauri::Result<Shown> {
     )?;
     sites.append_items(&[&gap()?, &all_sites])?;
 
-    let new_site = item("new-site", "New site or app…")?;
+    let new_site = item("new-site", "New project…")?;
     let folder = item("sites-folder", "Open sites folder")?;
     let terminal = model
         .terminal

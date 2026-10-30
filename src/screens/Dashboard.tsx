@@ -90,23 +90,23 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
 
       <section aria-labelledby="sites-h" className="stack">
         <div className="row between centered">
-          <h2 id="sites-h">{t("Sites")}</h2>
-          <button type="button" className="btn small" onClick={() => onNavigate("Sites")}>
+          <h2 id="sites-h">{t("Projects")}</h2>
+          <button type="button" className="btn small" onClick={() => onNavigate("Projects")}>
             {sites.data.length > SITES_SHOWN ? t("View all") : t("Manage")}
           </button>
         </div>
         <div className="items">
           {sites.data.length === 0 && (
             <div className="item">
-              <span className="grow muted">{t("No sites yet.")}</span>
+              <span className="grow muted">{t("No apps or sites yet.")}</span>
               <button type="button" className="btn primary small" onClick={() => showNewSite()}>
-                {t("New site")}
+                {t("New project")}
               </button>
             </div>
           )}
           {sites.data.slice(0, SITES_SHOWN).map((site) => (
             <div key={site.domain} className="item">
-              <BrandIcon id={siteBrand(site) ?? ""} fallback="sites" />
+              <BrandIcon id={siteBrand(site) ?? ""} fallback={site.project.category === "app" ? "apps" : "sites"} />
               <div className="grow">
                 <button
                   type="button"
@@ -114,10 +114,10 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
                   title={t("Open {name} in a tab", { name: site.domain })}
                   onClick={() => openTab(siteTab(site.domain))}
                 >
-                  {site.domain}
+                  {site.address ? site.domain : site.name}
                 </button>
                 <div className="muted small">
-                  {site.framework ? `${site.framework} · ` : ""}
+                  {t(site.project.category === "app" ? "App" : "Site")} · {site.framework ? `${site.framework} · ` : ""}
                   {site.runtime}
                 </div>
               </div>

@@ -146,6 +146,11 @@ pub struct SiteSettings {
     /// looks for one in the project's `.env` or `wp-config.php`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database: Option<SiteDatabase>,
+    /// No local address of its own (`name.stack`): an app that runs on its
+    /// own port (`http://localhost:3000`) or only in a terminal. A PHP or
+    /// plain-files app is still served at its `.localhost` name.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_address: bool,
     /// What the site is for. Changed only by [`crate::projects::change`],
     /// which makes or unlinks a WordPress; saving settings keeps it.
     #[serde(default, skip_serializing_if = "Project::is_default")]
@@ -434,6 +439,77 @@ pub fn same_folder(a: &Path, b: &Path) -> bool {
         }
     };
     spell(a) == spell(b)
+}
+
+/// The folders a site's files are in: its own and, for a theme or plugin,
+/// the project folder it is built in.
+pub fn site_folders(site: &Site) -> Vec<PathBuf> {
+    let mut folders = vec![site.path.clone()];
+    if let Some(source) = &site.settings.project.source {
+        if !folders.iter().any(|f| same_folder(f, source)) {
+            folders.push(source.clone());
+        }
+    }
+    folders
+}
+
+/// Whether `folder` is `other` or holds it.
+fn holds(folder: &Path, other: &Path) -> bool {
+    let full = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_owned());
+    let (folder, other) = (full(folder), full(other));
+    other.ancestors().any(|a| same_folder(a, &folder))
+}
+
+/// Refuses to delete a site's folders when one is, or holds, a folder of
+/// `keep` (a parked folder, the folder new sites go in, another site, the
+/// data home) or is a drive's root.
+pub fn check_delete(site: &Site, keep: &[PathBuf]) -> Result<()> {
+    for folder in site_folders(site).iter().filter(|f| f.exists()) {
+        let root = folder.parent().is_none() || folder.components().count() < 2;
+        if let Some(kept) = keep
+            .iter()
+            .find(|k| holds(folder, k))
+            .or(root.then_some(folder))
+        {
+            return Err(Error::Shell(format!(
+                "{} was not deleted: it holds {}, which Stackyard still uses",
+                folder.display(),
+                kept.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Deletes the folders of a site that was removed ([`site_folders`]),
+/// after [`check_delete`]. Files another program has open are tried again
+/// for a moment; what still can't go is named in the error.
+pub fn delete_folders(site: &Site, keep: &[PathBuf]) -> Result<()> {
+    check_delete(site, keep)?;
+    let folders: Vec<PathBuf> = site_folders(site)
+        .into_iter()
+        .filter(|f| f.exists())
+        .collect();
+    for folder in &folders {
+        let mut tries = 0;
+        loop {
+            match std::fs::remove_dir_all(folder) {
+                Ok(()) => break,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+                Err(_) if tries < 10 => {
+                    tries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                }
+                Err(e) => {
+                    return Err(Error::Shell(format!(
+                        "could not delete {}: {e}. Close programs that use files in it (an editor, a terminal) and delete it by hand",
+                        folder.display()
+                    )))
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Moves a site's folder into `into` (a folder that holds projects, e.g. on
@@ -744,5 +820,34 @@ mod tests {
             store.configure("myapp.stack", ".test", true, SiteSettings::default()),
             Err(Error::SiteExists(_))
         ));
+    }
+
+    #[test]
+    fn deletes_a_sites_folders_but_not_what_others_use() {
+        let dir = crate::testutil::tempdir();
+        let www = dir.join("www");
+        std::fs::create_dir_all(www.join("blog/wp-content")).unwrap();
+        std::fs::write(www.join("blog/index.php"), "<?php").unwrap();
+        std::fs::create_dir_all(www.join("other")).unwrap();
+        let site = |path: PathBuf| Site {
+            name: "blog".into(),
+            tld: ".stack".into(),
+            path,
+            runtime: SiteRuntime::Static,
+            https: false,
+            dev_server: false,
+            settings: Default::default(),
+        };
+        // A folder holding a parked folder or another site is refused.
+        let err = delete_folders(&site(www.clone()), &[www.join("other")]).unwrap_err();
+        assert!(err.to_string().contains("was not deleted"), "{err}");
+        assert!(www.join("blog/index.php").exists());
+        assert!(delete_folders(&site(www.clone()), std::slice::from_ref(&www)).is_err());
+
+        delete_folders(&site(www.join("blog")), &[www.clone(), www.join("other")]).unwrap();
+        assert!(!www.join("blog").exists());
+        assert!(www.join("other").exists());
+        // Gone already: nothing to do.
+        delete_folders(&site(www.join("blog")), &[]).unwrap();
     }
 }
