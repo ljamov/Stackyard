@@ -4,7 +4,7 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.21.0
 
 - **Import backup.** A screen of its own in the side bar: drop a backup on the box, or type or
   browse to its path, and Stackyard makes the site from it. It takes an export from the Stackyard
