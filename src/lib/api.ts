@@ -755,6 +755,8 @@ export interface Api {
   onVideosProgress(handler: (p: VideosProgress) => void): Promise<() => void>;
   /** Files and folders dropped on the window. */
   onDrop(handler: (paths: string[]) => void): Promise<() => void>;
+  /** Files are dragged over the window (true) or away from it (false). */
+  onDragHover(handler: (over: boolean) => void): Promise<() => void>;
   /** Downloads and sets up the project, then adds the site. */
   addStarterSite(site: NewStarterSite): Promise<Site[]>;
   onStarterProgress(handler: (p: StarterProgress) => void): Promise<() => void>;
@@ -1015,6 +1017,11 @@ const tauriApi: Api = {
   onDrop: (handler) =>
     getCurrentWebview().onDragDropEvent((e) => {
       if (e.payload.type === "drop") handler(e.payload.paths);
+    }),
+  onDragHover: (handler) =>
+    getCurrentWebview().onDragDropEvent((e) => {
+      if (e.payload.type === "enter") handler(true);
+      else if (e.payload.type === "leave" || e.payload.type === "drop") handler(false);
     }),
   addStarterSite: (site) => invoke("add_starter_site", site),
   onStarterProgress: (handler) => listen<StarterProgress>("starter-progress", (e) => handler(e.payload)),
@@ -1820,6 +1827,7 @@ function browserApi(): Api {
       return () => videoHandlers.delete(handler);
     },
     onDrop: async () => () => {},
+    onDragHover: async () => () => {},
     onStarterProgress: async (handler) => {
       starterHandlers.add(handler);
       return () => starterHandlers.delete(handler);

@@ -44,6 +44,7 @@ const PATHS = {
   camera: "M3.5 7.5h4l1.5-2h6l1.5 2h4v11h-17zM12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   manage: "M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4",
   archive: "M3.5 4.5h17v4h-17zM5 8.5v11h14v-11M10 12h4",
+  import: "M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4 15.5v4h16v-4",
   link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
   git: "M7 4v11M7 15a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM17 4a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM17 9c0 4-4 4-9 6.5",
   // Moving and naming sites and their groups.
@@ -90,6 +91,7 @@ const CODICONS: Record<IconName, string> = {
   camera: "device-camera",
   manage: "settings",
   archive: "archive",
+  import: "desktop-download",
   link: "link",
   git: "source-control",
   grip: "gripper",

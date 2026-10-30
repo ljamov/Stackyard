@@ -14,6 +14,7 @@ import { Databases } from "../screens/Databases";
 import { Logs } from "../screens/Logs";
 import { Scheduler } from "../screens/Scheduler";
 import { Images } from "../screens/Images";
+import { ImportBackup } from "../screens/ImportBackup";
 import { Videos } from "../screens/Videos";
 import { AiTools } from "../screens/AiTools";
 import { KeyboardShortcuts } from "../screens/KeyboardShortcuts";
@@ -68,6 +69,8 @@ function screen(s: TabId): ReactNode {
       return <Sites list="app" />;
     case "Sites":
       return <Sites list="site" />;
+    case "Import backup":
+      return <ImportBackup />;
     case "Services":
       return <Services />;
     case "Runtimes":

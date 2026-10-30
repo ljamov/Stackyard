@@ -308,6 +308,8 @@ pub struct CloneState {
     drafts: Mutex<HashMap<String, Connection>>,
     /// The clones running now, by clone.
     running: Mutex<HashMap<String, Running>>,
+    /// The Stop switches of the forms looking for WordPress now, by clone.
+    inspecting: Mutex<HashMap<String, Arc<AtomicBool>>>,
     staging_stop: Arc<AtomicBool>,
     staging_busy: AtomicBool,
 }
@@ -611,7 +613,9 @@ pub fn wp_saved_connections() -> CmdResult<Vec<SavedConnection>> {
         .collect())
 }
 
-/// Logs in (for a typed-in connection) and looks at the live site.
+/// Logs in (for a typed-in connection) and looks at the live site. Backup
+/// files are unpacked first, saying how far as `wp-inspect-progress`
+/// events; [`wp_clone_inspect_stop`] stops it.
 #[tauri::command]
 pub async fn wp_clone_inspect(
     app: AppHandle,
@@ -621,19 +625,78 @@ pub async fn wp_clone_inspect(
     url: Option<String>,
 ) -> CmdResult<live::Found> {
     require_clone()?;
-    blocking(move || {
-        let state = app.state::<CloneState>();
-        let source = self::source(&state, &job, source, true)?;
+    let stop = Arc::new(AtomicBool::new(false));
+    app.state::<CloneState>()
+        .inspecting
+        .lock()
+        .unwrap()
+        .insert(job.clone(), stop.clone());
+    let worker = app.clone();
+    let id = job.clone();
+    let result = blocking(move || {
+        let state = worker.state::<CloneState>();
+        let source = self::source(&state, &id, source, true)?;
+        let mut last: Option<(live::Stage, String, Instant)> = None;
         live::inspect(
             &paths::home(),
             &state.sessions,
             &source,
             root.as_deref(),
             url.as_deref().filter(|u| !u.trim().is_empty()),
+            &mut |progress| {
+                // Ten updates a second at most, and every new step.
+                let now = Instant::now();
+                let due = match &last {
+                    Some((stage, message, at)) => {
+                        *stage != progress.stage
+                            || *message != progress.message
+                            || now.duration_since(*at) >= Duration::from_millis(100)
+                    }
+                    None => true,
+                };
+                if due {
+                    last = Some((progress.stage, progress.message.clone(), now));
+                    let _ = worker.emit(
+                        "wp-inspect-progress",
+                        CloneEvent {
+                            job: id.clone(),
+                            name: String::new(),
+                            progress,
+                        },
+                    );
+                }
+                !stop.load(Ordering::SeqCst)
+            },
         )
         .map_err(err)
     })
-    .await
+    .await;
+    app.state::<CloneState>()
+        .inspecting
+        .lock()
+        .unwrap()
+        .remove(&job);
+    result
+}
+
+/// Stops a Look for WordPress that is unpacking backup files.
+#[tauri::command]
+pub fn wp_clone_inspect_stop(state: State<'_, CloneState>, job: String) {
+    if let Some(stop) = state.inspecting.lock().unwrap().get(&job) {
+        stop.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Deletes what Look for WordPress unpacked of these backup files, when
+/// their form is closed without cloning.
+#[tauri::command]
+pub async fn wp_backup_forget(files: Vec<String>) {
+    let files: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
+    let _ = blocking(move || {
+        live::forget_backup(&paths::home(), &files);
+        Ok(())
+    })
+    .await;
 }
 
 /// Checks the server login of a clone one step at a time, saying where it

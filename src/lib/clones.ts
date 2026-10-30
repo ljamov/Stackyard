@@ -25,6 +25,8 @@ export type Clone = {
   error: string | null;
   /** Backup files dropped on the window, which the form starts with. */
   dropped?: string[];
+  /** Shown on the Import backup screen instead of Sites; it looks for WordPress in `dropped` at once. */
+  place?: "import";
 };
 
 let clones: Clone[] = [];
@@ -108,11 +110,16 @@ export async function restoreClones() {
   for (const s of saved) if (s.state === "running" && !s.active && !known.has(s.job)) void run(s.job);
 }
 
-/** Opens a new, empty clone form on the Sites screen; returns its id. */
-export function newClone(dropped?: string[]) {
+/** Opens a new, empty clone form on the Sites screen, or with backup files on Import backup; returns its id. */
+export function newClone(dropped?: string[], place?: "import") {
   const id = `clone-${Date.now().toString(36)}-${++count}`;
-  set([...clones, { id, state: "new", open: true, name: "", from: "", source: null, options: null, progress: null, result: null, error: null, dropped }]);
+  set([...clones, { id, state: "new", open: true, name: "", from: "", source: null, options: null, progress: null, result: null, error: null, dropped, place }]);
   return id;
+}
+
+/** The screen a clone's card is shown on. */
+export function cloneScreen(id: string) {
+  return clones.find((c) => c.id === id)?.place === "import" ? "Import backup" : "Sites";
 }
 
 /** Files a site backup can be made of: a Stackyard Connect export (.tar),

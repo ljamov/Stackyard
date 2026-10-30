@@ -5,6 +5,7 @@ export const SCREENS = [
   "Projects",
   "Apps",
   "Sites",
+  "Import backup",
   "Services",
   "Runtimes",
   "Logs",

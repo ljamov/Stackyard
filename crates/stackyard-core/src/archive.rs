@@ -21,6 +21,28 @@ pub fn is_archive(file_name: &str) -> bool {
 /// that holds the contents: `dest` itself, or its only subfolder when the
 /// archive wraps everything in one top-level folder like `node-v22.1.0-linux-x64/`.
 pub fn extract(archive: &Path, dest: &Path) -> Result<PathBuf> {
+    extract_with(archive, dest, &mut |_, _| true, None)
+}
+
+/// How a site backup is unpacked: some folders are left out, and an entry
+/// that can't be written is noted in `failed` and the rest goes on, where
+/// a download for a program fails as a whole.
+#[derive(Default)]
+pub struct Lenient<'a> {
+    /// Folders left out wherever they are, e.g. `wp-content/upgrade`.
+    pub leave_out: &'a [&'a str],
+    /// Each entry that could not be written, with why.
+    pub failed: Vec<String>,
+}
+
+/// [`extract`], telling `on` how many bytes of the archive file are read
+/// and how big it is. Returning `false` stops it with [`STOPPED`].
+pub fn extract_with(
+    archive: &Path,
+    dest: &Path,
+    on: &mut dyn FnMut(u64, u64) -> bool,
+    lenient: Option<&mut Lenient>,
+) -> Result<PathBuf> {
     let fail = |message: String| Error::Archive {
         path: archive.to_owned(),
         message,
@@ -30,42 +52,133 @@ pub fn extract(archive: &Path, dest: &Path) -> Result<PathBuf> {
         .file_name()
         .map(|n| n.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
-    if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
-        let file = File::open(archive).map_err(|e| fail(e.to_string()))?;
-        extract_tar(flate2::read::GzDecoder::new(file), dest).map_err(fail)?;
-    } else if name.ends_with(".tar") {
-        let file = File::open(archive).map_err(|e| fail(e.to_string()))?;
-        extract_tar(file, dest).map_err(fail)?;
-    } else if name.ends_with(".tar.xz") {
-        let file = File::open(archive).map_err(|e| fail(e.to_string()))?;
-        extract_tar(liblzma::read::XzDecoder::new(file), dest).map_err(fail)?;
-    } else if name.ends_with(".zip") {
-        extract_zip(archive, dest).map_err(fail)?;
-    } else {
-        return Err(fail("unsupported archive type".to_string()));
+    let kind = [".tar.gz", ".tgz", ".tar.xz", ".tar", ".zip"]
+        .into_iter()
+        .find(|ext| name.ends_with(ext))
+        .ok_or_else(|| fail("unsupported archive type".to_string()))?;
+    let file = File::open(archive).map_err(|e| fail(e.to_string()))?;
+    let total = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let file = Counted {
+        inner: file,
+        at: 0,
+        total,
+        on,
+    };
+    match kind {
+        ".tar.gz" | ".tgz" => extract_tar(flate2::read::GzDecoder::new(file), dest, lenient),
+        ".tar.xz" => extract_tar(liblzma::read::XzDecoder::new(file), dest, lenient),
+        ".tar" => extract_tar(file, dest, lenient),
+        _ => extract_zip(file, dest, lenient),
     }
+    .map_err(fail)?;
     content_root(dest).map_err(|e| fail(e.to_string()))
 }
 
-fn extract_tar(stream: impl std::io::Read, dest: &Path) -> std::result::Result<(), String> {
+/// What an unpacking stopped by its progress callback fails with.
+pub const STOPPED: &str = "stopped";
+
+/// A file that says how far into it reading has got.
+struct Counted<'a, R> {
+    inner: R,
+    at: u64,
+    total: u64,
+    on: &'a mut dyn FnMut(u64, u64) -> bool,
+}
+
+impl<R: std::io::Read> std::io::Read for Counted<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.at += n as u64;
+        if !(self.on)(self.at.min(self.total), self.total) {
+            return Err(std::io::Error::other(STOPPED));
+        }
+        Ok(n)
+    }
+}
+
+impl<R: std::io::Seek> std::io::Seek for Counted<'_, R> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.at = self.inner.seek(pos)?;
+        Ok(self.at)
+    }
+}
+
+/// An error with what caused it: the tar crate's own says only which
+/// entry failed, the cause (access denied, path too long…) is under it.
+fn with_causes(e: &dyn std::error::Error) -> String {
+    let mut text = e.to_string();
+    let mut cause = e.source();
+    while let Some(c) = cause {
+        let more = c.to_string();
+        if !text.contains(&more) {
+            text = format!("{text}: {more}");
+        }
+        cause = c.source();
+    }
+    text
+}
+
+/// Whether `path` is inside one of the folders left out.
+fn left_out(path: &Path, leave_out: &[&str]) -> bool {
+    let path = format!("/{}/", path.to_string_lossy().replace('\\', "/"));
+    leave_out
+        .iter()
+        .any(|folder| path.contains(&format!("/{}/", folder.trim_matches('/'))))
+}
+
+/// Notes an entry that failed in a lenient unpacking, or fails the whole.
+fn entry_failed(
+    lenient: &mut Option<&mut Lenient>,
+    path: &Path,
+    why: String,
+) -> std::result::Result<(), String> {
+    // Stopped on purpose is not an entry going wrong.
+    let stopped = why == STOPPED || why.ends_with(&format!(": {STOPPED}"));
+    match lenient {
+        Some(lenient) if !stopped => {
+            lenient.failed.push(format!("{}: {why}", path.display()));
+            Ok(())
+        }
+        _ => Err(why),
+    }
+}
+
+fn extract_tar(
+    stream: impl std::io::Read,
+    dest: &Path,
+    mut lenient: Option<&mut Lenient>,
+) -> std::result::Result<(), String> {
     let mut tar = tar::Archive::new(std::io::BufReader::new(stream));
-    tar.set_preserve_permissions(true);
+    // A backup's modes come from the web server's system and mean nothing
+    // here; read-only ones would only get in the way of the copy.
+    tar.set_preserve_permissions(lenient.is_none());
     tar.set_preserve_mtime(true);
     tar.set_overwrite(true);
-    for entry in tar.entries().map_err(|e| e.to_string())? {
-        let mut entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path().map_err(|e| e.to_string())?.into_owned();
+    for entry in tar.entries().map_err(|e| with_causes(&e))? {
+        let mut entry = entry.map_err(|e| with_causes(&e))?;
+        let path = entry.path().map_err(|e| with_causes(&e))?.into_owned();
         if !is_safe_relative(&path) {
             return Err(format!("refusing unsafe path {}", path.display()));
         }
+        if lenient
+            .as_ref()
+            .is_some_and(|l| left_out(&path, l.leave_out))
+        {
+            continue;
+        }
         // `unpack_in` also refuses to write through links that point outside `dest`.
-        entry.unpack_in(dest).map_err(|e| e.to_string())?;
+        if let Err(e) = entry.unpack_in(dest) {
+            entry_failed(&mut lenient, &path, with_causes(&e))?;
+        }
     }
     Ok(())
 }
 
-fn extract_zip(archive: &Path, dest: &Path) -> std::result::Result<(), String> {
-    let file = File::open(archive).map_err(|e| e.to_string())?;
+fn extract_zip(
+    file: impl std::io::Read + std::io::Seek,
+    dest: &Path,
+    mut lenient: Option<&mut Lenient>,
+) -> std::result::Result<(), String> {
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
@@ -75,21 +188,31 @@ fn extract_zip(archive: &Path, dest: &Path) -> std::result::Result<(), String> {
         if entry.is_symlink() {
             return Err(format!("refusing link {}", entry.name()));
         }
-        let target = dest.join(relative);
-        if entry.is_dir() {
-            std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+        if lenient
+            .as_ref()
+            .is_some_and(|l| left_out(&relative, l.leave_out))
+        {
             continue;
         }
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let mut out = File::create(&target).map_err(|e| e.to_string())?;
-        std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        if let Some(mode) = entry.unix_mode() {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode & 0o777))
-                .map_err(|e| e.to_string())?;
+        let target = dest.join(&relative);
+        let written = (|| -> std::io::Result<()> {
+            if entry.is_dir() {
+                return std::fs::create_dir_all(&target);
+            }
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut out = File::create(&target)?;
+            std::io::copy(&mut entry, &mut out)?;
+            #[cfg(unix)]
+            if let Some(mode) = entry.unix_mode() {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode & 0o777))?;
+            }
+            Ok(())
+        })();
+        if let Err(e) = written {
+            entry_failed(&mut lenient, &relative, e.to_string())?;
         }
     }
     Ok(())
@@ -171,6 +294,62 @@ mod tests {
                 .mode();
             assert_eq!(mode & 0o111, 0o111, "executable bit kept");
         }
+    }
+
+    #[test]
+    fn a_lenient_unpacking_leaves_folders_out_and_notes_what_failed() {
+        let dir = crate::testutil::tempdir();
+        let archive = dir.join("site.tar.gz");
+        fixtures::tar_gz(
+            &archive,
+            &[
+                ("site/index.php", b"<?php", 0o644),
+                ("site/wp-content/upgrade/x/a.php", b"<?php", 0o644),
+                ("site/blocked/b.txt", b"b", 0o644),
+                ("site/after.txt", b"after", 0o644),
+            ],
+        );
+        let dest = dir.join("out");
+        // A file where a folder of the backup should go: that entry fails.
+        std::fs::create_dir_all(dest.join("site")).unwrap();
+        std::fs::write(dest.join("site/blocked"), b"in the way").unwrap();
+        let mut seen = 0;
+        let mut lenient = Lenient {
+            leave_out: &["wp-content/upgrade"],
+            failed: Vec::new(),
+        };
+        extract_with(
+            &archive,
+            &dest,
+            &mut |done, total| {
+                seen = done;
+                assert!(done <= total);
+                true
+            },
+            Some(&mut lenient),
+        )
+        .unwrap();
+        assert_eq!(seen, std::fs::metadata(&archive).unwrap().len());
+        assert!(dest.join("site/index.php").is_file());
+        assert!(
+            dest.join("site/after.txt").is_file(),
+            "goes on after a failed entry"
+        );
+        assert!(!dest.join("site/wp-content/upgrade").exists());
+        assert_eq!(lenient.failed.len(), 1, "{:?}", lenient.failed);
+        assert!(lenient.failed[0].contains("blocked"));
+
+        // Without it, the same archive fails, saying why.
+        assert!(extract(&archive, &dest).is_err());
+        // Stopping stops, also when lenient.
+        let mut lenient = Lenient::default();
+        let stopped = extract_with(
+            &archive,
+            &dir.join("out2"),
+            &mut |_, _| false,
+            Some(&mut lenient),
+        );
+        assert!(stopped.unwrap_err().to_string().contains(STOPPED));
     }
 
     #[test]

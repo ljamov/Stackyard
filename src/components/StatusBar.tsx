@@ -74,7 +74,7 @@ export function StatusBar({
           <span aria-hidden="true">⚠</span> {problemCount === 1 ? t("1 problem") : t("{count} problems", { count: problemCount })}
         </button>
       )}
-      <ClonesStatus onOpenSites={() => onOpen("Sites")} />
+      <ClonesStatus onOpenSites={onOpen} />
       <div className="status-spacer" />
       {update?.available && (
         <button type="button" className="status-item highlight" onClick={() => onOpen("Settings")}>

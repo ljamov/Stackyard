@@ -14,7 +14,7 @@ import {
 } from "../../lib/wordpress";
 import { size } from "./WordPressTools";
 import { closeClone, editClone, minimizeClone, pauseClone, retryClone, startClone, stopClone, useClones } from "../../lib/clones";
-import { CloneProgress } from "./Clones";
+import { CloneProgress, StepProgress } from "./Clones";
 import { ConnectionCheck } from "../ConnectionCheck";
 import { useBusy } from "../../lib/tabLife";
 
@@ -48,6 +48,25 @@ function routeText(t: T, route: WpRoute | null) {
   if (route === "ssh") return t("SSH: files over SFTP, database exported on the server");
   if (route === "helper") return t("Files over SFTP or FTP, database through Stackyard's helper");
   return t("Backup files from this computer");
+}
+
+/** Why Look for WordPress can't be pressed yet. */
+function notReadyText(t: T, from: From) {
+  if (from === "files") return t("Pick the backup files first.");
+  if (from === "code") return t("Paste the connection code first; it starts with stackyard-connect:");
+  if (from === "saved") return t("Pick a saved server first.");
+  return t("Type the server address and user name first.");
+}
+
+/** What Look for WordPress is waiting on, in words, under its bar. */
+function lookingText(t: T, from: From, p: WpCloneProgress | null) {
+  if (from === "files") {
+    if (p?.message.startsWith("Unpacking"))
+      return t("Unpacking reads the whole backup once; a few GB take some minutes. The clone after uses what is unpacked here, so it doesn't unpack it again.");
+    return t("Reading the unpacked backup; this takes a moment.");
+  }
+  if (from === "code") return t("Asking the Stackyard Connect plugin on the live site about the site.");
+  return t("Logging in to the server and reading WordPress there; this takes up to a minute.");
 }
 
 export function stageText(t: T, stage: WpCloneProgress["stage"]) {
@@ -127,6 +146,9 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
   const [media, setMedia] = useState<WpMedia>("download");
   const [busy, setBusy] = useState<string | null>(null);
   useBusy(busy !== null);
+  // Where Look for WordPress is: unpacking backup files says how far.
+  const [looking, setLooking] = useState<WpCloneProgress | null>(null);
+  const fromImport = job?.place === "import";
   const [error, setError] = useState<string | null>(null);
   const [unfinished, setUnfinished] = useState(false);
   const [sites, setSites] = useState<Site[]>([]);
@@ -181,9 +203,30 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
     };
   }
 
-  async function look(e: FormEvent) {
+  useEffect(() => {
+    const off = wp.onInspectProgress((p) => {
+      if (p.job === id) setLooking(p);
+    });
+    return () => void off.then((f) => f());
+  }, [id]);
+
+  // A backup from Import backup is looked at at once.
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current || !fromImport || !files.length || found) return;
+    started.current = true;
+    void inspect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function look(e: FormEvent) {
     e.preventDefault();
+    void inspect();
+  }
+
+  async function inspect() {
     setBusy(t("Looking for WordPress…"));
+    setLooking(null);
     setError(null);
     setFound(null);
     try {
@@ -196,7 +239,14 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
       setError(errorText(e));
     } finally {
       setBusy(null);
+      setLooking(null);
     }
+  }
+
+  function cancel() {
+    // What was unpacked of the backup goes too; the clone would have used it.
+    if (from === "files" && files.length) void wp.backupForget(files);
+    closeClone(id);
   }
 
   function clone() {
@@ -233,17 +283,22 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
   return (
     <section className="card stack" aria-labelledby={`${id}-h`}>
       <div className="row between centered">
-        <h2 id={`${id}-h`}>{t("Clone from a live server")}</h2>
-        <button type="button" className="btn ghost" onClick={() => closeClone(id)} disabled={busy !== null}>
+        <h2 id={`${id}-h`}>
+          {fromImport ? t("Import {file}", { file: files.map((f) => f.split(/[\\/]/).pop()).join(", ") }) : t("Clone from a live server")}
+        </h2>
+        <button type="button" className="btn ghost" onClick={cancel} disabled={busy !== null}>
           {t("Cancel")}
         </button>
       </div>
       <p className="muted small">
-        {t(
-          "Copies a live WordPress or WooCommerce site to this computer: files, database and settings, with every live address changed to the local one. Nothing on the live site is changed.",
-        )}
+        {fromImport
+          ? t("Stackyard unpacks the backup, finds WordPress and its database in it, and makes a local site with every live address changed to the local one.")
+          : t(
+              "Copies a live WordPress or WooCommerce site to this computer: files, database and settings, with every live address changed to the local one. Nothing on the live site is changed.",
+            )}
       </p>
       <form className="stack form" onSubmit={look}>
+        {!fromImport && (
         <div className="row wrap" role="radiogroup" aria-label={t("Where is the live site?")}>
           {saved.length > 0 && (
             <label className="row centered small">
@@ -264,6 +319,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
             {t("A connection code (no FTP)")}
           </label>
         </div>
+        )}
 
         {from === "code" && (
           <div className="field">
@@ -362,7 +418,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
           </div>
         )}
 
-        {from === "files" && (
+        {from === "files" && !fromImport && (
           <div className="stack">
             <div className="row">
               <button type="button" className="btn" onClick={pickFiles}>
@@ -406,11 +462,26 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
           </div>
         )}
 
-        <div className="row">
-          <button type="submit" className="btn" disabled={!ready || busy !== null}>
-            {busy === t("Looking for WordPress…") ? busy : t("Look for WordPress")}
+        <div className="row centered">
+          <button type="submit" className="btn" disabled={!ready || busy !== null} aria-describedby={`${id}-why`}>
+            {busy === t("Looking for WordPress…") ? busy : found ? t("Look again") : t("Look for WordPress")}
           </button>
+          {busy !== null && from === "files" && (
+            <button type="button" className="btn ghost" onClick={() => void wp.cloneInspectStop(id)}>
+              {t("Stop")}
+            </button>
+          )}
         </div>
+        {busy !== null ? (
+          <StepProgress progress={looking} label={t("Looking for WordPress")} />
+        ) : (
+          !ready && (
+            <p id={`${id}-why`} className="muted small">
+              {notReadyText(t, from)}
+            </p>
+          )
+        )}
+        {busy !== null && <p className="muted small">{lookingText(t, from, looking)}</p>}
       </form>
 
       {found && (

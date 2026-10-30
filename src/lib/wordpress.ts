@@ -267,8 +267,13 @@ export interface WpApi {
   wooTestMode(domain: string, gateway: string, on: boolean): Promise<WooView>;
   wooCreate(domain: string, kind: "customers" | "orders", count: number): Promise<string[]>;
   savedConnections(): Promise<WpSavedConnection[]>;
-  /** `job` names one clone; any number can run at once. */
+  /** `job` names one clone; any number can run at once. Backup files are unpacked first, saying how far through onInspectProgress. */
   cloneInspect(job: string, source: WpCloneSource, root: string | null, url: string | null): Promise<WpFound>;
+  /** Stops a Look for WordPress that is still unpacking. */
+  cloneInspectStop(job: string): Promise<void>;
+  onInspectProgress(handler: (p: WpCloneProgress) => void): Promise<() => void>;
+  /** Deletes what Look for WordPress unpacked of these backup files. */
+  backupForget(files: string[]): Promise<void>;
   clone(job: string, source: WpCloneSource, options: WpCloneOptions, from: string): Promise<WpCloned>;
   clonesSaved(): Promise<WpSavedClone[]>;
   onCloneEnded(handler: (e: WpCloneEnded) => void): Promise<() => void>;
@@ -349,6 +354,9 @@ const tauriWp: WpApi = {
   wooCreate: (domain, kind, count) => invoke("wp_woo_create", { domain, kind, count }),
   savedConnections: () => invoke("wp_saved_connections"),
   cloneInspect: (job, source, root, url) => invoke("wp_clone_inspect", { job, source, root, url }),
+  cloneInspectStop: (job) => invoke("wp_clone_inspect_stop", { job }),
+  onInspectProgress: (handler) => listen<WpCloneProgress>("wp-inspect-progress", (e) => handler(e.payload)),
+  backupForget: (files) => invoke("wp_backup_forget", { files }),
   clone: (job, source, options, from) => invoke("wp_clone", { job, source, options, from }),
   clonesSaved: () => invoke("wp_clones_saved"),
   onCloneEnded: (handler) => listen<WpCloneEnded>("wp-clone-ended", (e) => handler(e.payload)),
@@ -526,7 +534,17 @@ function mockWp(): WpApi {
       await wait(900);
       return previewCheck(source.kind === "new" ? source.connection.host || "example.com" : "203.0.113.10");
     },
-    cloneInspect: async (_job, source) => {
+    cloneInspect: async (job, source) => {
+      if (source.kind === "files") {
+        // Unpacking a 2.8 GB backup, in steps, like the app's.
+        const total = 2.8e9;
+        for (let done = 0; done <= total; done += 2.8e8) {
+          if (inspectStopped.delete(job)) throw "stopped; clone again with the same name to continue where it stopped";
+          for (const h of inspectHandlers) h({ job, name: "", stage: "files", message: `Unpacking ${source.files[0]?.split(/[\\/]/).pop() ?? "backup.tar"}`, done, total });
+          await wait(300);
+        }
+        for (const h of inspectHandlers) h({ job, name: "", stage: "files", message: "Looking for WordPress in the backup…", done: 0, total: 0 });
+      }
       await wait(900);
       const files = source.kind === "files" || source.kind === "code";
       return {
@@ -585,6 +603,12 @@ function mockWp(): WpApi {
     cloneStop: async (job) => void cloneStopped.add(job),
     clonePause: async (job) => void clonePaused.add(job),
     cloneForget: async () => {},
+    cloneInspectStop: async (job) => void inspectStopped.add(job),
+    onInspectProgress: async (handler) => {
+      inspectHandlers.push(handler);
+      return () => inspectHandlers.splice(inspectHandlers.indexOf(handler), 1);
+    },
+    backupForget: async () => {},
     clonesSaved: async () => [],
     onCloneEnded: async () => () => {},
     cloneUnfinished: async () => false,
@@ -830,6 +854,8 @@ const stagingHandlers: ((p: WpCloneProgress) => void)[] = [];
 const cloneStopped = new Set<string>();
 const clonePaused = new Set<string>();
 const cloneHandlers: ((p: WpCloneProgress) => void)[] = [];
+const inspectStopped = new Set<string>();
+const inspectHandlers: ((p: WpCloneProgress) => void)[] = [];
 
 function mockDbReport(repaired: boolean): WpDbReport {
   const fix = repaired ? "fixed" : "fix";

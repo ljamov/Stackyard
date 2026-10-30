@@ -1081,12 +1081,15 @@ fn dump_completed(file: &Path) -> bool {
 
 /// Looks at the live site without copying anything: where WordPress is,
 /// its address, versions and database size, and how it would be copied.
+/// Backup files are unpacked, saying how far through `progress`, and kept
+/// so the clone after doesn't unpack them again.
 pub fn inspect(
     home: &Path,
     sessions: &Sessions,
     source: &Source,
     root: Option<&str>,
     url: Option<&str>,
+    progress: OnProgress,
 ) -> Result<Found> {
     match source {
         Source::Server(connection) => {
@@ -1096,37 +1099,36 @@ pub fn inspect(
             result
         }
         Source::Files(files) => {
-            let temp = super::temp_dir(home, "inspect")?;
-            let result = (|| {
-                let unpacked = Unpacked::open(files, &temp)?;
-                let config = WpConfig::read(
-                    &std::fs::read_to_string(&unpacked.config).map_err(io(&unpacked.config))?,
-                );
-                let sql = unpacked.sql(&config)?;
-                let size = std::fs::metadata(&sql).map(|m| m.len()).unwrap_or(0);
-                Ok(Found {
-                    route: Some(Route::Files),
-                    roots: vec![unpacked.root.display().to_string()],
-                    root: unpacked.root.display().to_string(),
-                    url: String::new(),
-                    wordpress: super::php_variable(
-                        &std::fs::read_to_string(unpacked.root.join("wp-includes/version.php"))
-                            .unwrap_or_default(),
-                        "$wp_version",
-                    )
-                    .unwrap_or_default(),
-                    prefix: config.prefix().to_string(),
-                    database_bytes: size,
-                    files: Some(local_sizes(&unpacked.root)),
-                    notes: vec![format!(
-                        "The database comes from {}.",
-                        sql.file_name().unwrap_or_default().to_string_lossy()
-                    )],
-                    ..Found::default()
-                })
-            })();
-            let _ = std::fs::remove_dir_all(&temp);
-            result
+            let (_, unpacked) = unpack_backup(home, files, progress)?;
+            let config = WpConfig::read(
+                &std::fs::read_to_string(&unpacked.config).map_err(io(&unpacked.config))?,
+            );
+            say(progress, Stage::Database, "Finding the database export…")?;
+            let sql = unpacked.sql(&config)?;
+            let size = std::fs::metadata(&sql).map(|m| m.len()).unwrap_or(0);
+            say(progress, Stage::Files, "Measuring the files…")?;
+            let mut notes = vec![format!(
+                "The database comes from {}.",
+                sql.file_name().unwrap_or_default().to_string_lossy()
+            )];
+            notes.extend(failed_note(&unpacked.failed));
+            Ok(Found {
+                route: Some(Route::Files),
+                roots: vec![unpacked.root.display().to_string()],
+                root: unpacked.root.display().to_string(),
+                url: String::new(),
+                wordpress: super::php_variable(
+                    &std::fs::read_to_string(unpacked.root.join("wp-includes/version.php"))
+                        .unwrap_or_default(),
+                    "$wp_version",
+                )
+                .unwrap_or_default(),
+                prefix: config.prefix().to_string(),
+                database_bytes: size,
+                files: Some(local_sizes(&unpacked.root)),
+                notes,
+                ..Found::default()
+            })
         }
         Source::Connect(link) => {
             let info = link.info()?;
@@ -1288,6 +1290,8 @@ struct Unpacked {
     config: PathBuf,
     /// `.sql` and `.sql.gz` files found, with their sizes.
     sql: Vec<(PathBuf, u64)>,
+    /// Files in the backup that could not be written, with why.
+    failed: Vec<String>,
 }
 
 fn is_sql(name: &str) -> bool {
@@ -1300,22 +1304,70 @@ fn is_backup_archive(name: &str) -> bool {
     crate::archive::is_archive(&lower) || lower.ends_with(".tar")
 }
 
+/// Folders a backup is unpacked without: WordPress's leftovers from
+/// updates, caches and backups kept inside the site (a clone from a
+/// server leaves the same out).
+fn backup_leave_out() -> Vec<&'static str> {
+    let mut out = vec!["wp-content/upgrade", "wp-content/upgrade-temp-backup"];
+    out.extend(SKIP.iter().copied());
+    out
+}
+
+/// Unpacks one archive, saying how far it is; a file in it that can't be
+/// written is noted in `failed` and left out.
+fn unpack_archive(
+    archive: &Path,
+    dest: &Path,
+    failed: &mut Vec<String>,
+    progress: OnProgress,
+) -> Result<()> {
+    let name = archive
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let leave_out = backup_leave_out();
+    let mut lenient = crate::archive::Lenient {
+        leave_out: &leave_out,
+        failed: Vec::new(),
+    };
+    let mut going = true;
+    let result = crate::archive::extract_with(
+        archive,
+        dest,
+        &mut |done, total| {
+            going = progress(Progress {
+                stage: Stage::Files,
+                message: format!("Unpacking {name}"),
+                done,
+                total,
+            });
+            going
+        },
+        Some(&mut lenient),
+    );
+    if !going {
+        return Err(stopped());
+    }
+    result?;
+    failed.extend(lenient.failed);
+    Ok(())
+}
+
 impl Unpacked {
-    fn open(files: &[PathBuf], work: &Path) -> Result<Self> {
+    fn open(files: &[PathBuf], work: &Path, progress: OnProgress) -> Result<Self> {
         if files.is_empty() {
             return Err(fail("pick the site's backup files"));
         }
-        let mut sql = Vec::new();
+        let mut failed = Vec::new();
         for (i, file) in files.iter().enumerate() {
             let name = file
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
             if is_sql(&name) {
-                let size = std::fs::metadata(file).map_err(io(file))?.len();
-                sql.push((file.clone(), size));
+                continue;
             } else if is_backup_archive(&name) {
-                crate::archive::extract(file, &work.join(format!("{i}")))?;
+                unpack_archive(file, &work.join(format!("{i}")), &mut failed, progress)?;
             } else if name.to_ascii_lowercase().ends_with(".zst") {
                 return Err(fail(format!(
                     "{name} is compressed with zstd, which Stackyard can't open yet; make the backup as .tar.gz or .zip"
@@ -1341,8 +1393,29 @@ impl Unpacked {
             }
             for archive in inner {
                 let dest = archive.with_extension("unpacked");
-                crate::archive::extract(&archive, &dest)?;
+                unpack_archive(&archive, &dest, &mut failed, progress)?;
                 let _ = std::fs::remove_file(&archive);
+            }
+        }
+        say(
+            progress,
+            Stage::Files,
+            "Looking for WordPress in the backup…",
+        )?;
+        let mut unpacked = Self::scan(files, work)?;
+        unpacked.failed = failed;
+        Ok(unpacked)
+    }
+
+    /// Finds WordPress and the database files in what was unpacked into
+    /// `work`, and among the `.sql` files picked beside the archives.
+    fn scan(files: &[PathBuf], work: &Path) -> Result<Self> {
+        let mut sql = Vec::new();
+        for file in files {
+            let name = file.file_name().unwrap_or_default().to_string_lossy();
+            if is_sql(&name) {
+                let size = std::fs::metadata(file).map_err(io(file))?.len();
+                sql.push((file.clone(), size));
             }
         }
         let mut roots = Vec::new();
@@ -1373,7 +1446,12 @@ impl Unpacked {
         .into_iter()
         .find(|p| p.is_file())
         .ok_or_else(|| fail("the WordPress in these files has no wp-config.php"))?;
-        Ok(Unpacked { root, config, sql })
+        Ok(Unpacked {
+            root,
+            config,
+            sql,
+            failed: Vec::new(),
+        })
     }
 
     /// The database file: the one named after the site's database (cPanel
@@ -1403,6 +1481,93 @@ impl Unpacked {
             .map(|(path, _)| path.clone())
             .ok_or_else(|| fail("no database file found"))
     }
+}
+
+/// Where backup files are unpacked, shared by Look for WordPress and the
+/// clone after it, so a big backup is unpacked once: named after the
+/// files, their sizes and times, so a changed file is unpacked again.
+fn unpacked_dir(home: &Path, files: &[PathBuf]) -> PathBuf {
+    // FNV-1a: stable between runs, unlike the standard hasher.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for file in files {
+        let meta = std::fs::metadata(file).ok();
+        let stamp = format!(
+            "{}|{}|{:?};",
+            file.display(),
+            meta.as_ref().map_or(0, |m| m.len()),
+            meta.and_then(|m| m.modified().ok())
+        );
+        for byte in stamp.bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    home.join("tmp").join(format!("backup-{hash:016x}"))
+}
+
+/// Says the files in an unpacked folder are all there; it holds the
+/// files that could not be unpacked, one a line.
+const UNPACKED_READY: &str = "unpacked.txt";
+
+/// Unpacked backups older than this are deleted when another is unpacked.
+const UNPACKED_KEPT: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The backup files unpacked, from the last time when that finished, else
+/// now. Other unpacked backups not used for a day are deleted first.
+fn unpack_backup(
+    home: &Path,
+    files: &[PathBuf],
+    progress: OnProgress,
+) -> Result<(PathBuf, Unpacked)> {
+    let dir = unpacked_dir(home, files);
+    let ready = dir.join(UNPACKED_READY);
+    if let Ok(text) = std::fs::read_to_string(&ready) {
+        say(
+            progress,
+            Stage::Files,
+            "Looking for WordPress in the backup…",
+        )?;
+        if let Ok(mut unpacked) = Unpacked::scan(files, &dir.join("files")) {
+            unpacked.failed = text.lines().map(str::to_string).collect();
+            // Used now: it is kept another day.
+            let _ = std::fs::write(&ready, text);
+            return Ok((dir, unpacked));
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(home.join("tmp")) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let old = std::fs::metadata(entry.path().join(UNPACKED_READY))
+                .or_else(|_| entry.metadata())
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > UNPACKED_KEPT);
+            if name.starts_with("backup-") && entry.path() != dir && old {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let unpacked = Unpacked::open(files, &dir.join("files"), progress)?;
+    std::fs::write(&ready, unpacked.failed.join("\n")).map_err(io(&ready))?;
+    Ok((dir, unpacked))
+}
+
+/// Deletes the unpacked copy of these backup files, if there is one.
+pub fn forget_backup(home: &Path, files: &[PathBuf]) {
+    let _ = std::fs::remove_dir_all(unpacked_dir(home, files));
+}
+
+/// A note on the files of a backup that could not be unpacked.
+fn failed_note(failed: &[String]) -> Option<String> {
+    let first = failed.first()?;
+    Some(match failed.len() {
+        1 => format!("1 file in the backup could not be unpacked and is left out: {first}"),
+        n => format!(
+            "{n} files in the backup could not be unpacked and are left out; the first: {first}"
+        ),
+    })
 }
 
 /// How much the files of a WordPress folder on this computer hold, by part.
@@ -1819,13 +1984,21 @@ pub fn clone(
             }
             result?
         }
-        Source::Files(files) => {
-            clone_from_files(files, &mut work, &folder, &database, &client, progress)?
-        }
+        Source::Files(files) => clone_from_files(
+            home, files, &mut work, &folder, &database, &client, &mut notes, progress,
+        )?,
         Source::Connect(link) => {
             let (archive, info) = link.download(&work.dir.join("connect"), progress)?;
-            let mut side =
-                clone_from_files(&[archive], &mut work, &folder, &database, &client, progress)?;
+            let mut side = clone_from_files(
+                home,
+                &[archive],
+                &mut work,
+                &folder,
+                &database,
+                &client,
+                &mut notes,
+                progress,
+            )?;
             // Everything is here now; the export holds the whole site, so
             // it doesn't stay on the live server.
             if link.delete_export().is_err() {
@@ -2432,23 +2605,26 @@ pub(super) fn fetch_chunk(
     Err(last.unwrap_or_else(|| fail("the helper did not answer")))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn clone_from_files(
+    home: &Path,
     files: &[PathBuf],
     work: &mut Work,
     folder: &Path,
     database: &str,
     client: &Client,
+    notes: &mut Vec<String>,
     progress: OnProgress,
 ) -> Result<LiveSide> {
-    say(progress, Stage::Files, "Unpacking the backup…")?;
-    let unpacked_dir = work.dir.join("unpacked");
-    let _ = std::fs::remove_dir_all(&unpacked_dir);
-    let unpacked = Unpacked::open(files, &unpacked_dir)?;
+    let (unpacked_dir, unpacked) = unpack_backup(home, files, progress)?;
+    notes.extend(failed_note(&unpacked.failed));
     let config_text = std::fs::read_to_string(&unpacked.config).map_err(io(&unpacked.config))?;
     let config = WpConfig::read(&config_text);
     let sql = unpacked.sql(&config)?;
-    say(progress, Stage::Files, "Moving the files into place…")?;
-    move_contents(&unpacked.root, folder)?;
+    // The files leave the unpacked folder now; a clone cut short after
+    // this unpacks the backup again.
+    let _ = std::fs::remove_file(unpacked_dir.join(UNPACKED_READY));
+    move_contents(&unpacked.root, folder, progress)?;
     let config_file = folder.join("wp-config.php");
     if !config_file.exists() {
         std::fs::write(&config_file, &config_text).map_err(io(&config_file))?;
@@ -2460,11 +2636,20 @@ fn clone_from_files(
     }
     work.state.database_made = true;
     work.save()?;
-    let sql_in_work = sql.starts_with(&unpacked_dir);
-    client.load(database, &sql)?;
-    if sql_in_work {
-        let _ = std::fs::remove_file(&sql);
+    let mut going = true;
+    let loaded = client.load_with(database, &sql, &mut |done, total| {
+        going = progress(Progress {
+            stage: Stage::Loading,
+            message: "Loading the database".into(),
+            done,
+            total,
+        });
+        going
+    });
+    if !going {
+        return Err(stopped());
     }
+    loaded?;
     let _ = std::fs::remove_dir_all(&unpacked_dir);
     // The address is read from the loaded database; it is changed after.
     let prefix = config.prefix();
@@ -2489,30 +2674,43 @@ fn clone_from_files(
     })
 }
 
-/// Moves what is inside `from` into `to`, copying across drives.
-fn move_contents(from: &Path, to: &Path) -> Result<()> {
+/// Moves what is inside `from` into `to`, copying across drives (and
+/// saying how far the copy is).
+fn move_contents(from: &Path, to: &Path, progress: OnProgress) -> Result<()> {
+    say(progress, Stage::Files, "Moving the files into place…")?;
     std::fs::create_dir_all(to).map_err(io(to))?;
+    let mut total = None;
+    let mut copied = 0;
     for entry in std::fs::read_dir(from).map_err(io(from))? {
         let entry = entry.map_err(io(from))?;
         let target = to.join(entry.file_name());
-        if std::fs::rename(entry.path(), &target).is_err() {
-            copy_tree(&entry.path(), &target)?;
+        if std::fs::rename(entry.path(), &target).is_ok() {
+            continue;
+        }
+        // Another drive: what is left is copied, all of it at once.
+        let total = *total.get_or_insert_with(|| super::copy::tree_size(from, &[]));
+        let mut going = true;
+        let mut on = |bytes: u64| {
+            if going {
+                going = progress(Progress {
+                    stage: Stage::Files,
+                    message: format!("Copying the files to {}", to.display()),
+                    done: (copied + bytes).min(total),
+                    total,
+                });
+            }
+        };
+        let result = if entry.path().is_dir() {
+            super::copy::copy_tree(&entry.path(), &target, &[], &mut on).map(|(_, b)| b)
+        } else {
+            std::fs::copy(entry.path(), &target).inspect(|b| on(*b))
+        };
+        copied += result.map_err(io(&target))?;
+        if !going {
+            return Err(stopped());
         }
     }
     Ok(())
-}
-
-fn copy_tree(from: &Path, to: &Path) -> Result<()> {
-    if from.is_dir() {
-        std::fs::create_dir_all(to).map_err(io(to))?;
-        for entry in std::fs::read_dir(from).map_err(io(from))? {
-            let entry = entry.map_err(io(from))?;
-            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
-        }
-        Ok(())
-    } else {
-        std::fs::copy(from, to).map(|_| ()).map_err(io(to))
-    }
 }
 
 /// The live `wp-config.php` changed for this computer: the local database,
@@ -2856,7 +3054,7 @@ mod tests {
             ],
         );
         let work = dir.join("work");
-        let unpacked = Unpacked::open(&[zip], &work).unwrap();
+        let unpacked = Unpacked::open(&[zip], &work, &mut |_| true).unwrap();
         assert!(unpacked.root.ends_with("public_html"));
         let config = WpConfig::read(&std::fs::read_to_string(&unpacked.config).unwrap());
         assert!(unpacked.sql(&config).unwrap().ends_with("acc_shop.sql"));
@@ -2867,7 +3065,69 @@ mod tests {
 
         let none = dir.join("none.zip");
         crate::archive::fixtures::zip(&none, &[("readme.txt", b"hi")]);
-        assert!(Unpacked::open(&[none], &dir.join("w2")).is_err());
+        assert!(Unpacked::open(&[none], &dir.join("w2"), &mut |_| true).is_err());
+    }
+
+    #[test]
+    fn unpacks_a_backup_once_saying_how_far_it_is() {
+        let home = crate::testutil::tempdir();
+        let tar = home.join("example.com-2026-10-30.tar");
+        let mut builder = tar::Builder::new(std::fs::File::create(&tar).unwrap());
+        for (name, data) in [
+            ("site/wp-load.php", &b"<?php"[..]),
+            (
+                "site/wp-includes/version.php",
+                b"<?php $wp_version = '6.8.1';",
+            ),
+            ("site/wp-config.php", b"<?php $table_prefix='wp_';"),
+            ("site/wp-content/upgrade/plugin-1/plugin/a.php", b"<?php"),
+            ("site/wp-content/cache/page.html", b"cached"),
+            ("database.sql", b"CREATE TABLE `wp_options` (x int);"),
+        ] {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, name, data).unwrap();
+        }
+        builder.into_inner().unwrap();
+        let files = vec![tar.clone()];
+
+        let mut seen = Vec::new();
+        let (dir, unpacked) = unpack_backup(&home, &files, &mut |p| {
+            seen.push(p);
+            true
+        })
+        .unwrap();
+        let size = std::fs::metadata(&tar).unwrap().len();
+        assert!(seen
+            .iter()
+            .any(|p| p.message.starts_with("Unpacking example.com")
+                && p.total == size
+                && p.done == size));
+        assert!(unpacked.root.ends_with("site"));
+        assert!(unpacked.failed.is_empty());
+        assert!(
+            !unpacked.root.join("wp-content/upgrade").exists(),
+            "update leftovers are left out"
+        );
+        assert!(!unpacked.root.join("wp-content/cache").exists());
+
+        // The clone after finds it unpacked already.
+        let mut again = Vec::new();
+        let (same, _) = unpack_backup(&home, &files, &mut |p| {
+            again.push(p);
+            true
+        })
+        .unwrap();
+        assert_eq!(same, dir);
+        assert!(!again.iter().any(|p| p.message.starts_with("Unpacking")));
+
+        // Stopping while unpacking stops it.
+        forget_backup(&home, &files);
+        assert!(!dir.exists());
+        assert!(unpack_backup(&home, &files, &mut |_| false).is_err());
+        assert!(!dir.join(UNPACKED_READY).exists());
     }
 
     #[test]
@@ -2969,7 +3229,7 @@ mod server_tests {
             let password = password.split('|').nth(4).map(str::to_string);
             sessions.login(connection, password).unwrap();
         }
-        let found = inspect(home, &sessions, source, None, url).unwrap();
+        let found = inspect(home, &sessions, source, None, url, &mut |_| true).unwrap();
         assert!(
             !found.wordpress.is_empty() || found.route == Some(Route::Files),
             "{found:?}"

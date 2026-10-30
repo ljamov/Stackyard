@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api, categories, errorText, inWordPress, lists, siteAddress, type Category, type ListKind, type PackProgress, type ProjectKind, type RuntimeFamily, type Site, type SiteFile, type SiteSize, type SystemStatus } from "../lib/api";
+import { api, categories, errorText, inWordPress, lists, siteAddress, type Category, type ListKind, type ProjectKind, type RuntimeFamily, type Site, type SiteSize, type SystemStatus } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { closeTab, openTab, setLayout, showNewSite, showScreen, siteTab, useLayout } from "../lib/layout";
@@ -9,9 +9,10 @@ import { SiteThumb } from "../components/SiteThumb";
 import { SiteDatabaseLine } from "../components/SiteDatabase";
 import { CloneSite } from "../components/wordpress/CloneSite";
 import { ClonesList } from "../components/wordpress/Clones";
-import { isSiteBackup, newClone, showClone, useClones } from "../lib/clones";
+import { cloneScreen, isSiteBackup, newClone, showClone, useClones } from "../lib/clones";
+import { importBackup } from "./ImportBackup";
 import { useT } from "../lib/i18n";
-import { Progress, packState, type ProgressState } from "../components/Progress";
+import { Progress, type ProgressState } from "../components/Progress";
 import { SiteActions } from "../components/SiteActions";
 import { SiteList, type RowParts } from "../components/SiteList";
 import { RemoveDialog } from "../components/RemoveDialog";
@@ -48,7 +49,7 @@ function starterState(message: string): ProgressState {
 }
 
 /** "My Blog 2" → "my-blog-2": what a typed name becomes in the site's address. */
-function siteName(typed: string) {
+export function siteName(typed: string) {
   return typed
     .trim()
     .toLowerCase()
@@ -83,7 +84,6 @@ export function Sites({ list }: { list: ListKind }) {
   const sitesFolder = useLoad(api.sitesFolder, "");
   const { isOn } = useModules();
   const options = runtimeOptions(runtimes.data, isOn);
-  const [importing, setImporting] = useState<{ path: string; file: SiteFile } | null>(null);
   const clones = useClones();
   const tldInfo = useLoad(api.getTld, { tld: ".stack", warning: null });
   const [tldDraft, setTldDraft] = useState(".stack");
@@ -106,7 +106,7 @@ export function Sites({ list }: { list: ListKind }) {
   const starters = useLoad(api.listStarters, []);
   const templates = templatesFor(category, starters.data, {
     clone: isOn("wordpress") && isOn("remote"),
-    import: isOn("sitetransfer"),
+    import: isOn("sitetransfer") || (isOn("wordpress") && isOn("remote")),
   });
   const [templateIds, setTemplateIds] = useState<Record<Category, string>>({ app: "", site: "" });
   const template = templates.find((x) => x.id === templateIds[category]) ?? templates[0];
@@ -125,7 +125,7 @@ export function Sites({ list }: { list: ListKind }) {
 
   // A site backup dropped on the window while this screen is shown (an
   // export from the Stackyard Connect plugin, a hosting panel backup)
-  // opens Clone with those files.
+  // goes to Import backup, which starts on it.
   const shown = useShown();
   const shownNow = useRef(shown);
   shownNow.current = shown;
@@ -135,7 +135,7 @@ export function Sites({ list }: { list: ListKind }) {
     api
       .onDrop((dropped) => {
         const backups = dropped.filter(isSiteBackup);
-        if (forSites && shownNow.current && backups.length > 0) newClone(backups);
+        if (forSites && shownNow.current && backups.length > 0) importBackup(backups);
       })
       .then((unsubscribe) => (cancelled ? unsubscribe() : (off = unsubscribe)));
     return () => {
@@ -300,11 +300,6 @@ export function Sites({ list }: { list: ListKind }) {
     system.reload();
   }
 
-  async function pickImport() {
-    const [path] = await api.pickFiles("Pick a Stackyard site file or backup", undefined, false);
-    if (!path) return;
-    await attempt(async () => setImporting({ path, file: await api.inspectSiteFile(path) }));
-  }
 
   async function setUp() {
     setSettingUp(true);
@@ -339,11 +334,17 @@ export function Sites({ list }: { list: ListKind }) {
       {forSites && clones.some((c) => c.state !== "new" && !c.open) && (
         <section className="card stack" aria-labelledby="clones-h">
           <h2 id="clones-h">{t("Clones running in the background")}</h2>
-          <ClonesList minimized onShow={showClone} />
+          <ClonesList
+            minimized
+            onShow={(id) => {
+              showClone(id);
+              if (cloneScreen(id) !== "Sites") showScreen(cloneScreen(id));
+            }}
+          />
         </section>
       )}
       {clones
-        .filter((c) => forSites && c.open)
+        .filter((c) => forSites && c.open && c.place !== "import")
         .map((c) => (
           <CloneSite
             key={c.id}
@@ -354,19 +355,6 @@ export function Sites({ list }: { list: ListKind }) {
             }}
           />
         ))}
-      {importing && (
-        <ImportSite
-          path={importing.path}
-          file={importing.file}
-          onClose={() => setImporting(null)}
-          onImported={(domain) => {
-            setImporting(null);
-            openTab(siteTab(domain));
-            sites.reload();
-            system.reload();
-          }}
-        />
-      )}
       {removing && (
         <RemoveDialog site={removing} onClose={() => setRemoving(null)} onRemoved={(problem) => removed(removing, problem)} />
       )}
@@ -480,8 +468,8 @@ export function Sites({ list }: { list: ListKind }) {
             </div>
             {template.via === "clone" || template.via === "import" ? (
               <div className="row">
-                <button type="button" className="btn primary" onClick={template.via === "clone" ? startClone : pickImport}>
-                  {template.via === "clone" ? t("Clone a live WordPress site…") : t("Pick the site file…")}
+                <button type="button" className="btn primary" onClick={template.via === "clone" ? startClone : () => showScreen("Import backup")}>
+                  {template.via === "clone" ? t("Clone a live WordPress site…") : t("Open Import backup")}
                 </button>
               </div>
             ) : (
@@ -783,122 +771,5 @@ function SiteRow({
         <SiteActions site={site} manage onRun={onOpen} onRemove={() => onRemove(site)} />
       </td>
     </tr>
-  );
-}
-
-/** Asks where to put a site from a file, then brings it in. */
-function ImportSite({
-  path,
-  file,
-  onClose,
-  onImported,
-}: {
-  path: string;
-  file: SiteFile;
-  onClose: () => void;
-  onImported: (domain: string) => void;
-}) {
-  const t = useT();
-  const [name, setName] = useState(file.name);
-  const [folder, setFolder] = useState("");
-  const [busy, setBusy] = useState(false);
-  useBusy(busy);
-  const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<{ domain: string; text: string } | null>(null);
-  const [progress, setProgress] = useState<PackProgress | null>(null);
-  const ending = file.domain.slice(file.name.length);
-
-  useEffect(() => {
-    const off = api.onSitePackProgress((p) => {
-      if (p.site === path) setProgress(p);
-    });
-    return () => void off.then((f) => f());
-  }, [path]);
-
-  async function browse() {
-    const picked = await api.pickFolder("Pick a new or empty folder for the site", folder || undefined);
-    if (picked) setFolder(picked);
-  }
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setProgress(null);
-    setError(null);
-    try {
-      const result = await api.importSite(path, siteName(name) || null, folder.trim() || null);
-      if (result.warning) setWarning({ domain: result.domain, text: result.warning });
-      else onImported(result.domain);
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (warning) {
-    return (
-      <section className="card stack" aria-label="Site imported">
-        <p className="notice small">
-          <span className="mono">{warning.domain}</span> is added.
-        </p>
-        <p className="warn small">{warning.text}</p>
-        <div className="row">
-          <button type="button" className="btn primary" onClick={() => onImported(warning.domain)}>
-            OK
-          </button>
-        </div>
-      </section>
-    );
-  }
-  return (
-    <form className="card stack form" aria-labelledby="import-h" onSubmit={submit}>
-      <h2 id="import-h">Import {file.domain}</h2>
-      <p className="muted small">
-        {file.runtime ?? "Static files"}
-        {file.database ? ` with the database ${file.database}` : ""}, packed{" "}
-        {new Date(file.created).toLocaleDateString()} by Stackyard {file.made_by}.
-        {file.database && " Start MySQL, MariaDB or PostgreSQL first so the database can be loaded."}
-      </p>
-      <div className="form-grid">
-        <div className="field">
-          <label htmlFor="imp-name">Name</label>
-          <div className="input-affix">
-            <input id="imp-name" className="mono" value={name} onChange={(e) => setName(e.target.value)} required />
-            <span className="mono muted">{ending}</span>
-          </div>
-        </div>
-        <div className="field">
-          <label htmlFor="imp-folder">Project folder</label>
-          <div className="row folder-input">
-            <input
-              id="imp-folder"
-              className="mono grow"
-              value={folder}
-              placeholder={file.folder.replace(new RegExp(`${file.name}$`), siteName(name) || file.name)}
-              onChange={(e) => setFolder(e.target.value)}
-            />
-            <button type="button" className="btn" onClick={browse}>
-              Browse…
-            </button>
-          </div>
-          <span className="muted small">A new or empty folder.</span>
-        </div>
-      </div>
-      {busy && <Progress label={t("Importing {name}", { name: file.domain })} state={packState(t, progress)} />}
-      {error && (
-        <p className="error small" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="row between centered">
-        <button type="button" className="btn ghost" onClick={onClose}>
-          Cancel
-        </button>
-        <button type="submit" className="btn primary" disabled={busy || !siteName(name)}>
-          {busy ? "Importing…" : "Import site"}
-        </button>
-      </div>
-    </form>
   );
 }

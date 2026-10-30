@@ -551,6 +551,17 @@ impl Client {
     /// it if needed. Tables in the file replace tables of the same name;
     /// others are left alone.
     pub fn load(&self, database: &str, file: &Path) -> Result<()> {
+        self.load_with(database, file, &mut |_, _| true)
+    }
+
+    /// [`Client::load`], telling `on` how many bytes of the file are read
+    /// and how big it is; returning `false` stops the load.
+    pub fn load_with(
+        &self,
+        database: &str,
+        file: &Path,
+        on: &mut dyn FnMut(u64, u64) -> bool,
+    ) -> Result<()> {
         if self.pg.is_some() {
             return Err(Error::Database(
                 "loading a SQL file works for MySQL and MariaDB only".into(),
@@ -570,7 +581,13 @@ impl Client {
             path: path.clone(),
             source,
         })?;
-        let mut source = BufReader::new(source);
+        let total = source.metadata().map(|m| m.len()).unwrap_or(0);
+        let mut source = BufReader::new(Counted {
+            inner: source,
+            at: 0,
+            total,
+            on,
+        });
         let gzipped = {
             use std::io::BufRead;
             source
@@ -972,3 +989,23 @@ fn number(row: &[Option<String>], i: usize) -> u64 {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+/// A file that says how far into it reading has got; returning `false`
+/// from `on` ends the reading with an error.
+struct Counted<'a> {
+    inner: File,
+    at: u64,
+    total: u64,
+    on: &'a mut dyn FnMut(u64, u64) -> bool,
+}
+
+impl Read for Counted<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.at += n as u64;
+        if !(self.on)(self.at.min(self.total), self.total) {
+            return Err(std::io::Error::other("stopped"));
+        }
+        Ok(n)
+    }
+}
