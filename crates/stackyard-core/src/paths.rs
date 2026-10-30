@@ -103,3 +103,45 @@ pub fn expand_home(path: &Path) -> PathBuf {
         None => path.to_owned(),
     }
 }
+
+/// Bytes free for this user on the drive that holds `path` (or the nearest
+/// folder above it that exists); `None` when the system can't say.
+pub fn free_space(path: &Path) -> Option<u64> {
+    let existing = path.ancestors().find(|p| p.exists())?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+        let wide: Vec<u16> = existing
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut free = 0u64;
+        // SAFETY: `wide` is a NUL-terminated path; the other outputs may be null.
+        let ok = unsafe {
+            GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &mut free,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        (ok != 0).then_some(free)
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let c = std::ffi::CString::new(existing.as_os_str().as_bytes()).ok()?;
+        // SAFETY: `c` is a NUL-terminated path and `stat` is written by statvfs.
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        let ok = unsafe { libc::statvfs(c.as_ptr(), &mut stat) } == 0;
+        #[allow(clippy::unnecessary_cast)]
+        ok.then(|| stat.f_bavail as u64 * stat.f_frsize as u64)
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = existing;
+        None
+    }
+}

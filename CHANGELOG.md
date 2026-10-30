@@ -4,6 +4,23 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Importing over an existing site works.** When a site or a database of that name is already
+  there, the import replaces both and finishes, with "Replace it with the copy" ticked for you.
+  The old site is backed up first when the drive has room; a broken database no longer stops the
+  replace. A database left behind by a removed site is backed up and replaced instead of refused,
+  while another site's database is never touched.
+
+- **A half-finished import no longer looks like a site you already have.** A copy that stopped
+  while moving files starts that step again on the next try, and "stopped halfway" only shows when
+  there is something to continue.
+
+- **Backups unpack on the drive with your sites.** When your sites live outside the data home
+  (say D:\Stackyard), backups are unpacked in a `.stackyard-tmp` folder there (not listed as a site), so moving the
+  files into the site is instant and a full C: drive is left alone. Free space is checked first,
+  and a backup that fails to unpack is cleaned up straight away.
+
 ## 0.21.0
 
 - **Import backup.** A screen of its own in the side bar: drop a backup on the box, or type or

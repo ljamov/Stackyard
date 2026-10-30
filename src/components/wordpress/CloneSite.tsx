@@ -152,7 +152,8 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
   const [error, setError] = useState<string | null>(null);
   const [unfinished, setUnfinished] = useState(false);
   const [sites, setSites] = useState<Site[]>([]);
-  const [replace, setReplace] = useState(false);
+  // An imported backup is usually meant to take the old copy's place.
+  const [replace, setReplace] = useState(from === "files");
   const urlInput = useRef<HTMLInputElement>(null);
   const needsAddress = !!error?.includes(NEED_ADDRESS);
   const existing = name ? takenBy(sites, name) : undefined;
@@ -163,7 +164,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
       .then(setSites)
       .catch(() => setSites([]));
   }, []);
-  useEffect(() => setReplace(false), [name]);
+  useEffect(() => setReplace(from === "files"), [name, from]);
   useEffect(() => {
     if (needsAddress) urlInput.current?.focus();
   }, [needsAddress]);
