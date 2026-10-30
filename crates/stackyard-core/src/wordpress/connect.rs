@@ -1,7 +1,7 @@
 //! Copying a live site through the Stackyard Connect plugin, for sites whose
 //! FTP or SSH log-in isn't known.
 //!
-//! The plugin (in `wordpress-plugin/` of this repository) makes a
+//! The plugin (kept apart, in `wordpress-plugin/` of the local copy) makes a
 //! connection code on the live site's Tools › Stackyard page. The code
 //! holds the site's address, its `admin-ajax.php` address and a random key.
 //! With it Stackyard asks the plugin to export the whole site, steps the
@@ -587,8 +587,14 @@ mod tests {
     }
 
     impl FakeSite {
-        /// None when this computer has no PHP.
+        /// None when this computer has no PHP, or the plugin isn't in this
+        /// copy of the repository (it is kept apart from the app's).
         fn start(dir: &Path) -> Option<FakeSite> {
+            let router = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../wordpress-plugin/tests/fake-wordpress.php");
+            if !router.is_file() {
+                return None;
+            }
             let site = dir.join("site");
             for (rel, text) in [
                 ("wp-load.php", "<?php // load"),
@@ -605,8 +611,6 @@ mod tests {
                 "<?php define('DB_NAME', 'shop'); $table_prefix = 'wp_';",
             )
             .unwrap();
-            let router = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../wordpress-plugin/tests/fake-wordpress.php");
             let port = std::net::TcpListener::bind("127.0.0.1:0")
                 .unwrap()
                 .local_addr()
