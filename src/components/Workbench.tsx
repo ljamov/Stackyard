@@ -29,6 +29,7 @@ import { Crashed } from "./Crashed";
 import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { useModules } from "../lib/modules";
+import { CATEGORY_ICON } from "../lib/templates";
 import { SCREENS, isTabScreen, useScreenOn, type TabScreen } from "../lib/screens";
 import { closeTab, moveTab, openTab, PANEL_HEIGHT, setLayout, showNewSite, showScreen, SIDE_BAR_WIDTH, useLayout, type TabId } from "../lib/layout";
 import { useViewOptions } from "../lib/viewOptions";
@@ -62,11 +63,11 @@ function screen(s: TabId): ReactNode {
     case "Dashboard":
       return <Dashboard onNavigate={(to) => isTabScreen(to) && showScreen(to)} />;
     case "Projects":
-      return <Sites category="project" />;
+      return <Sites list="all" />;
     case "Apps":
-      return <Sites category="app" />;
+      return <Sites list="app" />;
     case "Sites":
-      return <Sites category="site" />;
+      return <Sites list="site" />;
     case "Services":
       return <Services />;
     case "Runtimes":
@@ -119,14 +120,14 @@ export function Workbench() {
     id.startsWith("service:")
       ? (services.services.find((x) => `service:${x.id}` === id)?.name ?? id.slice("service:".length))
       : id.startsWith("site:")
-        ? id.slice("site:".length)
+        ? (sites.data.find((x) => `site:${x.domain}` === id && !x.address)?.name ?? id.slice("site:".length))
         : t(id);
   /** The logo before a service's or site's tab name. */
   const tabIcon = (id: TabId): ReactNode => {
     if (id.startsWith("service:")) return <BrandIcon id={id.slice("service:".length)} />;
     if (!id.startsWith("site:")) return null;
     const site = sites.data.find((x) => `site:${x.domain}` === id);
-    return <BrandIcon id={(site && siteBrand(site)) ?? ""} fallback="sites" />;
+    return <BrandIcon id={(site && siteBrand(site)) ?? ""} fallback={CATEGORY_ICON[site?.project.category ?? "site"]} />;
   };
   const active = layout.active && tabs.includes(layout.active) ? layout.active : (tabs[0] ?? null);
   const panel = layout.panel;
@@ -467,7 +468,8 @@ export function Workbench() {
       {view.statusBar && (
         <StatusBar
           shownServices={shownServices}
-          siteCount={sites.data.length}
+          appCount={sites.data.filter((x) => x.project.category === "app").length}
+          siteCount={sites.data.filter((x) => x.project.category === "site").length}
           logsOn={logsOn}
           terminalOn={terminalOn}
           panel={panel}

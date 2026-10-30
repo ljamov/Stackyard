@@ -29,6 +29,11 @@ pub struct Item {
     /// A group shown folded on the Sites screen.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub collapsed: bool,
+    /// The list a group belongs to, `app` or `site`, so it shows only
+    /// there (and on Projects, which lists both). `None`: a group made
+    /// before groups had a list, or on Projects; it shows where its sites do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list: Option<String>,
 }
 
 impl Item {
@@ -38,6 +43,7 @@ impl Item {
             group: None,
             sites: Vec::new(),
             collapsed: false,
+            list: None,
         }
     }
 
@@ -47,6 +53,7 @@ impl Item {
             group: Some(name.to_string()),
             sites: sites.iter().map(|s| s.to_string()).collect(),
             collapsed: false,
+            list: None,
         }
     }
 }
@@ -90,6 +97,7 @@ impl SiteOrder {
                     group: Some(name.clone()),
                     sites,
                     collapsed: item.collapsed,
+                    list: item.list.clone(),
                 });
             } else if let Some(domain) = &item.site {
                 if take(domain) {
@@ -147,8 +155,14 @@ impl SiteOrder {
                     if !names.insert(name.to_lowercase()) {
                         return bad(&format!("there is already a group named {name:?}"));
                     }
+                    if !matches!(item.list.as_deref(), None | Some("app" | "site")) {
+                        return bad("a group's list must be app or site");
+                    }
                 }
-                (None, Some(_)) => item.sites.clear(),
+                (None, Some(_)) => {
+                    item.sites.clear();
+                    item.list = None;
+                }
                 _ => return bad("each entry must be either a site or a group"),
             }
         }

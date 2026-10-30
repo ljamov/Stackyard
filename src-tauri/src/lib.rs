@@ -62,6 +62,9 @@ pub(crate) struct SiteView {
     https: bool,
     /// Found in a parked folder (remove it by unparking the folder).
     parked: bool,
+    /// Has a local address of its own (`name.stack`); an app without one
+    /// opens on its port or `.localhost` name, both in `url`.
+    address: bool,
     /// Why the site cannot work yet, if it cannot.
     problem: Option<String>,
     /// The runtime versions the project uses, for the version pickers.
@@ -159,16 +162,31 @@ impl SiteView {
         let problem = problem.or_else(|| {
             (!served.root.is_dir()).then(|| format!("{} does not exist", served.root.display()))
         });
+        let (url, local_url) = if site.settings.no_address {
+            let url = match &served.backend {
+                Backend::Node { port, .. } | Backend::App { port, .. } => {
+                    format!("http://localhost:{port}")
+                }
+                _ => ports.url(&served.localhost(), false),
+            };
+            (url.clone(), url)
+        } else {
+            (
+                ports.url(&site.domain(), site.https),
+                ports.url(&served.localhost(), site.https),
+            )
+        };
         Self {
             name: site.name.clone(),
             domain: site.domain(),
-            url: ports.url(&site.domain(), site.https),
-            local_url: ports.url(&served.localhost(), site.https),
+            url,
+            local_url,
+            address: !site.settings.no_address,
             path: site.path.display().to_string(),
             root: served.root.display().to_string(),
             runtime,
             framework: served.framework,
-            https: site.https,
+            https: site.https && !site.settings.no_address,
             parked: served.parked,
             problem,
             versions: SiteVersionView::list(site, served.parked, settings, runtimes),
@@ -1385,6 +1403,9 @@ enum LayoutItem {
         group: String,
         sites: Vec<String>,
         collapsed: bool,
+        /// `app` or `site`: the list it shows in; absent shows it where its sites are.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        list: Option<String>,
     },
 }
 
@@ -1395,6 +1416,7 @@ impl From<siteorder::Item> for LayoutItem {
                 group,
                 sites: item.sites,
                 collapsed: item.collapsed,
+                list: item.list,
             },
             None => LayoutItem::Site {
                 site: item.site.unwrap_or_default(),
@@ -1434,6 +1456,7 @@ fn set_site_layout(app: AppHandle, items: Vec<siteorder::Item>) -> CmdResult<Vec
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn add_site(
     app: AppHandle,
     name: String,
@@ -1442,6 +1465,7 @@ fn add_site(
     https: bool,
     kind: Option<String>,
     category: Option<String>,
+    address: Option<bool>,
 ) -> CmdResult<Vec<SiteView>> {
     let category = parse_category(category.as_deref())?;
     let kind = match kind.as_deref() {
@@ -1477,6 +1501,7 @@ fn add_site(
                     source: None,
                     category,
                 },
+                no_address: address == Some(false),
                 ..Default::default()
             },
         })
@@ -1707,6 +1732,7 @@ async fn add_starter_site(
     path: String,
     https: bool,
     category: Option<String>,
+    address: Option<bool>,
 ) -> CmdResult<Vec<SiteView>> {
     let starter = starters::Starter::from_id(&starter)
         .ok_or_else(|| format!("unknown starter {starter:?}"))?;
@@ -1785,6 +1811,7 @@ async fn add_starter_site(
                         category,
                         ..Default::default()
                     },
+                    no_address: address == Some(false),
                     ..Default::default()
                 },
             })
@@ -1868,8 +1895,9 @@ fn add_project(
                 project: Project {
                     kind,
                     source: None,
-                    category: Some(Category::Project),
+                    category: Some(Category::App),
                 },
+                no_address: true,
                 ..Default::default()
             },
         })
@@ -1987,14 +2015,32 @@ fn set_site_version(
     site_views()
 }
 
+/// Takes a site off the list. With `delete_files` its folder goes too
+/// (for a theme or plugin, also the folder it is built in); else the files
+/// stay and a folder in a parked folder is hidden so it doesn't come back.
 #[tauri::command]
-fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
+fn remove_site(
+    app: AppHandle,
+    name: String,
+    delete_files: Option<bool>,
+) -> CmdResult<Vec<SiteView>> {
+    let delete_files = delete_files.unwrap_or(false);
     let listed = ServiceManager::open()
         .user_sites()
         .map_err(err)?
         .into_iter()
         .find(|s| s.domain() == name || s.site.name == name)
         .ok_or_else(|| format!("no site named {name}"))?;
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    // Checked before the site is taken off the list, so a refused delete
+    // changes nothing.
+    let keep = if delete_files {
+        let keep = kept_folders(&listed.site)?;
+        stackyard_core::sites::check_delete(&listed.site, &keep).map_err(err)?;
+        keep
+    } else {
+        Vec::new()
+    };
     let removed = if listed.parked {
         listed.site
     } else {
@@ -2013,9 +2059,54 @@ fn remove_site(app: AppHandle, name: String) -> CmdResult<Vec<SiteView>> {
     stackyard_core::wordpress::env::forget(&paths::home(), &removed.domain());
     stackyard_core::thumbnails::forget(&paths::home(), &removed.domain());
     stackyard_core::sitesize::forget(&paths::home(), &removed.domain());
-    let _ = stackyard_core::share::stop(app.state::<Arc<Engine>>().supervisor(), &removed);
+    let _ = stackyard_core::share::stop(engine.supervisor(), &removed);
+    let deleted = if delete_files {
+        // What runs from the folder holds files open on Windows.
+        sitetools::stop_site_processes(&engine, &removed);
+        let deleted = stackyard_core::sites::delete_folders(&removed, &keep);
+        // Gone for good: nothing is left to hide.
+        if deleted.is_ok() {
+            let hidden: Vec<_> = settings
+                .hidden
+                .iter()
+                .filter(|h| stackyard_core::sites::same_folder(h, &removed.path))
+                .cloned()
+                .collect();
+            let mut unhidden = false;
+            for h in &hidden {
+                unhidden |= settings.unhide(h);
+            }
+            if unhidden {
+                settings.save().map_err(err)?;
+            }
+        }
+        deleted.map_err(|e| format!("{} is removed from Stackyard, but {e}", removed.domain()))
+    } else {
+        Ok(())
+    };
     sites_changed(&app);
+    deleted?;
     site_views()
+}
+
+/// Folders deleting a site's files must leave alone: parked folders, the
+/// folder new sites go in, the data home, the home folder, and every other
+/// site's folders.
+fn kept_folders(site: &stackyard_core::sites::Site) -> CmdResult<Vec<std::path::PathBuf>> {
+    let settings = Settings::load().map_err(err)?;
+    let home = paths::home();
+    let mut keep = settings.parked.clone();
+    keep.push(settings.sites_folder(&home));
+    keep.push(home);
+    if let Some(user) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) {
+        keep.push(user.into());
+    }
+    for other in ServiceManager::open().user_sites().map_err(err)? {
+        if other.site.domain() != site.domain() {
+            keep.extend(stackyard_core::sites::site_folders(&other.site));
+        }
+    }
+    Ok(keep)
 }
 
 #[tauri::command]

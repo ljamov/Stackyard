@@ -189,7 +189,7 @@ pub fn save_site_settings(
 
 /// Stops what runs from a site's folder (its dev or app server and its own
 /// PHP process), so the folder can change; the web server starts them again.
-fn stop_site_processes(engine: &Engine, site: &Site) {
+pub(crate) fn stop_site_processes(engine: &Engine, site: &Site) {
     let dev = stackyard_core::web::dev_server_id(&site.key());
     let own = format!("-{}", site.domain());
     for (id, state) in engine.supervisor().states() {

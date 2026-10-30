@@ -129,7 +129,7 @@ export function showScreen(screen: TabId) {
   });
 }
 
-/** Shows the Projects, Apps or Sites screen with its New form open, its name box focused. */
+/** Shows the Apps or Sites screen with its New project form open, its name box focused. */
 export function showNewSite(category: Category = "site") {
   setLayout({ newSiteOpen: true });
   showScreen(CATEGORY_SCREEN[category]);

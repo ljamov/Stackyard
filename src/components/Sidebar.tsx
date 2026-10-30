@@ -10,7 +10,8 @@ import { useUpdate } from "../lib/updates";
 import { useT } from "../lib/i18n";
 import { withKey } from "../lib/keybindings";
 import { rovingGroup, rovingKeys } from "../lib/focus";
-import { CATEGORY_SCREEN, type Screen, type TabScreen } from "../lib/screens";
+import { type Screen, type TabScreen } from "../lib/screens";
+import { CATEGORY_ICON } from "../lib/templates";
 
 export const SCREEN_ICON: Record<Screen, IconName> = {
   Dashboard: "dashboard",
@@ -30,8 +31,8 @@ export const SCREEN_ICON: Record<Screen, IconName> = {
   "Keyboard shortcuts": "keyboard",
 };
 
-/** How many sites the side bar lists; the Sites screen has them all. */
-const SITES_SHOWN = 5;
+/** How many apps and sites the side bar lists of each; their screens have them all. */
+const SHOWN = 4;
 
 /**
  * The side bar: the logo and search, New site, every screen by name, a few
@@ -55,15 +56,17 @@ export function Sidebar({
 }) {
   const t = useT();
   const { status: update } = useUpdate();
-  // New asks first what is being made: a project, an app or a site.
+  // New project asks first what is being made: an app or a site.
   const [choosing, setChoosing] = useState(false);
 
   const open = (s: TabScreen, e: MouseEvent) => (e.ctrlKey || e.metaKey ? openTab(s) : showScreen(s));
+  // Apps and Sites are the two kinds of Projects, listed under it.
+  const sub = (s: TabScreen) => (s === "Apps" || s === "Sites") && screens.includes("Projects");
   const item = (s: TabScreen, extra?: string) => (
     <button
       key={s}
       type="button"
-      className="side-item"
+      className={sub(s) ? "side-item side-sub" : "side-item"}
       data-roving
       data-screen={s}
       aria-label={extra ? `${t(s)}: ${extra}` : collapsed ? t(s) : undefined}
@@ -104,8 +107,8 @@ export function Sidebar({
         <button
           type="button"
           className="side-new"
-          aria-label={collapsed ? t("New project, app or site") : undefined}
-          title={collapsed ? t("New project, app or site") : t("New project, app or site")}
+          aria-label={collapsed ? t("New project") : undefined}
+          title={t("New project: an app or a site")}
           aria-expanded={choosing}
           aria-controls="side-new-choices"
           onClick={() => setChoosing(!choosing)}
@@ -113,7 +116,7 @@ export function Sidebar({
           <span className="side-plus" aria-hidden="true">
             <Icon name="plus" />
           </span>
-          <span className="side-label">{t("New")}</span>
+          <span className="side-label">{t("New project")}</span>
         </button>
       )}
       {screens.includes("Sites") && choosing && (
@@ -121,7 +124,7 @@ export function Sidebar({
           id="side-new-choices"
           className="side-new-choices"
           role="group"
-          aria-label={t("What are you making?")}
+          aria-label={t("Is it an app or a site?")}
           onKeyDown={(e) => e.key === "Escape" && setChoosing(false)}
         >
           {categories.map((c) => (
@@ -136,7 +139,7 @@ export function Sidebar({
                 showNewSite(c.id);
               }}
             >
-              <Icon name={SCREEN_ICON[CATEGORY_SCREEN[c.id]]} />
+              <Icon name={CATEGORY_ICON[c.id]} />
               <span className="side-label">{t(c.name)}</span>
             </button>
           ))}
@@ -150,22 +153,36 @@ export function Sidebar({
       {sites.length > 0 && (
         <section className="side-sites" aria-labelledby="side-sites-h">
           <h2 id="side-sites-h" className={collapsed ? "sr-only" : undefined}>
-            {t("Your sites")}
+            {t("Your projects")}
           </h2>
-          {sites.slice(0, SITES_SHOWN).map((site) => (
-            <button
-              key={site.domain}
-              type="button"
-              className="side-site"
-              title={t("Open {name} in a tab", { name: site.domain })}
-              aria-label={collapsed ? t("Open {name} in a tab", { name: site.domain }) : undefined}
-              aria-current={active === siteTab(site.domain) ? "page" : undefined}
-              onClick={() => openTab(siteTab(site.domain))}
-            >
-              <BrandIcon id={siteBrand(site) ?? ""} fallback="sites" />
-              <span className="side-label">{site.domain}</span>
-            </button>
-          ))}
+          {categories.map((c) => {
+            const mine = sites.filter((s) => s.project.category === c.id);
+            if (mine.length === 0) return null;
+            return (
+              <div key={c.id} className="side-group" role="group" aria-labelledby={`side-${c.id}-h`}>
+                <h3 id={`side-${c.id}-h`}>{t(c.plural)}</h3>
+                {mine.slice(0, SHOWN).map((site) => (
+                  <button
+                    key={site.domain}
+                    type="button"
+                    className="side-site"
+                    title={t("Open {name} in a tab", { name: site.address ? site.domain : site.name })}
+                    aria-label={collapsed ? t("Open {name} in a tab", { name: site.address ? site.domain : site.name }) : undefined}
+                    aria-current={active === siteTab(site.domain) ? "page" : undefined}
+                    onClick={() => openTab(siteTab(site.domain))}
+                  >
+                    <BrandIcon id={siteBrand(site) ?? ""} fallback={CATEGORY_ICON[c.id]} />
+                    <span className="side-label">{site.address ? site.domain : site.name}</span>
+                  </button>
+                ))}
+                {mine.length > SHOWN && !collapsed && (
+                  <button type="button" className="side-site muted" onClick={() => showScreen(c.id === "app" ? "Apps" : "Sites")}>
+                    <span className="side-label">{t("All {count} {what}", { count: mine.length, what: t(c.plural).toLowerCase() })}</span>
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </section>
       )}
 

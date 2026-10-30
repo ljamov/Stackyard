@@ -12,6 +12,7 @@ import { ClonesStatus } from "./wordpress/Clones";
 /** The bar along the bottom: live state, each item opening where it is managed. */
 export function StatusBar({
   shownServices,
+  appCount,
   siteCount,
   logsOn,
   terminalOn,
@@ -21,6 +22,7 @@ export function StatusBar({
   onOpen,
 }: {
   shownServices: ServicesHook["services"];
+  appCount: number;
   siteCount: number;
   logsOn: boolean;
   terminalOn: boolean;
@@ -55,6 +57,9 @@ export function StatusBar({
       <button type="button" className="status-item" onClick={() => onOpen("Services")}>
         <span className={`dot ${tone}`} aria-hidden="true" />
         {t("{running} of {total} services running", { running, total: shownServices.length })}
+      </button>
+      <button type="button" className="status-item" onClick={() => onOpen("Apps")}>
+        {appCount === 1 ? t("1 app") : t("{count} apps", { count: appCount })}
       </button>
       <button type="button" className="status-item" onClick={() => onOpen("Sites")}>
         {siteCount === 1 ? t("1 site") : t("{count} sites", { count: siteCount })}

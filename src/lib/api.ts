@@ -44,6 +44,8 @@ export type SiteSettings = {
   php?: Record<string, string>;
   command?: string | null;
   database?: SiteDatabase | null;
+  /** An app with no local address of its own. */
+  no_address?: boolean;
 };
 
 export type SiteSettingsInfo = {
@@ -201,6 +203,9 @@ export type Site = {
   https: boolean;
   /** Found in a parked folder; remove it by unparking the folder. */
   parked: boolean;
+  /** Has a local address of its own (`name.stack`). An app without one
+   * opens on its port or its `.localhost` name, given in `url`. */
+  address: boolean;
   /** Why the site cannot work yet, if it cannot. */
   problem: string | null;
   /** The runtime versions the project uses, for the version pickers. */
@@ -210,8 +215,10 @@ export type Site = {
 };
 
 export type ProjectKind = "website" | "wordpress-theme" | "wordpress-plugin" | "php-package" | "node-app";
-/** The list an item is in: Projects, Apps or Sites. */
-export type Category = "project" | "app" | "site";
+/** What a project is: an app or a site. Projects lists both. */
+export type Category = "app" | "site";
+/** A list of projects: all of them (Projects), or only apps or sites. */
+export type ListKind = Category | "all";
 export type SiteProject = {
   kind: ProjectKind;
   category: Category;
@@ -227,12 +234,18 @@ export const projectKinds: { id: ProjectKind; name: string; hint: string }[] = [
   { id: "php-package", name: "PHP package", hint: "A PHP library, served with PHP so you can try it in a page" },
   { id: "node-app", name: "Node.js app", hint: "A Node.js app; Stackyard runs its dev server" },
 ];
-/** The three lists, in the order the side bar and New show them. */
+/** The two kinds of project, in the order the side bar and New show them. */
 export const categories: { id: Category; name: string; plural: string; hint: string }[] = [
-  { id: "project", name: "Project", plural: "Projects", hint: "Scripts, a WordPress theme or plugin, plain files: anything you build in a folder" },
-  { id: "app", name: "App", plural: "Apps", hint: "An app or server that runs, like a Node.js, Python or Go app, or a desktop app's code" },
-  { id: "site", name: "Site", plural: "Sites", hint: "A website: WordPress, WooCommerce, Laravel, Astro, React and more" },
+  { id: "app", name: "App", plural: "Apps", hint: "Something you build that isn't a website: scripts, a server, a WordPress plugin or theme. It needs no address" },
+  { id: "site", name: "Site", plural: "Sites", hint: "A website at its own address: WordPress, WooCommerce, Laravel, Astro, React and more" },
 ];
+/** What each list is called and says, Projects being both kinds. */
+export const lists: Record<ListKind, { name: string; plural: string; hint: string }> = {
+  all: { name: "Project", plural: "Projects", hint: "Every app and site you have in Stackyard" },
+  app: categories[0],
+  site: categories[1],
+};
+
 /** A WordPress theme or plugin: built in its own folder, with a version and a .zip. */
 export const inWordPress = (kind: ProjectKind) => kind === "wordpress-theme" || kind === "wordpress-plugin";
 
@@ -448,7 +461,7 @@ export type SchedulePreview = { description: string | null; runs: number[] };
 
 export type TldInfo = { tld: string; warning: string | null };
 
-export type NewSite = { name: string; path: string; runtime: string; https: boolean; kind?: ProjectKind; category?: Category };
+export type NewSite = { name: string; path: string; runtime: string; https: boolean; kind?: ProjectKind; category?: Category; address?: boolean };
 /** A theme or plugin project; its WordPress is made with it. */
 export type NewProject = { name: string; kind: ProjectKind; path: string; https: boolean };
 
@@ -589,7 +602,7 @@ export type GitStatus = {
 };
 /** A project a new site can start as, instead of an empty folder. */
 export type Starter = { id: string; name: string; description: string; category: Category };
-export type NewStarterSite = { name: string; starter: string; path: string; https: boolean; category?: Category };
+export type NewStarterSite = { name: string; starter: string; path: string; https: boolean; category?: Category; address?: boolean };
 export type StarterProgress = { name: string; message: string };
 
 export type ImageFormat = "webp" | "avif" | "same";
@@ -743,7 +756,8 @@ export interface Api {
   /** Downloads and sets up the project, then adds the site. */
   addStarterSite(site: NewStarterSite): Promise<Site[]>;
   onStarterProgress(handler: (p: StarterProgress) => void): Promise<() => void>;
-  removeSite(name: string): Promise<Site[]>;
+  /** With `deleteFiles` the project's folder is deleted too. */
+  removeSite(name: string, deleteFiles?: boolean): Promise<Site[]>;
   listParked(): Promise<string[]>;
   /** Where new sites get their folder. */
   sitesFolder(): Promise<string>;
@@ -1002,7 +1016,7 @@ const tauriApi: Api = {
     }),
   addStarterSite: (site) => invoke("add_starter_site", site),
   onStarterProgress: (handler) => listen<StarterProgress>("starter-progress", (e) => handler(e.payload)),
-  removeSite: (name) => invoke("remove_site", { name }),
+  removeSite: (name, deleteFiles = false) => invoke("remove_site", { name, deleteFiles }),
   listParked: () => invoke("list_parked"),
   sitesFolder: () => invoke("sites_folder"),
   setSitesFolder: (path) => invoke("set_sites_folder", { path }),
@@ -1372,9 +1386,10 @@ function browserApi(): Api {
     framework,
     https: true,
     parked,
+    address: true,
     problem,
     versions: [],
-    project: { kind: "website", category: parked ? "project" : "site", folder: `~/Code/${name}` },
+    project: { kind: "website", category: "site", folder: `~/Code/${name}` },
   });
   const isInstalled = (kind: RuntimeKind, version: string) =>
     runtimes.some((f) => f.kind === kind && f.versions.some((v) => v.version === version && v.installed));
@@ -1630,7 +1645,7 @@ function browserApi(): Api {
       });
       return sites;
     },
-    addSite: async ({ name, path, runtime, https, kind, category }) => {
+    addSite: async ({ name, path, runtime, https, kind, category, address = true }) => {
       if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) throw `invalid site name "${name}"`;
       const domain = name + tld;
       if (sites.some((s) => s.domain === domain)) throw `a site named "${domain}" already exists`;
@@ -1638,12 +1653,13 @@ function browserApi(): Api {
       const site: Site = {
         ...sample(name, runtime === "Auto" ? "Static" : runtime, null, false),
         domain,
-        url: `${scheme}://${domain}`,
-        local_url: `${scheme}://${name}.localhost`,
-        path,
-        root: path,
-        https,
-        project: { kind: kind ?? "website", category: category ?? (kind && kind !== "website" ? (kind === "node-app" ? "app" : "project") : "site"), folder: path },
+        url: address ? `${scheme}://${domain}` : `http://${name}.localhost`,
+        local_url: address ? `${scheme}://${name}.localhost` : `http://${name}.localhost`,
+        path: path || `C:\\stackyard\\www\\${name}`,
+        root: path || `C:\\stackyard\\www\\${name}`,
+        https: https && address,
+        address,
+        project: { kind: kind ?? "website", category: category ?? (kind && kind !== "website" ? "app" : "site"), folder: path },
       };
       sites = [site, ...sites];
       sitesChanged();
@@ -1652,7 +1668,7 @@ function browserApi(): Api {
     addProject: async ({ name, kind, path, https }) => {
       const folder = path || `C:\\stackyard\\www\\${name}`;
       const all = await mock.addSite({ name, path: folder, runtime: "Static", https, kind });
-      sites = all.map((s) => (s.name === name ? { ...s, project: { kind, category: "project", folder } } : s));
+      sites = all.map((s) => (s.name === name ? { ...s, project: { kind, category: "app", folder } } : s));
       sitesChanged();
       return sites;
     },
@@ -1668,7 +1684,7 @@ function browserApi(): Api {
       return sites;
     },
     listStarters: async () => PREVIEW_STARTERS,
-    addStarterSite: async ({ name, starter, path, https, category }) => {
+    addStarterSite: async ({ name, starter, path, https, category, address }) => {
       const what = PREVIEW_STARTERS.find((s) => s.id === starter)?.name ?? starter;
       const steps = [`Finding the latest ${what}…`, ...[10, 35, 60, 85, 100].map((p) => `Downloading ${what}… ${p}%`), `Unpacking ${what}…`, "Making the database…"];
       for (const message of steps) {
@@ -1677,7 +1693,7 @@ function browserApi(): Api {
       }
       const runtime = ["wordpress", "woocommerce", "laravel"].includes(starter) ? "PHP 8.4" : ["static", "python-scripts"].includes(starter) ? "Static" : "Node 22";
       const chosen = PREVIEW_STARTERS.find((s) => s.id === starter);
-      const all = await mock.addSite({ name, path: path || `C:\\stackyard\\www\\${name}`, runtime, https, category: category ?? chosen?.category });
+      const all = await mock.addSite({ name, path: path || `C:\\stackyard\\www\\${name}`, runtime, https, category: category ?? chosen?.category, address });
       const label = starter === "woocommerce" ? "WordPress" : (chosen?.name ?? null);
       sites = all.map((s) => (s.name === name ? { ...s, framework: label } : s));
       sitesChanged();
@@ -2278,8 +2294,9 @@ function browserApi(): Api {
           ? {
               ...s,
               domain: next,
-              https,
-              url: `${https ? "https" : "http"}://${next}`,
+              https: https && !settings.no_address,
+              address: !settings.no_address,
+              url: settings.no_address ? `http://${name}.localhost` : `${https ? "https" : "http"}://${next}`,
               root: settings.root ? `${s.path}/${settings.root}` : s.root,
             }
           : s,
@@ -2615,5 +2632,5 @@ const PREVIEW_STARTERS: Starter[] = [
   { id: "nextjs", name: "Next.js", category: "site", description: "A Next.js app with TypeScript; Stackyard runs its dev server" },
   { id: "static", name: "Static HTML", category: "site", description: "An index.html, a stylesheet and a script, served as they are" },
   { id: "node-server", name: "Node.js server", category: "app", description: "A small Node.js server with no packages; Stackyard runs it and restarts it on changes" },
-  { id: "python-scripts", name: "Python scripts", category: "project", description: "A main.py to start from; run it in the terminal" },
+  { id: "python-scripts", name: "Python scripts", category: "app", description: "A main.py to start from; run it in the terminal" },
 ];
