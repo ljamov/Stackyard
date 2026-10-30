@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, errorText, siteAddress, type PackProgress, type RuntimeFamily, type Site, type SiteFile, type SiteSize, type SystemStatus } from "../lib/api";
+import { api, errorText, inWordPress, projectKinds, siteAddress, type PackProgress, type ProjectKind, type RuntimeFamily, type Site, type SiteFile, type SiteSize, type SystemStatus } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
 import { closeTab, openTab, setLayout, siteTab, useLayout } from "../lib/layout";
@@ -29,6 +29,13 @@ function runtimeOptions(families: RuntimeFamily[], isOn: (id: string) => boolean
       })),
     );
   return [{ value: "Auto", label: "Detect from the folder" }, ...options, { value: "Static", label: "Static files" }];
+}
+
+/** The runtimes a kind of project can run on: a PHP package on PHP, a Node.js app on Node. */
+function optionsFor(kind: ProjectKind, options: { value: string; label: string }[]) {
+  if (kind === "php-package") return options.filter((o) => o.value.startsWith("PHP "));
+  if (kind === "node-app") return options.filter((o) => o.value.startsWith("Node "));
+  return options;
 }
 
 /** A starter's step ("Downloading WordPress… 40%") as words and a bar. */
@@ -68,6 +75,7 @@ export function Sites() {
   const [typedName, setTypedName] = useState("");
   const name = siteName(typedName);
   const [path, setPath] = useState("");
+  const [kind, setKind] = useState<ProjectKind>("website");
   const [runtime, setRuntime] = useState("Auto");
   const [https, setHttps] = useState(true);
   const [parkDraft, setParkDraft] = useState("");
@@ -80,7 +88,9 @@ export function Sites() {
   const [made, setMade] = useState<Site | null>(null);
   // The address being made, for the progress box.
   const [makingDomain, setMakingDomain] = useState("");
-  const chosenStarter = starters.data.find((s) => s.id === starter);
+  // Starters make websites; a theme or plugin gets its WordPress instead.
+  const chosenStarter = kind === "website" ? starters.data.find((s) => s.id === starter) : undefined;
+  const chosenKind = projectKinds.find((k) => k.id === kind) ?? projectKinds[0];
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
   const reloadSites = sites.reload;
@@ -99,7 +109,8 @@ export function Sites() {
       off?.();
     };
   }, [reloadSites, reloadParked]);
-  const chosenRuntime = options.some((o) => o.value === runtime) ? runtime : "Auto";
+  const kindOptions = optionsFor(kind, options);
+  const chosenRuntime = kindOptions.some((o) => o.value === runtime) ? runtime : (kindOptions[0]?.value ?? "Auto");
 
   useEffect(() => {
     let off: (() => void) | undefined;
@@ -137,7 +148,15 @@ export function Sites() {
     setMade(null);
     setMakingDomain(name + tldDraft);
     let ok: boolean;
-    if (chosenStarter) {
+    if (inWordPress(kind)) {
+      setMaking(t("Getting ready to make the WordPress for {name}…", { name: name + tldDraft }));
+      let list: Site[] = [];
+      ok = await attempt(async () => {
+        list = await api.addProject({ name, kind, path: path.trim(), https });
+      });
+      setMaking(null);
+      if (ok) setMade(list.find((s) => s.name === name) ?? null);
+    } else if (chosenStarter) {
       setMaking(t("Getting ready to make the {name} site…", { name: chosenStarter.name }));
       setMakingDomain(name + tldDraft);
       let list: Site[] = [];
@@ -149,7 +168,7 @@ export function Sites() {
     } else {
       // An empty folder means a new folder in the sites folder, made by the app.
       setMaking(t("Making the folder and adding the site…"));
-      ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https }));
+      ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https, kind }));
       setMaking(null);
       if (ok) setMade((await api.listSites()).find((s) => s.name === name) ?? null);
     }
@@ -322,14 +341,25 @@ export function Sites() {
         onClick={() => setLayout({ newSiteOpen: !newSiteOpen })}
       >
         <Icon name="chevron" />
-        {t("New site and parked folders")}
+        {t("New project and parked folders")}
       </button>
 
       {newSiteOpen && (
         <div id="sites-top" className="sites-top">
           <form className="card stack form new-site" aria-labelledby="new-h" onSubmit={create}>
-            <h2 id="new-h">New site</h2>
+            <h2 id="new-h">New project</h2>
             <div className="form-grid">
+              <div className="field">
+                <label htmlFor="f-kind">What is it?</label>
+                <select id="f-kind" value={kind} onChange={(e) => setKind(e.target.value as ProjectKind)}>
+                  {projectKinds.map((k) => (
+                    <option key={k.id} value={k.id}>
+                      {t(k.name)}
+                    </option>
+                  ))}
+                </select>
+                <span className="muted small">{t(chosenKind.hint)}</span>
+              </div>
               <div className="field">
                 <label htmlFor="f-name">Name</label>
                 <div className="input-affix">
@@ -362,7 +392,9 @@ export function Sites() {
                 </span>
               </div>
               <div className="field">
-                <label htmlFor="f-folder">Project folder</label>
+                <label htmlFor="f-folder">
+                  {kind === "wordpress-theme" ? t("Theme folder") : kind === "wordpress-plugin" ? t("Plugin folder") : t("Project folder")}
+                </label>
                 <div className="row folder-input">
                   <input
                     id="f-folder"
@@ -376,18 +408,20 @@ export function Sites() {
                   </button>
                 </div>
               </div>
-              <div className="field">
-                <label htmlFor="f-starter">Start from</label>
-                <select id="f-starter" value={starter} onChange={(e) => setStarter(e.target.value)}>
-                  <option value="">Empty or existing folder</option>
-                  {starters.data.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {chosenStarter ? (
+              {kind === "website" && (
+                <div className="field">
+                  <label htmlFor="f-starter">Start from</label>
+                  <select id="f-starter" value={starter} onChange={(e) => setStarter(e.target.value)}>
+                    <option value="">Empty or existing folder</option>
+                    {starters.data.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {inWordPress(kind) ? null : chosenStarter ? (
                 <div className="field">
                   <span className="label">What you get</span>
                   <span className="muted small">{chosenStarter.description}</span>
@@ -396,7 +430,7 @@ export function Sites() {
                 <div className="field">
                   <label htmlFor="f-rt">Runtime</label>
                   <select id="f-rt" value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
-                    {options.map((o) => (
+                    {kindOptions.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>
@@ -420,12 +454,17 @@ export function Sites() {
               Leave the folder empty to create <span className="mono">{folderFor(name || "hello")}</span>. The domain
               ending applies to new sites.
               {chosenStarter && " A starter needs a new or empty folder."}
+              {inWordPress(kind) &&
+                " " +
+                  t("An empty folder gets a starting {what} to build on; a folder with files is used as it is.", {
+                    what: kind === "wordpress-theme" ? t("theme") : t("plugin"),
+                  })}
             </span>
             {making && (
               <div className="new-site-progress">
                 <strong>{t("Creating {site}", { site: makingDomain })}</strong>
                 <Progress label={t("Creating {site}", { site: makingDomain })} state={starterState(making)} />
-                {chosenStarter && (
+                {(chosenStarter || inWordPress(kind)) && (
                   <span className="muted small">{t("Downloads and setup can take a few minutes. You can keep using Stackyard.")}</span>
                 )}
               </div>
@@ -436,7 +475,7 @@ export function Sites() {
                 Secure with local HTTPS (SSL) certificate
               </label>
               <button type="submit" className="btn primary" disabled={making !== null || !name}>
-                {making ? "Creating…" : chosenStarter ? `Create ${chosenStarter.name} site` : "Create site"}
+                {making ? t("Creating…") : chosenStarter ? t("Create {name} site", { name: chosenStarter.name }) : kind === "website" ? t("Create site") : t("Create {name}", { name: t(chosenKind.name) })}
               </button>
             </div>
           </form>

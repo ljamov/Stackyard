@@ -20,13 +20,13 @@ export function TerminalPane({ sites }: { sites: Site[] }) {
           id="terminal-folder"
           value={terminal.folder ?? ""}
           onChange={(e) => {
-            const site = sites.find((s) => s.path === e.target.value);
+            const site = sites.find((s) => s.project.folder === e.target.value);
             openTerminal(site?.path ?? null, site?.domain ?? null);
           }}
         >
           <option value="">{t("Home folder")}</option>
           {sites.map((s) => (
-            <option key={s.domain} value={s.path}>
+            <option key={s.domain} value={s.project.folder}>
               {s.domain}
             </option>
           ))}

@@ -18,6 +18,7 @@ use stackyard_core::engine::Engine;
 use stackyard_core::logs;
 use stackyard_core::mcp;
 use stackyard_core::modules::{ModuleGroup, MODULES};
+use stackyard_core::projects::{self, Project, ProjectKind};
 use stackyard_core::runtimes::{RuntimeManager, Step};
 use stackyard_core::scheduler::{self, TaskInput, TaskView};
 use stackyard_core::services::ServiceManager;
@@ -65,6 +66,14 @@ pub(crate) struct SiteView {
     problem: Option<String>,
     /// The runtime versions the project uses, for the version pickers.
     versions: Vec<SiteVersionView>,
+    project: ProjectView,
+}
+
+/// What a site is for, and the folder the editor, terminal and Git open.
+#[derive(Serialize)]
+struct ProjectView {
+    kind: &'static str,
+    folder: String,
 }
 
 #[derive(Serialize)]
@@ -161,6 +170,10 @@ impl SiteView {
             parked: served.parked,
             problem,
             versions: SiteVersionView::list(site, served.parked, settings, runtimes),
+            project: ProjectView {
+                kind: site.settings.project.kind.id(),
+                folder: stackyard_core::projects::folder(site).display().to_string(),
+            },
         }
     }
 }
@@ -1413,7 +1426,17 @@ fn add_site(
     path: String,
     runtime: String,
     https: bool,
+    kind: Option<String>,
 ) -> CmdResult<Vec<SiteView>> {
+    let kind = match kind.as_deref() {
+        None => ProjectKind::Website,
+        Some(id) => {
+            ProjectKind::from_id(id).ok_or_else(|| format!("unknown project kind {id:?}"))?
+        }
+    };
+    if kind.in_wordpress() {
+        return Err("a theme or plugin is made with its WordPress (add_project)".into());
+    }
     let settings = Settings::load().map_err(err)?;
     let path = match path.trim() {
         "" => settings.sites_folder(&paths::home()).join(&name),
@@ -1432,7 +1455,10 @@ fn add_site(
             runtime,
             https,
             dev_server: false,
-            settings: Default::default(),
+            settings: stackyard_core::sites::SiteSettings {
+                project: Project { kind, source: None },
+                ..Default::default()
+            },
         })
         .map_err(err)?;
     store.save().map_err(err)?;
@@ -1694,17 +1720,8 @@ async fn add_starter_site(
             typed => paths::expand_home(std::path::Path::new(typed)),
         };
         let running = |id: &str| matches!(engine.state(id), ProcessState::Running { .. });
-        if starter.needs_database() && !running("mysql") && !running("mariadb") {
-            let id = ["mysql", "mariadb"]
-                .into_iter()
-                .find(|id| engine.manager().get(id).is_some())
-                .ok_or_else(|| {
-                    format!(
-                        "{} needs MySQL or MariaDB. Install one under Services first.",
-                        starter.name()
-                    )
-                })?;
-            engine.start(id).map_err(err)?;
+        if starter.needs_database() {
+            start_database(&engine, starter.name())?;
         }
         let existed = folder.exists();
         let made = starters::create(&home, starter, &site_name, &folder, &mut |message| {
@@ -1759,6 +1776,149 @@ async fn add_starter_site(
         .unwrap()
         .remove(&format!("starter-{name}"));
     result.map_err(|e| e.to_string())??;
+    sites_changed(&app);
+    site_views()
+}
+
+/// Starts MySQL or MariaDB, whichever is installed, unless one runs.
+fn start_database(engine: &Engine, needed_by: &str) -> CmdResult<()> {
+    let running = |id: &str| matches!(engine.state(id), ProcessState::Running { .. });
+    if running("mysql") || running("mariadb") {
+        return Ok(());
+    }
+    let id = ["mysql", "mariadb"]
+        .into_iter()
+        .find(|id| engine.manager().get(id).is_some())
+        .ok_or_else(|| {
+            format!("{needed_by} needs MySQL or MariaDB. Install one under Services first.")
+        })?;
+    engine.start(id).map_err(err)
+}
+
+/// Sends the steps of making a project to the window, as a starter's go.
+fn project_progress(app: &AppHandle, name: &str) -> impl FnMut(String) + Send + 'static {
+    let app = app.clone();
+    let name = name.to_string();
+    move |message| {
+        let _ = app.emit(
+            "starter-progress",
+            StarterProgress {
+                name: name.clone(),
+                message,
+            },
+        );
+    }
+}
+
+/// Makes a WordPress theme or plugin project: its folder (with a starting
+/// theme or plugin when empty), the WordPress it is tried in, and the link
+/// between them.
+#[tauri::command]
+async fn add_project(
+    app: AppHandle,
+    name: String,
+    kind: String,
+    path: String,
+    https: bool,
+) -> CmdResult<Vec<SiteView>> {
+    let kind = ProjectKind::from_id(&kind)
+        .filter(|k| k.in_wordpress())
+        .ok_or_else(|| format!("{kind:?} is not made with a WordPress; add it as a site"))?;
+    domain::validate_site_name(&name).map_err(err)?;
+    let settings = Settings::load().map_err(err)?;
+    settings.require_module("php").map_err(err)?;
+    let tld = domain::normalize_tld(&settings.tld).map_err(err)?;
+    let domain_name = domain::site_domain(&name, &tld);
+    if ServiceManager::open()
+        .sites()
+        .map_err(err)?
+        .iter()
+        .any(|s| s.domain() == domain_name)
+    {
+        return Err(stackyard_core::Error::SiteExists(domain_name).to_string());
+    }
+    let key = format!("starter-{name}");
+    if !app
+        .state::<Installs>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(key.clone())
+    {
+        return Err(format!("{domain_name} is already being made"));
+    }
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    let mut progress = project_progress(&app, &name);
+    let site_name = name.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> CmdResult<()> {
+        let home = paths::home();
+        let source = match path.trim() {
+            "" => settings.sites_folder(&home).join(&site_name),
+            typed => paths::expand_home(std::path::Path::new(typed)),
+        };
+        std::fs::create_dir_all(&source)
+            .map_err(|e| format!("could not create {}: {e}", source.display()))?;
+        projects::scaffold(kind, &source, &site_name).map_err(err)?;
+        start_database(&engine, kind.name())?;
+        let url = stackyard_core::web::Ports::current(&home).url(&domain_name, https);
+        let ready =
+            projects::prepare_wordpress(&home, &site_name, kind, &source, &url, &mut progress)
+                .map_err(err)?;
+        let mut store = SiteStore::load().map_err(err)?;
+        store
+            .add(Site {
+                name: site_name.clone(),
+                tld,
+                path: ready.path,
+                runtime: ready.runtime,
+                https,
+                dev_server: false,
+                settings: stackyard_core::sites::SiteSettings {
+                    database: Some(ready.database),
+                    project: Project {
+                        kind,
+                        source: Some(source),
+                    },
+                    ..Default::default()
+                },
+            })
+            .map_err(err)?;
+        store.save().map_err(err)?;
+        if !matches!(engine.state("caddy"), ProcessState::Running { .. }) {
+            engine.start("caddy").map_err(err)?;
+        }
+        Ok(())
+    })
+    .await;
+    app.state::<Installs>().0.lock().unwrap().remove(&key);
+    result.map_err(|e| e.to_string())??;
+    sites_changed(&app);
+    site_views()
+}
+
+/// Changes what a site is for: a theme or plugin gets its WordPress made
+/// (or found again) and linked; going back to a website unlinks it.
+#[tauri::command]
+async fn set_project_kind(
+    app: AppHandle,
+    domain: String,
+    kind: String,
+) -> CmdResult<Vec<SiteView>> {
+    let to = ProjectKind::from_id(&kind).ok_or_else(|| format!("unknown project kind {kind:?}"))?;
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    let mut store = SiteStore::load().map_err(err)?;
+    let name = store.get_mut(&domain).map_err(err)?.name.clone();
+    let mut progress = project_progress(&app, &name);
+    tauri::async_runtime::spawn_blocking(move || -> CmdResult<()> {
+        if to.in_wordpress() {
+            start_database(&engine, to.name())?;
+        }
+        let site = store.get_mut(&domain).map_err(err)?;
+        projects::change(&paths::home(), site, to, &mut progress).map_err(err)?;
+        store.save().map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     sites_changed(&app);
     site_views()
 }
@@ -2203,6 +2363,8 @@ pub fn run() {
             optimize_videos,
             stop_videos,
             add_starter_site,
+            add_project,
+            set_project_kind,
             list_modules,
             set_module,
             service_states,

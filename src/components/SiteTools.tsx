@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   api,
   errorText,
+  inWordPress,
+  projectKinds,
   type PackProgress,
+  type ProjectKind,
   type Packed,
   type ShareProgress,
   type ShareStatus,
@@ -164,6 +167,78 @@ export function SiteTools({ site, onChanged }: { site: Site; onChanged: Changed 
   );
 }
 
+/** What the site is for. Changing it makes, finds or unlinks the WordPress
+ * a theme or plugin is tried in; it is its own step, apart from Save. */
+function ProjectType({ site, onChanged }: { site: Site; onChanged: Changed }) {
+  const t = useT();
+  const from = site.project.kind;
+  const [kind, setKind] = useState<ProjectKind>(from);
+  const [changing, setChanging] = useState(false);
+  useBusy(changing);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setKind(from), [from]);
+
+  async function change() {
+    setChanging(true);
+    try {
+      await api.setProjectKind(site.domain, kind);
+      setError(null);
+      onChanged(site.domain);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setChanging(false);
+    }
+  }
+
+  const note =
+    kind === from
+      ? null
+      : inWordPress(kind) && !inWordPress(from)
+        ? t("Stackyard makes a WordPress to try it in and links this folder into it. The folder itself is not changed. MySQL or MariaDB must be installed.")
+        : inWordPress(from) && !inWordPress(kind)
+          ? t("The folder is unlinked from its WordPress and served on its own again. The WordPress is kept, in case you change back.")
+          : inWordPress(from) && inWordPress(kind)
+            ? t("The folder moves from WordPress's themes to its plugins, or the other way, and is switched on there.")
+            : null;
+  return (
+    <div className="stack project-type">
+      <div className="form-grid">
+        <div className="field">
+          <label htmlFor={`st-kind-${site.domain}`}>{t("Project type")}</label>
+          <div className="row">
+            <select
+              id={`st-kind-${site.domain}`}
+              className="grow"
+              value={kind}
+              disabled={changing}
+              onChange={(e) => setKind(e.target.value as ProjectKind)}
+            >
+              {projectKinds.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {t(k.name)}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="btn" disabled={changing || kind === from} onClick={change}>
+              {changing ? t("Changing…") : t("Change")}
+            </button>
+          </div>
+          {note && <span className="muted small">{note}</span>}
+        </div>
+        <div className="field">
+          <span className="label">{t("Project folder")}</span>
+          <span className="mono small">{site.project.folder}</span>
+          {inWordPress(from) && (
+            <span className="muted small">{t("The editor, the terminal and Git open this folder.")}</span>
+          )}
+        </div>
+      </div>
+      {error && <p className="error small">{error}</p>}
+    </div>
+  );
+}
+
 function SettingsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
   const [info, setInfo] = useState<SiteSettingsInfo | null>(null);
   const [tld, setTld] = useState("");
@@ -231,132 +306,135 @@ function SettingsTab({ site, onChanged }: { site: Site; onChanged: Changed }) {
   const name = site.domain.slice(0, site.domain.length - info.tld.length);
   const ownServer = info.port !== null;
   return (
-    <form className="stack form" onSubmit={save} aria-label={`Settings for ${site.domain}`}>
-      <div className="form-grid">
-        <div className="field">
-          <label htmlFor={`st-tld-${site.domain}`}>Domain ending</label>
-          <div className="input-affix">
-            <span className="mono muted">{name}</span>
-            <input
-              id={`st-tld-${site.domain}`}
-              className="mono"
-              value={tld}
-              onChange={(e) => setTld(e.target.value)}
-              spellCheck={false}
-            />
-          </div>
-          <span className="muted small">Just for this site, e.g. .test. Other sites keep theirs.</span>
-        </div>
-        <div className="field">
-          <label htmlFor={`st-root-${site.domain}`}>Folder served</label>
-          <input
-            id={`st-root-${site.domain}`}
-            className="mono"
-            value={root}
-            placeholder={info.detected_root || "(the project folder)"}
-            onChange={(e) => setRoot(e.target.value)}
-            spellCheck={false}
-            disabled={ownServer}
-          />
-          <span className="muted small">
-            {ownServer
-              ? "This site's own server decides what it serves."
-              : "Inside the project folder, e.g. public. Leave it empty to let Stackyard pick."}
-          </span>
-        </div>
-        <div className="field">
-          <label htmlFor={`st-db-${site.domain}`}>Database</label>
-          <div className="row">
-            <select
-              aria-label="Database server"
-              value={dbServer}
-              onChange={(e) => setDbServer(e.target.value as "mysql" | "postgres")}
-            >
-              <option value="mysql">MySQL or MariaDB</option>
-              <option value="postgres">PostgreSQL</option>
-            </select>
-            <input
-              id={`st-db-${site.domain}`}
-              className="mono grow"
-              value={dbName}
-              placeholder={info.detected_database?.name ?? "none"}
-              onChange={(e) => setDbName(e.target.value)}
-              spellCheck={false}
-            />
-          </div>
-          <span className="muted small">
-            Goes into the site's backups and exports.
-            {info.detected_database && !dbName && ` Found ${info.detected_database.name} in the project.`}
-          </span>
-        </div>
-        <div className="field">
-          <label htmlFor={`st-cmd-${site.domain}`}>Start command</label>
-          <input
-            id={`st-cmd-${site.domain}`}
-            className="mono"
-            value={command}
-            placeholder={info.php ? "e.g. npm run dev, for Vite" : "e.g. npm run start"}
-            onChange={(e) => setCommand(e.target.value)}
-            spellCheck={false}
-          />
-          <span className="muted small">
-            Runs in the project folder while the web server runs; its output is in Logs as dev-{site.name}.
-            {info.port !== null && ` It replaces the usual server and gets port ${info.port} in PORT.`}
-          </span>
-        </div>
-      </div>
-      <div className="form-grid">
-        <div className="field">
-          <label htmlFor={`st-env-${site.domain}`}>Environment variables</label>
-          <textarea
-            id={`st-env-${site.domain}`}
-            className="mono"
-            rows={4}
-            value={env}
-            placeholder={"APP_ENV=local\nAPI_URL=https://api.test"}
-            onChange={(e) => setEnv(e.target.value)}
-            spellCheck={false}
-          />
-          <span className="muted small">One NAME=value per line. PHP sees them in getenv() and $_SERVER.</span>
-        </div>
-        {info.php && (
+    <>
+      <ProjectType site={site} onChanged={onChanged} />
+      <form className="stack form" onSubmit={save} aria-label={`Settings for ${site.domain}`}>
+        <div className="form-grid">
           <div className="field">
-            <label htmlFor={`st-php-${site.domain}`}>PHP settings</label>
+            <label htmlFor={`st-tld-${site.domain}`}>Domain ending</label>
+            <div className="input-affix">
+              <span className="mono muted">{name}</span>
+              <input
+                id={`st-tld-${site.domain}`}
+                className="mono"
+                value={tld}
+                onChange={(e) => setTld(e.target.value)}
+                spellCheck={false}
+              />
+            </div>
+            <span className="muted small">Just for this site, e.g. .test. Other sites keep theirs.</span>
+          </div>
+          <div className="field">
+            <label htmlFor={`st-root-${site.domain}`}>Folder served</label>
+            <input
+              id={`st-root-${site.domain}`}
+              className="mono"
+              value={root}
+              placeholder={info.detected_root || "(the project folder)"}
+              onChange={(e) => setRoot(e.target.value)}
+              spellCheck={false}
+              disabled={ownServer}
+            />
+            <span className="muted small">
+              {ownServer
+                ? "This site's own server decides what it serves."
+                : "Inside the project folder, e.g. public. Leave it empty to let Stackyard pick."}
+            </span>
+          </div>
+          <div className="field">
+            <label htmlFor={`st-db-${site.domain}`}>Database</label>
+            <div className="row">
+              <select
+                aria-label="Database server"
+                value={dbServer}
+                onChange={(e) => setDbServer(e.target.value as "mysql" | "postgres")}
+              >
+                <option value="mysql">MySQL or MariaDB</option>
+                <option value="postgres">PostgreSQL</option>
+              </select>
+              <input
+                id={`st-db-${site.domain}`}
+                className="mono grow"
+                value={dbName}
+                placeholder={info.detected_database?.name ?? "none"}
+                onChange={(e) => setDbName(e.target.value)}
+                spellCheck={false}
+              />
+            </div>
+            <span className="muted small">
+              Goes into the site's backups and exports.
+              {info.detected_database && !dbName && ` Found ${info.detected_database.name} in the project.`}
+            </span>
+          </div>
+          <div className="field">
+            <label htmlFor={`st-cmd-${site.domain}`}>Start command</label>
+            <input
+              id={`st-cmd-${site.domain}`}
+              className="mono"
+              value={command}
+              placeholder={info.php ? "e.g. npm run dev, for Vite" : "e.g. npm run start"}
+              onChange={(e) => setCommand(e.target.value)}
+              spellCheck={false}
+            />
+            <span className="muted small">
+              Runs in the project folder while the web server runs; its output is in Logs as dev-{site.name}.
+              {info.port !== null && ` It replaces the usual server and gets port ${info.port} in PORT.`}
+            </span>
+          </div>
+        </div>
+        <div className="form-grid">
+          <div className="field">
+            <label htmlFor={`st-env-${site.domain}`}>Environment variables</label>
             <textarea
-              id={`st-php-${site.domain}`}
+              id={`st-env-${site.domain}`}
               className="mono"
               rows={4}
-              value={php}
-              placeholder={"memory_limit = 1G\nupload_max_filesize = 512M"}
-              onChange={(e) => setPhp(e.target.value)}
+              value={env}
+              placeholder={"APP_ENV=local\nAPI_URL=https://api.test"}
+              onChange={(e) => setEnv(e.target.value)}
               spellCheck={false}
             />
-            <span className="muted small">php.ini lines for this site only; it gets a PHP process of its own. Other sites keep the version's php.ini.</span>
+            <span className="muted small">One NAME=value per line. PHP sees them in getenv() and $_SERVER.</span>
           </div>
-        )}
-      </div>
-      {error && (
-        <p className="error small" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="row between centered">
-        <label className="check">
-          <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
-          Secure with local HTTPS (SSL) certificate
-        </label>
-        <div className="row centered">
-          {saved && (
-            <span className="muted small" role="status">
-              Saved. The site restarted with the new settings.
-            </span>
+          {info.php && (
+            <div className="field">
+              <label htmlFor={`st-php-${site.domain}`}>PHP settings</label>
+              <textarea
+                id={`st-php-${site.domain}`}
+                className="mono"
+                rows={4}
+                value={php}
+                placeholder={"memory_limit = 1G\nupload_max_filesize = 512M"}
+                onChange={(e) => setPhp(e.target.value)}
+                spellCheck={false}
+              />
+              <span className="muted small">php.ini lines for this site only; it gets a PHP process of its own. Other sites keep the version's php.ini.</span>
+            </div>
           )}
-          <button type="submit" className="btn primary" disabled={saving}>
-            {saving ? "Saving…" : "Save settings"}
-          </button>
         </div>
-      </div>
-    </form>
+        {error && (
+          <p className="error small" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="row between centered">
+          <label className="check">
+            <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
+            Secure with local HTTPS (SSL) certificate
+          </label>
+          <div className="row centered">
+            {saved && (
+              <span className="muted small" role="status">
+                Saved. The site restarted with the new settings.
+              </span>
+            )}
+            <button type="submit" className="btn primary" disabled={saving}>
+              {saving ? "Saving…" : "Save settings"}
+            </button>
+          </div>
+        </div>
+      </form>
+    </>
   );
 }
 

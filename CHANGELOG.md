@@ -6,6 +6,13 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **New project, not just new site.** The Sites screen asks what you are making: a website, a
+  WordPress theme, a WordPress plugin, a PHP package or a Node.js app. A theme or plugin keeps its
+  own folder (an empty one gets a starting theme or plugin) and Stackyard makes a WordPress to try
+  it in, installed and with the theme or plugin switched on; the folder is linked into it, so a
+  change shows at once. The editor, the terminal, Git and Servers open the theme's or plugin's own
+  folder. A project's type can be changed later under its Settings.
+
 - **Much faster push, pull and clone for WordPress.** Stackyard's helper on the live server now lists
   every file in a few requests, where Stackyard used to ask the server for each folder in turn (over
   FTP, a new connection for each one). Small files then come many to a request instead of one by

@@ -234,7 +234,7 @@ pub fn open_site_backups(domain: String) -> CmdResult<()> {
 #[tauri::command]
 pub fn open_site_folder(domain: String) -> CmdResult<()> {
     let (site, _) = find_site(&domain)?;
-    open_with_system(site.path.as_os_str())
+    open_with_system(stackyard_core::projects::folder(&site).as_os_str())
 }
 
 /// The code editors, which are installed, and the one in use.
@@ -263,7 +263,7 @@ pub async fn open_site_in_editor(domain: String) -> CmdResult<()> {
     blocking(move || {
         let settings = Settings::load().map_err(err)?;
         let current = editors::list(settings.editor.as_deref()).current;
-        editors::open(&current, &site.path).map_err(err)
+        editors::open(&current, stackyard_core::projects::folder(&site)).map_err(err)
     })
     .await
 }

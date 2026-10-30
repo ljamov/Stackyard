@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::RuntimeKind;
+use crate::projects::Project;
 use crate::settings::{read_toml, write_toml};
 use crate::{domain, paths, Error, Result};
 
@@ -145,6 +146,10 @@ pub struct SiteSettings {
     /// looks for one in the project's `.env` or `wp-config.php`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database: Option<SiteDatabase>,
+    /// What the site is for. Changed only by [`crate::projects::change`],
+    /// which makes or unlinks a WordPress; saving settings keeps it.
+    #[serde(default, skip_serializing_if = "Project::is_default")]
+    pub project: Project,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -337,7 +342,11 @@ impl SiteStore {
         let site = self.get_mut(name_or_domain)?;
         site.tld = tld;
         site.https = https;
-        site.settings = settings;
+        // The settings form doesn't carry the project; it stays as it was.
+        site.settings = SiteSettings {
+            project: before.settings.project.clone(),
+            ..settings
+        };
         Ok((before, site.clone()))
     }
 

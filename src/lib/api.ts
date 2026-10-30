@@ -199,7 +199,26 @@ export type Site = {
   problem: string | null;
   /** The runtime versions the project uses, for the version pickers. */
   versions: SiteVersion[];
+  /** What the site is for, and the folder the editor, terminal and Git open. */
+  project: SiteProject;
 };
+
+export type ProjectKind = "website" | "wordpress-theme" | "wordpress-plugin" | "php-package" | "node-app";
+export type SiteProject = {
+  kind: ProjectKind;
+  /** The project's own folder: for a theme or plugin, not the WordPress it is tried in. */
+  folder: string;
+};
+
+/** Every kind of project, in the order the pickers show them. */
+export const projectKinds: { id: ProjectKind; name: string; hint: string }[] = [
+  { id: "website", name: "Website", hint: "A website or web app: WordPress, Laravel, a static site and more" },
+  { id: "wordpress-theme", name: "WordPress theme", hint: "Stackyard makes a WordPress to try the theme in, with the theme switched on" },
+  { id: "wordpress-plugin", name: "WordPress plugin", hint: "Stackyard makes a WordPress to try the plugin in, with the plugin switched on" },
+  { id: "php-package", name: "PHP package", hint: "A PHP library, served with PHP so you can try it in a page" },
+  { id: "node-app", name: "Node.js app", hint: "A Node.js app; Stackyard runs its dev server" },
+];
+export const inWordPress = (kind: ProjectKind) => kind === "wordpress-theme" || kind === "wordpress-plugin";
 
 /** The one address to show for a site: its own (`https://blog.stack`)
  * once its name works, else the `.localhost` one that works already.
@@ -413,7 +432,9 @@ export type SchedulePreview = { description: string | null; runs: number[] };
 
 export type TldInfo = { tld: string; warning: string | null };
 
-export type NewSite = { name: string; path: string; runtime: string; https: boolean };
+export type NewSite = { name: string; path: string; runtime: string; https: boolean; kind?: ProjectKind };
+/** A theme or plugin project; its WordPress is made with it. */
+export type NewProject = { name: string; kind: ProjectKind; path: string; https: boolean };
 
 export type RemoteProtocol = "sftp" | "ftps" | "ftp";
 
@@ -654,6 +675,10 @@ export interface Api {
   /** Picks a runtime version for a site; null goes back to the default. */
   setSiteVersion(domain: string, kind: RuntimeKind, version: string | null): Promise<Site[]>;
   addSite(site: NewSite): Promise<Site[]>;
+  /** Makes a theme or plugin project and the WordPress it is tried in; progress comes as starter progress. */
+  addProject(project: NewProject): Promise<Site[]>;
+  /** Changes what a site is for; a theme or plugin gets a WordPress made or linked for it. */
+  setProjectKind(domain: string, kind: ProjectKind): Promise<Site[]>;
   listStarters(): Promise<Starter[]>;
   /** Opens the system's file picker for images; empty when cancelled. */
   pickImages(start?: string): Promise<string[]>;
@@ -882,6 +907,8 @@ const tauriApi: Api = {
   setSiteLayout: (items) => invoke("set_site_layout", { items }),
   setSiteVersion: (domain, kind, version) => invoke("set_site_version", { domain, kind, version }),
   addSite: (site) => invoke("add_site", site),
+  addProject: (project) => invoke("add_project", project),
+  setProjectKind: (domain, kind) => invoke("set_project_kind", { domain, kind }),
   listStarters: () => invoke("list_starters"),
   pickImages: async (start) => {
     const picked = await openDialog({
@@ -1288,6 +1315,7 @@ function browserApi(): Api {
     parked,
     problem,
     versions: [],
+    project: { kind: "website", folder: `~/Code/${name}` },
   });
   const isInstalled = (kind: RuntimeKind, version: string) =>
     runtimes.some((f) => f.kind === kind && f.versions.some((v) => v.version === version && v.installed));
@@ -1540,7 +1568,7 @@ function browserApi(): Api {
       });
       return sites;
     },
-    addSite: async ({ name, path, runtime, https }) => {
+    addSite: async ({ name, path, runtime, https, kind }) => {
       if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) throw `invalid site name "${name}"`;
       const domain = name + tld;
       if (sites.some((s) => s.domain === domain)) throw `a site named "${domain}" already exists`;
@@ -1553,8 +1581,28 @@ function browserApi(): Api {
         path,
         root: path,
         https,
+        project: { kind: kind ?? "website", folder: path },
       };
       sites = [site, ...sites];
+      sitesChanged();
+      return sites;
+    },
+    addProject: async ({ name, kind, path, https }) => {
+      const what = kind === "wordpress-theme" ? "theme" : "plugin";
+      const steps = ["Finding the latest WordPress…", ...[20, 60, 100].map((p) => `Downloading WordPress… ${p}%`), "Making the database…", "Installing WordPress…", `Switching the ${what} on…`];
+      for (const message of steps) {
+        starterHandlers.forEach((h) => h({ name, message }));
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      const folder = path || `C:\stackyard\www\${name}`;
+      const all = await mock.addSite({ name, path: `C:\stackyard\projects\${name}\wordpress`, runtime: "PHP 8.4", https, kind });
+      sites = all.map((s) => (s.name === name ? { ...s, framework: "WordPress", project: { kind, folder } } : s));
+      sitesChanged();
+      return sites;
+    },
+    setProjectKind: async (domain, kind) => {
+      await new Promise((r) => setTimeout(r, 600));
+      sites = sites.map((s) => (s.domain === domain ? { ...s, project: { ...s.project, kind }, framework: inWordPress(kind) ? "WordPress" : s.framework } : s));
       sitesChanged();
       return sites;
     },

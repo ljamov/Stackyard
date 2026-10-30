@@ -167,6 +167,11 @@ pub fn create(
     Ok(made)
 }
 
+/// The PHP version new sites get, installed now when it is not yet.
+pub fn php_version(home: &Path) -> Result<String> {
+    ensure_runtime(home, RuntimeKind::Php, &mut |_| {})
+}
+
 /// The version new sites get, installed now when it is not yet.
 fn ensure_runtime(
     home: &Path,

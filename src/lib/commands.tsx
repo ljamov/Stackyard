@@ -121,7 +121,7 @@ export function useWorkbenchCommands({
             id: `site.terminal.${site.domain}`,
             category: t("Sites"),
             title: t("Open a terminal in {name}", { name: site.domain }),
-            run: () => openTerminal(site.path, site.domain),
+            run: () => openTerminal(site.project.folder, site.domain),
           }))
         : []),
       { id: "workbench.colorTheme", category: t("Theme"), title: t("Pick a color theme"), run: () => openPalette("themes") },

@@ -30,7 +30,7 @@ export function SiteActions({
   return (
     <div className="icon-actions" role="group" aria-label={t("Actions for {site}", { site: site.domain })}>
       {isOn("terminal") && (
-        <IconButton icon="terminal" label={t("Terminal")} onClick={() => openTerminal(site.path, site.domain)} />
+        <IconButton icon="terminal" label={t("Terminal")} onClick={() => openTerminal(site.project.folder, site.domain)} />
       )}
       <IconButton icon="folder" label={t("Open folder")} onClick={() => onRun(() => api.openSiteFolder(site.domain))} />
       <IconButton icon="code" label={t("Open in {editor}", { editor })} onClick={() => onRun(() => api.openSiteInEditor(site.domain))} />

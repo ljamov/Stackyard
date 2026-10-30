@@ -28,6 +28,7 @@ pub mod paths;
 pub mod phpmyadmin;
 pub mod platform;
 pub mod ports;
+pub mod projects;
 pub mod remote;
 pub mod runtimes;
 pub mod scheduler;

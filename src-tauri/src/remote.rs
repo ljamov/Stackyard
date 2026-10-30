@@ -94,7 +94,8 @@ fn site_folder(domain: &str) -> CmdResult<PathBuf> {
         .map_err(err)?
         .into_iter()
         .find(|s| s.site.domain() == domain)
-        .map(|s| s.site.path)
+        // A theme or plugin project: its own folder, not its WordPress.
+        .map(|s| stackyard_core::projects::folder(&s.site).to_path_buf())
         .ok_or_else(|| format!("no site named {domain}"))
 }
 

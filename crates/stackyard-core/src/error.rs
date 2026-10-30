@@ -69,6 +69,8 @@ pub enum Error {
     ServiceSetup { name: String, message: String },
     #[error("could not make the {name} site: {message}")]
     Starter { name: String, message: String },
+    #[error("{0}")]
+    Project(String),
     #[error("{name} {version} is not installed")]
     NotInstalled { name: String, version: String },
     #[error("{0} is not a folder")]

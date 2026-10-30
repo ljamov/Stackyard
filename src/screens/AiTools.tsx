@@ -45,7 +45,7 @@ export function AiTools() {
   }, []);
 
   // Default to the first site once sites are known.
-  const choices = sites.data.map((s) => ({ label: s.domain, path: s.path }));
+  const choices = sites.data.map((s) => ({ label: s.domain, path: s.project.folder }));
   const chosen = folder || choices[0]?.path || "";
   const chosenLabel = choices.find((c) => c.path === chosen)?.label ?? chosen;
 

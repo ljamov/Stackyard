@@ -196,7 +196,7 @@ export function Videos() {
   const made = results.flatMap((r) => r.made.filter((m) => !m.skipped).map((m) => ({ before: r.size, after: m.size })));
   const after = made.reduce((sum, m) => sum + m.after, 0);
   const failed = results.filter((r) => r.error && r.error !== "stopped");
-  const pickedSite = sites.data.find((s) => paths.includes(s.path));
+  const pickedSite = sites.data.find((s) => paths.includes(s.project.folder));
   const ready = Boolean(ffmpeg?.path);
   const canRun =
     ready &&
@@ -313,7 +313,7 @@ export function Videos() {
                 >
                   <option value="">Pick a site…</option>
                   {sites.data.map((s) => (
-                    <option key={s.domain} value={s.path}>
+                    <option key={s.domain} value={s.project.folder}>
                       {s.domain}
                     </option>
                   ))}

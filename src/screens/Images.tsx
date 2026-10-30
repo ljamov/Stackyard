@@ -162,7 +162,7 @@ export function Images() {
   const width = custom ? Number(customWidth) || null : maxWidth || null;
   const height = custom && !keepShape ? Number(customHeight) || null : null;
   const sizeReady = !custom || (width !== null && (keepShape || height !== null));
-  const pickedSite = sites.data.find((s) => paths.includes(s.path));
+  const pickedSite = sites.data.find((s) => paths.includes(s.project.folder));
   const canRun =
     !running && (found?.count ?? 0) > 0 && formats.length > 0 && sizeReady && (!toFolder || outDir.trim() !== "");
 
@@ -248,7 +248,7 @@ export function Images() {
                 >
                   <option value="">Pick a site…</option>
                   {sites.data.map((s) => (
-                    <option key={s.domain} value={s.path}>
+                    <option key={s.domain} value={s.project.folder}>
                       {s.domain}
                     </option>
                   ))}
