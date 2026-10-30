@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::{self, RuntimeKind};
 use crate::detect::{self, Needs};
 use crate::platform::{self, Os};
+use crate::projects::{Category, ProjectKind};
 use crate::runtimes::RuntimeManager;
 use crate::services::{slash, write_config};
 use crate::settings::{read_toml, write_toml, Settings};
@@ -272,12 +273,31 @@ fn from_site(site: Site, parked: bool, runtimes: &RuntimeManager) -> ServedSite 
         (_, _, Needs::Node { .. } | Needs::App { .. }) => site.path.clone(),
         _ => site.path.join(&detected.root),
     };
+    let mut site = site;
+    let project = &mut site.settings.project;
+    let unsorted = parked || project.category == Some(Category::Project);
+    if unsorted && project.kind == ProjectKind::Website {
+        project.category = Some(looks_like(detected.framework, &root));
+    }
     ServedSite {
         site,
         parked,
         framework: detected.framework,
         root,
         backend,
+    }
+}
+
+/// A folder with a framework or a start page is a site; scripts, a library
+/// or anything else with nothing to open in a browser is an app.
+fn looks_like(framework: Option<&str>, root: &Path) -> Category {
+    let page = ["index.php", "index.html", "index.htm"]
+        .iter()
+        .any(|f| root.join(f).is_file());
+    if framework.is_some() || page {
+        Category::Site
+    } else {
+        Category::App
     }
 }
 
@@ -331,14 +351,9 @@ fn parked_site(
         path,
         https: true,
         dev_server: false,
-        // A folder made by hand is a project until it is given a list.
-        settings: crate::sites::SiteSettings {
-            project: crate::projects::Project {
-                category: Some(crate::projects::Category::Project),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
+        // A folder made by hand is listed as what it looks like, see
+        // `from_site`, until it is given a list.
+        settings: Default::default(),
     }
 }
 
@@ -383,13 +398,27 @@ pub fn default_version(
 pub fn caddy_sites(sites: &[ServedSite]) -> String {
     let mut out = String::new();
     for served in sites {
-        let scheme = if served.site.https { "" } else { "http://" };
-        out.push_str(&format!(
-            "\n# {}\n{scheme}{}, {scheme}{} {{\n",
-            served.site.path.display(),
-            served.domain(),
-            served.localhost()
-        ));
+        let own_port = matches!(served.backend, Backend::Node { .. } | Backend::App { .. });
+        if served.site.settings.no_address {
+            // An app with its own server is opened on its port; one served
+            // by PHP or as plain files only at its `.localhost` name.
+            if own_port {
+                continue;
+            }
+            out.push_str(&format!(
+                "\n# {}\nhttp://{} {{\n",
+                served.site.path.display(),
+                served.localhost()
+            ));
+        } else {
+            let scheme = if served.site.https { "" } else { "http://" };
+            out.push_str(&format!(
+                "\n# {}\n{scheme}{}, {scheme}{} {{\n",
+                served.site.path.display(),
+                served.domain(),
+                served.localhost()
+            ));
+        }
         match &served.backend {
             Backend::Php {
                 version,
@@ -440,7 +469,11 @@ fn empty_folder_page(served: &ServedSite) -> String {
     let text = format!(
         "{} works, but its folder has no index.php or index.html yet. \
          Put one in {} and reload this page.",
-        served.domain(),
+        if served.site.settings.no_address {
+            served.localhost()
+        } else {
+            served.domain()
+        },
         slash(&served.root)
     );
     format!(
@@ -986,9 +1019,9 @@ mod tests {
         );
         assert_eq!(served[2].backend, Backend::Static);
         assert!(!served[0].parked);
-        // Folders made by hand are projects; saved sites stay sites.
-        use crate::projects::Category;
-        assert_eq!(blog.site.settings.project.category(), Category::Project);
+        // Folders made by hand are listed as what they look like; saved
+        // sites stay sites.
+        assert_eq!(blog.site.settings.project.category(), Category::Site);
         assert_eq!(served[0].site.settings.project.category(), Category::Site);
 
         // A `.stackyard` file in the project picks its version.
@@ -1004,6 +1037,40 @@ mod tests {
         assert_eq!(names, ["shop.stack", "landing-page.stack"]);
         assert!(settings.unhide(&code.join("blog")));
         assert_eq!(sites(&home, &settings, &runtimes).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn folders_without_a_page_are_apps() {
+        let home = crate::testutil::tempdir();
+        let code = home.join("Code");
+        touch(&code.join("tools/main.py"));
+        touch(&code.join("shop/index.php"));
+        let mut settings = Settings::default();
+        settings.park(&code).unwrap();
+        let runtimes = RuntimeManager::new(&home);
+        let served = sites(&home, &settings, &runtimes).unwrap();
+        let list = |name: &str| {
+            let s = served.iter().find(|s| s.site.name == name).unwrap();
+            s.site.settings.project.category()
+        };
+        assert_eq!(list("tools"), Category::App);
+        assert_eq!(list("shop"), Category::Site);
+
+        // Saved when Projects was a list of its own: the same goes.
+        let mut store = SiteStore::load_from(&home.join("sites.toml")).unwrap();
+        let mut old = served
+            .iter()
+            .find(|s| s.site.name == "tools")
+            .unwrap()
+            .site
+            .clone();
+        old.settings.project.category = Some(Category::Project);
+        store.add(old).unwrap();
+        store.save().unwrap();
+        let served = sites(&home, &settings, &runtimes).unwrap();
+        let tools = served.iter().find(|s| s.site.name == "tools").unwrap();
+        assert!(!tools.parked);
+        assert_eq!(tools.site.settings.project.category(), Category::App);
     }
 
     #[test]
@@ -1109,7 +1176,7 @@ mod tests {
             port: 9084,
             installed: false,
         };
-        assert!(caddy_sites(&[php]).contains("not installed"));
+        assert!(caddy_sites(std::slice::from_ref(&php)).contains("not installed"));
 
         let mut node = served(
             SiteRuntime::Node {
@@ -1122,12 +1189,26 @@ mod tests {
             version: "22".into(),
             port: 5173,
         };
-        let text = caddy_sites(&[node]);
+        let text = caddy_sites(std::slice::from_ref(&node));
         assert!(
             text.contains("http://app.stack, http://app.localhost {"),
             "{text}"
         );
         assert!(text.contains("reverse_proxy localhost:5173"), "{text}");
+
+        // An app with no address: one with its own server is left to its
+        // port, a PHP one is served only at its `.localhost` name.
+        node.site.settings.no_address = true;
+        assert!(!caddy_sites(std::slice::from_ref(&node)).contains("app."));
+        php.site.settings.no_address = true;
+        php.backend = Backend::Php {
+            version: "8.4".into(),
+            port: 9084,
+            installed: true,
+        };
+        let text = caddy_sites(&[php]);
+        assert!(text.contains("\nhttp://app.localhost {"), "{text}");
+        assert!(!text.contains("app.stack"), "{text}");
         assert_eq!(quote("C:/a \"b\""), "\"C:/a \\\"b\\\"\"");
     }
 

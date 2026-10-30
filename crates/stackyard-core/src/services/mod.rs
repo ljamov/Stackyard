@@ -388,7 +388,7 @@ impl ServiceManager {
         let settings = Settings::load_from(&self.home.join("settings.toml"))?;
         let mut endings = vec![settings.tld];
         for site in self.sites()? {
-            if !endings.contains(&site.site.tld) {
+            if !site.site.settings.no_address && !endings.contains(&site.site.tld) {
                 endings.push(site.site.tld);
             }
         }
@@ -397,7 +397,13 @@ impl ServiceManager {
 
     /// What system setup should cover right now.
     pub fn system_wanted(&self) -> Result<Wanted> {
-        let domains: Vec<String> = self.sites()?.iter().map(ServedSite::domain).collect();
+        // An app with no address of its own needs no name in the hosts file.
+        let domains: Vec<String> = self
+            .sites()?
+            .iter()
+            .filter(|s| !s.site.settings.no_address)
+            .map(ServedSite::domain)
+            .collect();
         Ok(Wanted::new(
             self.platform.os,
             &self.endings()?,

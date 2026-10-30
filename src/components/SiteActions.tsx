@@ -35,7 +35,7 @@ export function SiteActions({
       <IconButton icon="folder" label={t("Open folder")} onClick={() => onRun(() => api.openSiteFolder(site.domain))} />
       <IconButton icon="code" label={t("Open in {editor}", { editor })} onClick={() => onRun(() => api.openSiteInEditor(site.domain))} />
       {manage && <IconButton icon="manage" label={t("Manage")} onClick={() => openTab(siteTab(site.domain))} />}
-      <IconButton icon="trash" danger label={t("Remove (the files stay)")} onClick={onRemove} />
+      <IconButton icon="trash" danger label={t("Remove…")} onClick={onRemove} />
     </div>
   );
 }

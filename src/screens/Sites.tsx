@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api, categories, errorText, inWordPress, siteAddress, type Category, type PackProgress, type ProjectKind, type RuntimeFamily, type Site, type SiteFile, type SiteSize, type Starter, type SystemStatus } from "../lib/api";
+import { api, categories, errorText, inWordPress, lists, siteAddress, type Category, type ListKind, type PackProgress, type ProjectKind, type RuntimeFamily, type Site, type SiteFile, type SiteSize, type SystemStatus } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useModules } from "../lib/modules";
-import { closeTab, openTab, setLayout, showNewSite, siteTab, useLayout } from "../lib/layout";
+import { closeTab, openTab, setLayout, showNewSite, showScreen, siteTab, useLayout } from "../lib/layout";
 import { Icon } from "../components/Icon";
 import { BrandIcon } from "../components/BrandIcon";
-import { SCREEN_ICON } from "../components/Sidebar";
-import { CATEGORY_SCREEN } from "../lib/screens";
-import { SiteVersions } from "../components/SiteVersions";
 import { SiteThumb } from "../components/SiteThumb";
 import { SiteDatabaseLine } from "../components/SiteDatabase";
 import { CloneSite } from "../components/wordpress/CloneSite";
@@ -17,9 +14,12 @@ import { useT } from "../lib/i18n";
 import { Progress, packState, type ProgressState } from "../components/Progress";
 import { SiteActions } from "../components/SiteActions";
 import { SiteList, type RowParts } from "../components/SiteList";
+import { RemoveDialog } from "../components/RemoveDialog";
+import { CATEGORY_ICON, templatesFor } from "../lib/templates";
 import { useBusy, useShown } from "../lib/tabLife";
 
 const SITE_LABELS: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node", python: "Python", go: "Go", java: "Java" };
+const VERSION_NAMES: Record<RuntimeFamily["kind"], string> = { php: "PHP", node: "Node.js", python: "Python", go: "Go", java: "Java" };
 
 /** Choices for the runtime picker, e.g. "PHP 8.4"; installed versions say so. */
 function runtimeOptions(families: RuntimeFamily[], isOn: (id: string) => boolean) {
@@ -41,45 +41,6 @@ function optionsFor(kind: ProjectKind, options: { value: string; label: string }
   return options;
 }
 
-/**
- * What a new project, app or site can start from: an empty or existing
- * folder (with a runtime to pick), a starter the app makes, or a WordPress
- * theme or plugin, tried in a WordPress made for it.
- */
-type Template = { id: string; name: string; description: string; brand: string } & (
-  | { via: "folder"; kind: ProjectKind }
-  | { via: "starter"; starter: Starter }
-  | { via: "wordpress"; kind: ProjectKind }
-);
-
-/** Starters' logos, where the starter's own id is not a logo's. */
-const STARTER_BRAND: Record<string, string> = { react: "createreactapp", vue: "vite", svelte: "sveltekit", "node-server": "node", "python-scripts": "python", static: "" };
-
-function templatesFor(category: Category, starters: Starter[]): Template[] {
-  const folder: Template = {
-    id: "folder",
-    name: "Empty or existing folder",
-    description: "A new folder, or one with your files in it already; pick what it runs on",
-    brand: "",
-    via: "folder",
-    kind: category === "app" ? "node-app" : "website",
-  };
-  const fromStarters = starters
-    .filter((s) => s.category === category)
-    .map((s): Template => ({ id: s.id, name: s.name, description: s.description, brand: STARTER_BRAND[s.id] ?? s.id, via: "starter", starter: s }));
-  if (category === "project") {
-    return [
-      { ...folder, kind: "website" },
-      { id: "wordpress-theme", name: "WordPress theme", description: "Stackyard makes a WordPress to try the theme in, with the theme switched on", brand: "wordpress", via: "wordpress", kind: "wordpress-theme" },
-      { id: "wordpress-plugin", name: "WordPress plugin", description: "Stackyard makes a WordPress to try the plugin in, with the plugin switched on", brand: "wordpress", via: "wordpress", kind: "wordpress-plugin" },
-      { id: "php-package", name: "PHP package", description: "A PHP library, served with PHP so you can try it in a page", brand: "php", via: "folder", kind: "php-package" },
-      ...fromStarters,
-    ];
-  }
-  if (category === "app") return [{ ...folder, kind: "website" }, ...fromStarters];
-  return [...fromStarters, { ...folder, kind: "website" }];
-}
-
 /** A starter's step ("Downloading WordPress… 40%") as words and a bar. */
 function starterState(message: string): ProgressState {
   const m = /^(.*?)\s*(\d{1,3})%$/.exec(message);
@@ -95,13 +56,23 @@ function siteName(typed: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-export function Sites({ category }: { category: Category }) {
+/** The versions a project runs with, as the list shows them: "PHP 8.4 · Node.js 22". */
+export function versionsText(site: Site) {
+  return site.versions.map((v) => `${VERSION_NAMES[v.kind]} ${v.version}`).join(" · ");
+}
+
+/**
+ * Projects (every app and site), Apps or Sites: the list, and the New
+ * project form above it, where an app or a site is picked first and then
+ * what it starts from.
+ */
+export function Sites({ list }: { list: ListKind }) {
   const t = useT();
-  const about = categories.find((c) => c.id === category) ?? categories[2];
+  const about = lists[list];
   // Clones and dropped backups are WordPress sites: only Sites handles them,
-  // so they don't show three times while the other lists are open too.
-  const forSites = category === "site";
-  // The New site and Parked folders forms fold away; open or closed is kept.
+  // so they don't show twice while Projects is open too.
+  const forSites = list === "site";
+  // The New and Parked folders forms fold away; open or closed is kept.
   const { newSiteOpen } = useLayout();
   const sites = useLoad(api.listSites, []);
   // Sizes as last measured in each site's tab; nothing is measured here.
@@ -123,20 +94,32 @@ export function Sites({ category }: { category: Category }) {
   const [path, setPath] = useState("");
   const [runtime, setRuntime] = useState("Auto");
   const [https, setHttps] = useState(true);
+  // What is being made. Apps and Sites make their own kind; Projects asks.
+  const [picked, setPicked] = useState<Category>("site");
+  const category: Category = list === "all" ? picked : list;
+  // An app needs no address; one can be asked for.
+  const [appAddress, setAppAddress] = useState(false);
+  const address = category === "site" || appAddress;
   const [parkDraft, setParkDraft] = useState("");
   const [settingUp, setSettingUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const starters = useLoad(api.listStarters, []);
-  const templates = templatesFor(category, starters.data);
-  const [templateId, setTemplateId] = useState("");
-  const template = templates.find((x) => x.id === templateId) ?? templates[0];
-  const kind: ProjectKind = template && template.via !== "starter" ? template.kind : "website";
+  const templates = templatesFor(category, starters.data, {
+    clone: isOn("wordpress") && isOn("remote"),
+    import: isOn("sitetransfer"),
+  });
+  const [templateIds, setTemplateIds] = useState<Record<Category, string>>({ app: "", site: "" });
+  const template = templates.find((x) => x.id === templateIds[category]) ?? templates[0];
+  const kind: ProjectKind = template.via === "folder" || template.via === "wordpress" ? template.kind : "website";
   const [making, setMaking] = useState<string | null>(null);
   useBusy(making !== null);
   const [made, setMade] = useState<Site | null>(null);
+  const [removing, setRemoving] = useState<Site | null>(null);
   // The address being made, for the progress box.
   const [makingDomain, setMakingDomain] = useState("");
-  const chosenStarter = template?.via === "starter" ? template.starter : undefined;
+  const chosenStarter = template.via === "starter" ? template.starter : undefined;
+  const ending = address ? tldDraft : "";
+  const ids = (what: string) => `${what}-${list}`;
 
   useEffect(() => setTldDraft(tldInfo.data.tld), [tldInfo.data.tld]);
 
@@ -176,7 +159,7 @@ export function Sites({ category }: { category: Category }) {
       off?.();
     };
   }, [reloadSites, reloadParked]);
-  const listed = sites.data.filter((x) => x.project.category === category);
+  const listed = list === "all" ? sites.data : sites.data.filter((x) => x.project.category === list);
   const kindOptions = optionsFor(kind, options);
   const chosenRuntime = kindOptions.some((o) => o.value === runtime) ? runtime : (kindOptions[0]?.value ?? "Auto");
 
@@ -210,14 +193,23 @@ export function Sites({ category }: { category: Category }) {
     system.reload();
   }
 
+  function pickCategory(c: Category) {
+    if (c === category) return;
+    // Apps and Sites each make their own kind; Projects makes either.
+    if (list === "all") setPicked(c);
+    else showNewSite(c);
+  }
+
   async function create(e: FormEvent) {
     e.preventDefault();
-    await saveTld();
+    if (template.via === "clone" || template.via === "import") return;
+    if (address) await saveTld();
     setMade(null);
-    setMakingDomain(name + tldDraft);
+    const domain = name + tldDraft;
+    setMakingDomain(address ? domain : name);
     let ok: boolean;
-    if (inWordPress(kind)) {
-      setMaking(t("Getting ready to make the WordPress for {name}…", { name: name + tldDraft }));
+    if (template.via === "wordpress") {
+      setMaking(t("Making {name}…", { name }));
       let list: Site[] = [];
       ok = await attempt(async () => {
         list = await api.addProject({ name, kind, path: path.trim(), https });
@@ -226,17 +218,16 @@ export function Sites({ category }: { category: Category }) {
       if (ok) setMade(list.find((s) => s.name === name) ?? null);
     } else if (chosenStarter) {
       setMaking(t("Getting ready to make the {name} site…", { name: chosenStarter.name }));
-      setMakingDomain(name + tldDraft);
       let list: Site[] = [];
       ok = await attempt(async () => {
-        list = await api.addStarterSite({ name, starter: chosenStarter.id, path: path.trim(), https, category });
+        list = await api.addStarterSite({ name, starter: chosenStarter.id, path: path.trim(), https, category, address });
       });
       setMaking(null);
       if (ok) setMade(list.find((s) => s.name === name) ?? null);
     } else {
       // An empty folder means a new folder in the sites folder, made by the app.
-      setMaking(t("Making the folder and adding the site…"));
-      ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https, kind, category }));
+      setMaking(t("Making the folder and adding it…"));
+      ok = await attempt(() => api.addSite({ name, path: path.trim(), runtime: chosenRuntime, https, kind, category, address }));
       setMaking(null);
       if (ok) setMade((await api.listSites()).find((s) => s.name === name) ?? null);
     }
@@ -246,6 +237,12 @@ export function Sites({ category }: { category: Category }) {
     }
     sites.reload();
     system.reload();
+  }
+
+  function startClone() {
+    // Clones are made on the Sites screen.
+    if (!forSites) showScreen("Sites");
+    newClone();
   }
 
   function samePath(a: string, b: string) {
@@ -270,9 +267,13 @@ export function Sites({ category }: { category: Category }) {
     if (folder) setParkDraft(folder);
   }
 
-  async function remove(domain: string) {
-    if (await attempt(() => api.removeSite(domain))) closeTab(siteTab(domain));
+  function removed(site: Site, problem: string | null) {
+    setRemoving(null);
+    closeTab(siteTab(site.domain));
+    setError(problem);
+    if (made?.domain === site.domain) setMade(null);
     sites.reload();
+    parked.reload();
     system.reload();
   }
 
@@ -313,6 +314,12 @@ export function Sites({ category }: { category: Category }) {
     sites.reload();
   }
 
+  const createLabel = chosenStarter
+    ? t("Create {name}", { name: chosenStarter.name })
+    : template.via === "wordpress"
+      ? t("Create {name}", { name: t(template.name) })
+      : t("Create {what}", { what: t(category === "app" ? "App" : "Site").toLowerCase() });
+
   return (
     <>
       <header className="page-header">
@@ -322,13 +329,9 @@ export function Sites({ category }: { category: Category }) {
         </div>
         <div className="row">
           {forSites && isOn("wordpress") && isOn("remote") && (
-            <button type="button" className="btn" onClick={() => newClone()}>
-              {t("Clone from a live server…")}
-            </button>
-          )}
-          {isOn("sitetransfer") && (
-            <button type="button" className="btn" onClick={pickImport}>
-              Import site…
+            <button type="button" className="btn" onClick={startClone}>
+              <BrandIcon id="wordpress" />
+              {t("Clone a live WordPress site…")}
             </button>
           )}
         </div>
@@ -364,11 +367,14 @@ export function Sites({ category }: { category: Category }) {
           }}
         />
       )}
+      {removing && (
+        <RemoveDialog site={removing} onClose={() => setRemoving(null)} onRemoved={(problem) => removed(removing, problem)} />
+      )}
 
-      {system.data && system.data.needed.length > 0 && (
-        <section aria-labelledby="setup-h" className="card stack">
+      {system.data && system.data.needed.length > 0 && list !== "app" && (
+        <section aria-labelledby={ids("setup-h")} className="card stack">
           <div className="row between">
-            <h2 id="setup-h">Finish setting up local domains</h2>
+            <h2 id={ids("setup-h")}>Finish setting up local domains</h2>
             <button type="button" className="btn primary" onClick={setUp} disabled={settingUp}>
               {settingUp ? "Waiting for your password…" : "Set up"}
             </button>
@@ -387,7 +393,7 @@ export function Sites({ category }: { category: Category }) {
           </p>
         </section>
       )}
-      {system.data?.waiting_for_certificate && (
+      {system.data?.waiting_for_certificate && list !== "app" && (
         <p className="notice small">
           Start the web server once (Services › Caddy) to create the HTTPS certificate, then finish setup here.
         </p>
@@ -400,16 +406,18 @@ export function Sites({ category }: { category: Category }) {
       {made && (
         <p className="notice small row between centered" role="status">
           <span>
-            <span className="mono">{made.domain}</span> is ready.
-            {made.framework === "WordPress" && " Open it to finish WordPress's install (site title and your login)."}
+            {t("{name} is ready.", { name: made.address ? made.domain : made.name })}
+            {made.framework === "WordPress" && !inWordPress(made.project.kind) && " Open it to finish WordPress's install (site title and your login)."}
           </span>
           <span className="row">
             <button type="button" className="btn small" onClick={() => openTab(siteTab(made.domain))}>
               {t("Manage")}
             </button>
-            <button type="button" className="btn small primary" onClick={() => api.openLocalPage(made.url)}>
-              {t("Open")}
-            </button>
+            {made.address && (
+              <button type="button" className="btn small primary" onClick={() => api.openLocalPage(made.url)}>
+                {t("Open")}
+              </button>
+            )}
           </span>
         </p>
       )}
@@ -418,18 +426,18 @@ export function Sites({ category }: { category: Category }) {
         type="button"
         className="disclosure"
         aria-expanded={newSiteOpen}
-        aria-controls={`sites-top-${category}`}
+        aria-controls={ids("sites-top")}
         onClick={() => setLayout({ newSiteOpen: !newSiteOpen })}
       >
         <Icon name="chevron" />
-        {t("New and parked folders")}
+        {t("New project and parked folders")}
       </button>
 
       {newSiteOpen && (
-        <div id={`sites-top-${category}`} className="sites-top">
-          <form className="card stack form new-site" aria-labelledby={`new-h-${category}`} onSubmit={create}>
-            <h2 id={`new-h-${category}`}>{t("What are you making?")}</h2>
-            <div className="category-picker" role="group" aria-label={t("What are you making?")}>
+        <div id={ids("sites-top")} className="sites-top">
+          <form className="card stack form new-site" aria-labelledby={ids("new-h")} onSubmit={create}>
+            <h2 id={ids("new-h")}>{t("New project")}</h2>
+            <div className="category-picker" role="group" aria-label={t("Is it an app or a site?")}>
               {categories.map((c) => (
                 <button
                   key={c.id}
@@ -437,9 +445,9 @@ export function Sites({ category }: { category: Category }) {
                   className="category-choice"
                   aria-pressed={c.id === category}
                   disabled={making !== null}
-                  onClick={() => c.id !== category && showNewSite(c.id)}
+                  onClick={() => pickCategory(c.id)}
                 >
-                  <Icon name={SCREEN_ICON[CATEGORY_SCREEN[c.id]]} />
+                  <Icon name={CATEGORY_ICON[c.id]} />
                   <span>
                     <strong>{t(c.name)}</strong>
                     <span className="muted small">{t(c.hint)}</span>
@@ -448,149 +456,179 @@ export function Sites({ category }: { category: Category }) {
               ))}
             </div>
             <div className="field">
-              <span className="label" id={`f-start-${category}`}>
+              <span className="label" id={ids("f-start")}>
                 {t("Start from")}
               </span>
-              <div className="template-list" role="radiogroup" aria-labelledby={`f-start-${category}`}>
+              <div className="template-list" role="radiogroup" aria-labelledby={ids("f-start")}>
                 {templates.map((x) => (
                   <button
                     key={x.id}
                     type="button"
                     role="radio"
                     className="template-choice"
-                    aria-checked={x.id === template?.id}
+                    aria-checked={x.id === template.id}
                     disabled={making !== null}
                     title={t(x.description)}
-                    onClick={() => setTemplateId(x.id)}
+                    onClick={() => setTemplateIds((ids) => ({ ...ids, [category]: x.id }))}
                   >
-                    <BrandIcon id={x.brand} fallback={x.via === "folder" ? "folder" : "code"} />
+                    <BrandIcon id={x.brand} fallback={x.via === "import" ? "archive" : CATEGORY_ICON[category]} />
                     <span className="template-name">{t(x.name)}</span>
                   </button>
                 ))}
               </div>
-              {template && <span className="muted small">{t(template.description)}</span>}
+              <span className="muted small">{t(template.description)}</span>
             </div>
-            <div className="form-grid">
-              <div className="field">
-                <label htmlFor={`f-name-${category}`}>Name</label>
-                <div className="input-affix">
-                  <input
-                    id={`f-name-${category}`}
-                    className="mono"
-                    value={typedName}
-                    placeholder="hello"
-                    required
-                    autoComplete="off"
-                    spellCheck={false}
-                    aria-describedby={`f-name-hint-${category}`}
-                    title={t("Letters, numbers and dashes. Spaces and other characters become dashes.")}
-                    onChange={(e) => setTypedName(e.target.value)}
-                  />
-                  <span className="mono muted">{tldDraft}</span>
-                </div>
-                <span id={`f-name-hint-${category}`} className="muted small">
-                  {typedName && name !== typedName ? (
-                    name ? (
-                      <>
-                        The address will be <span className="mono">{name + tldDraft}</span>
-                      </>
-                    ) : (
-                      <span className="warn">Use letters or numbers</span>
-                    )
-                  ) : (
-                    "Letters, numbers and dashes"
-                  )}
-                </span>
+            {template.via === "clone" || template.via === "import" ? (
+              <div className="row">
+                <button type="button" className="btn primary" onClick={template.via === "clone" ? startClone : pickImport}>
+                  {template.via === "clone" ? t("Clone a live WordPress site…") : t("Pick the site file…")}
+                </button>
               </div>
-              <div className="field">
-                <label htmlFor={`f-folder-${category}`}>
-                  {kind === "wordpress-theme" ? t("Theme folder") : kind === "wordpress-plugin" ? t("Plugin folder") : t("Project folder")}
-                </label>
-                <div className="row folder-input">
-                  <input
-                    id={`f-folder-${category}`}
-                    className="mono grow"
-                    value={path}
-                    placeholder={folderFor(name || "hello")}
-                    onChange={(e) => setPath(e.target.value)}
-                  />
-                  <button type="button" className="btn" onClick={browseProject}>
-                    Browse…
+            ) : (
+              <>
+                <div className="form-grid">
+                  <div className="field">
+                    <label htmlFor={ids("f-name")}>Name</label>
+                    <div className="input-affix">
+                      <input
+                        id={ids("f-name")}
+                        className="mono"
+                        value={typedName}
+                        placeholder="hello"
+                        required
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-describedby={ids("f-name-hint")}
+                        title={t("Letters, numbers and dashes. Spaces and other characters become dashes.")}
+                        onChange={(e) => setTypedName(e.target.value)}
+                      />
+                      {ending && <span className="mono muted">{ending}</span>}
+                    </div>
+                    <span id={ids("f-name-hint")} className="muted small">
+                      {typedName && name !== typedName ? (
+                        name ? (
+                          <>
+                            {address ? "The address will be " : "It will be called "}
+                            <span className="mono">{name + ending}</span>
+                          </>
+                        ) : (
+                          <span className="warn">Use letters or numbers</span>
+                        )
+                      ) : (
+                        "Letters, numbers and dashes"
+                      )}
+                    </span>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={ids("f-folder")}>
+                      {kind === "wordpress-theme" ? t("Theme folder") : kind === "wordpress-plugin" ? t("Plugin folder") : t("Project folder")}
+                    </label>
+                    <div className="row folder-input">
+                      <input
+                        id={ids("f-folder")}
+                        className="mono grow"
+                        value={path}
+                        placeholder={folderFor(name || "hello")}
+                        onChange={(e) => setPath(e.target.value)}
+                      />
+                      <button type="button" className="btn" onClick={browseProject}>
+                        Browse…
+                      </button>
+                    </div>
+                  </div>
+                  {template.via === "folder" && (
+                    <div className="field">
+                      <label htmlFor={ids("f-rt")}>Runtime</label>
+                      <select id={ids("f-rt")} value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
+                        {kindOptions.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {address && template.via !== "wordpress" && (
+                    <div className="field">
+                      <label htmlFor={ids("f-tld")}>Domain ending</label>
+                      <input
+                        id={ids("f-tld")}
+                        className="mono"
+                        value={tldDraft}
+                        onChange={(e) => setTldDraft(e.target.value)}
+                        onBlur={saveTld}
+                      />
+                      {tldInfo.data.warning && <span className="warn small">{tldInfo.data.warning}</span>}
+                    </div>
+                  )}
+                </div>
+                <span className="muted small">
+                  Leave the folder empty to create <span className="mono">{folderFor(name || "hello")}</span>.
+                  {address && template.via !== "wordpress" && " The domain ending applies to new sites."}
+                  {chosenStarter && " A starter needs a new or empty folder."}
+                  {inWordPress(kind) &&
+                    " " +
+                      t("An empty folder gets a starting {what} to build on; a folder with files is used as it is.", {
+                        what: kind === "wordpress-theme" ? t("theme") : t("plugin"),
+                      })}
+                </span>
+                {making && (
+                  <div className="new-site-progress">
+                    <strong>{t("Creating {site}", { site: makingDomain })}</strong>
+                    <Progress label={t("Creating {site}", { site: makingDomain })} state={starterState(making)} />
+                    {chosenStarter && (
+                      <span className="muted small">{t("Downloads and setup can take a few minutes. You can keep using Stackyard.")}</span>
+                    )}
+                  </div>
+                )}
+                <div className="row between centered">
+                  {category === "site" ? (
+                    <label className="check">
+                      <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
+                      Secure with local HTTPS (SSL) certificate
+                    </label>
+                  ) : template.via === "wordpress" ? (
+                    <span />
+                  ) : (
+                    <span className="stack">
+                      <label className="check">
+                        <input type="checkbox" checked={appAddress} onChange={(e) => setAppAddress(e.target.checked)} />
+                        {t("Give it a local address ({address})", { address: `${name || "hello"}${tldDraft}` })}
+                      </label>
+                      {appAddress && (
+                        <label className="check">
+                          <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
+                          Secure with local HTTPS (SSL) certificate
+                        </label>
+                      )}
+                    </span>
+                  )}
+                  <button type="submit" className="btn primary" disabled={making !== null || !name}>
+                    {making ? t("Creating…") : createLabel}
                   </button>
                 </div>
-              </div>
-              {inWordPress(kind) || chosenStarter ? null : (
-                <div className="field">
-                  <label htmlFor={`f-rt-${category}`}>Runtime</label>
-                  <select id={`f-rt-${category}`} value={chosenRuntime} onChange={(e) => setRuntime(e.target.value)}>
-                    {kindOptions.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="field">
-                <label htmlFor={`f-tld-${category}`}>Domain ending</label>
-                <input
-                  id={`f-tld-${category}`}
-                  className="mono"
-                  value={tldDraft}
-                  onChange={(e) => setTldDraft(e.target.value)}
-                  onBlur={saveTld}
-                />
-                {tldInfo.data.warning && <span className="warn small">{tldInfo.data.warning}</span>}
-              </div>
-            </div>
-            <span className="muted small">
-              Leave the folder empty to create <span className="mono">{folderFor(name || "hello")}</span>. The domain
-              ending applies to new sites.
-              {chosenStarter && " A starter needs a new or empty folder."}
-              {inWordPress(kind) &&
-                " " +
-                  t("An empty folder gets a starting {what} to build on; a folder with files is used as it is.", {
-                    what: kind === "wordpress-theme" ? t("theme") : t("plugin"),
-                  })}
-            </span>
-            {making && (
-              <div className="new-site-progress">
-                <strong>{t("Creating {site}", { site: makingDomain })}</strong>
-                <Progress label={t("Creating {site}", { site: makingDomain })} state={starterState(making)} />
-                {(chosenStarter || inWordPress(kind)) && (
-                  <span className="muted small">{t("Downloads and setup can take a few minutes. You can keep using Stackyard.")}</span>
-                )}
-              </div>
+              </>
             )}
-            <div className="row between centered">
-              <label className="check">
-                <input type="checkbox" checked={https} onChange={(e) => setHttps(e.target.checked)} />
-                Secure with local HTTPS (SSL) certificate
-              </label>
-              <button type="submit" className="btn primary" disabled={making !== null || !name}>
-                {making ? t("Creating…") : chosenStarter ? t("Create {name}", { name: chosenStarter.name }) : inWordPress(kind) ? t("Create {name}", { name: t(template?.name ?? "") }) : t("Create {what}", { what: t(about.name).toLowerCase() })}
-              </button>
-            </div>
           </form>
 
-          <form className="card stack form parked" aria-labelledby={`park-h-${category}`} onSubmit={park}>
-            <h2 id={`park-h-${category}`}>Parked folders</h2>
+          <form className="card stack form parked" aria-labelledby={ids("park-h")} onSubmit={park}>
+            <h2 id={ids("park-h")}>Parked folders</h2>
             <p className="muted small">
-              {t("Every folder inside a parked folder shows up within a few seconds, named after the folder. A folder you make there yourself is a project; change its type in its Manage tab.")}
+              {t("Every folder inside a parked folder shows up within a few seconds, named after the folder: as a site when it has a start page or a framework, else as an app. Change it in its Manage tab.")}
             </p>
             {parked.data.map((folder) => (
               <div key={folder} className="list-row">
                 <span className="mono small">{folder}</span>
                 {samePath(folder, sitesFolder.data) ? (
-                  <span className="muted small">{t("New sites go here")}</span>
+                  <span className="muted small">{t("New projects go here")}</span>
                 ) : (
                   <button
                     type="button"
                     className="btn ghost small"
-                    aria-label={t("Make new sites in {folder}", { folder })}
+                    aria-label={t("Make new projects in {folder}", { folder })}
                     onClick={() => useForNewSites(folder)}
                   >
-                    {t("Use for new sites")}
+                    {t("Use for new projects")}
                   </button>
                 )}
                 <button
@@ -604,10 +642,10 @@ export function Sites({ category }: { category: Category }) {
               </div>
             ))}
             <div className="field">
-              <label htmlFor={`f-park-${category}`}>Folder</label>
+              <label htmlFor={ids("f-park")}>Folder</label>
               <div className="row folder-input">
                 <input
-                  id={`f-park-${category}`}
+                  id={ids("f-park")}
                   className="mono grow"
                   value={parkDraft}
                   placeholder={sitesFolder.data || "~/Code"}
@@ -649,6 +687,7 @@ export function Sites({ category }: { category: Category }) {
             {listed.length > 0 && (
               <SiteList
                 sites={listed}
+                list={list}
                 columns={4}
                 onError={setError}
                 renderSite={(site, parts) => (
@@ -656,14 +695,10 @@ export function Sites({ category }: { category: Category }) {
                     key={site.domain}
                     site={site}
                     parts={parts}
+                    kindShown={list === "all"}
                     size={sizes.data[site.domain]}
                     system={system.data}
-                    families={runtimes.data}
-                    onVersionChanged={() => {
-                      sites.reload();
-                      runtimes.reload();
-                    }}
-                    onRemove={remove}
+                    onRemove={setRemoving}
                     onOpen={(open) => void attempt(open)}
                   />
                 )}
@@ -685,9 +720,8 @@ function bytesText(bytes: number) {
 function SiteRow({
   site,
   parts,
+  kindShown,
   size,
-  families,
-  onVersionChanged,
   onRemove,
   onOpen,
   system,
@@ -695,16 +729,18 @@ function SiteRow({
   site: Site;
   /** Its drag handle and place in the order. */
   parts: RowParts;
+  /** Say whether it is an app or a site (on Projects, which lists both). */
+  kindShown: boolean;
   /** The site's size when its tab last measured it. */
   size?: SiteSize;
-  families: RuntimeFamily[];
-  onVersionChanged: () => void;
-  onRemove: (domain: string) => void;
+  onRemove: (site: Site) => void;
   /** Runs an open action, showing what went wrong if it fails. */
   onOpen: (open: () => Promise<unknown>) => void;
   system: SystemStatus | null;
 }) {
-  const address = siteAddress(site, system);
+  const t = useT();
+  const url = site.address ? siteAddress(site, system) : site.url;
+  const versions = versionsText(site);
   return (
     <tr {...parts.row}>
       <td>
@@ -712,11 +748,24 @@ function SiteRow({
           {parts.handle}
           <SiteThumb site={site} />
           <div>
-            <button type="button" className="link mono" onClick={() => api.openLocalPage(address)}>
-              {address}
-            </button>
+            {site.address ? (
+              <button type="button" className="link mono" onClick={() => api.openLocalPage(url)}>
+                {url}
+              </button>
+            ) : (
+              <strong className="mono">{site.name}</strong>
+            )}
             <div className="muted small">
-              {site.https ? "HTTPS" : "HTTP only"}
+              {kindShown && `${t(site.project.category === "app" ? "App" : "Site")} · `}
+              {site.address ? (site.https ? "HTTPS" : "HTTP only") : t("No .stack address")}
+              {!site.address && (
+                <>
+                  {" · "}
+                  <button type="button" className="link mono" onClick={() => api.openLocalPage(url)}>
+                    {url.replace(/^https?:\/\//, "")}
+                  </button>
+                </>
+              )}
               {site.parked && " · parked"}
               {size && ` · ${bytesText(size.total)}`}
             </div>
@@ -725,14 +774,13 @@ function SiteRow({
       </td>
       <td>
         {site.framework ? `${site.framework} · ` : ""}
-        {site.runtime}
+        {versions || site.runtime}
         {site.problem && <div className="warn small">{site.problem}</div>}
         <SiteDatabaseLine domain={site.domain} />
-        <SiteVersions site={site} families={families} onChanged={onVersionChanged} />
       </td>
       <td className="mono muted small">{site.root}</td>
       <td className="right nowrap">
-        <SiteActions site={site} manage onRun={onOpen} onRemove={() => onRemove(site.domain)} />
+        <SiteActions site={site} manage onRun={onOpen} onRemove={() => onRemove(site)} />
       </td>
     </tr>
   );

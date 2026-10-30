@@ -130,8 +130,7 @@ impl Starter {
     /// The list a new one goes in.
     pub fn category(self) -> Category {
         match self {
-            Starter::NodeServer => Category::App,
-            Starter::PythonScripts => Category::Project,
+            Starter::NodeServer | Starter::PythonScripts => Category::App,
             _ => Category::Site,
         }
     }
@@ -906,7 +905,7 @@ mod tests {
         }
         assert_eq!(Starter::from_id("drupal"), None);
         assert_eq!(list().len(), Starter::ALL.len());
-        assert_eq!(Starter::PythonScripts.category(), Category::Project);
+        assert_eq!(Starter::PythonScripts.category(), Category::App);
         assert_eq!(Starter::NodeServer.category(), Category::App);
         assert_eq!(Starter::React.category(), Category::Site);
     }

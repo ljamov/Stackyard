@@ -77,7 +77,7 @@ export function SiteThumb({ site, large = false }: { site: Site; large?: boolean
         <img src={url} alt={t("The home page of {site}", { site: site.domain })} loading="lazy" draggable={false} />
       ) : (
         <span className="site-thumb-empty" aria-hidden="true">
-          <BrandIcon id={siteBrand(site) ?? ""} fallback="sites" />
+          <BrandIcon id={siteBrand(site) ?? ""} fallback={site.project.category === "app" ? "apps" : "sites"} />
         </span>
       )}
       {large ? (

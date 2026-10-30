@@ -2,8 +2,10 @@
 // them. The app keeps it (site-order.toml) and lists sites in this order
 // everywhere; these helpers make the changes a drag or an arrow key asks for.
 
-/** A top-level entry: a site, or a group holding sites in order. */
-export type SiteItem = { site: string } | { group: string; sites: string[]; collapsed?: boolean };
+/** A top-level entry: a site, or a group holding sites in order. A group
+ * belongs to the list it was made in (`app` or `site`); one without shows
+ * where its sites are. */
+export type SiteItem = { site: string } | { group: string; sites: string[]; collapsed?: boolean; list?: "app" | "site" };
 export type SiteGroup = Extract<SiteItem, { group: string }>;
 
 export const isGroup = (i: SiteItem): i is SiteGroup => "group" in i;
@@ -29,6 +31,49 @@ export function arrange(items: SiteItem[], domains: string[]): SiteItem[] {
   }
   for (const d of domains) if (take(d)) out.push({ site: d });
   return out;
+}
+
+/**
+ * What one list (Projects, Apps or Sites) shows of the whole arrangement:
+ * its own sites, and the groups that belong to it. A group of no list shows
+ * where it holds a site; on Projects every group shows.
+ */
+export function shownIn(items: SiteItem[], list: "all" | "app" | "site", shown: Set<string>): SiteItem[] {
+  return items
+    .filter((i) => (isGroup(i) ? groupShown(i, list, shown) : shown.has(i.site)))
+    .map((i) => (isGroup(i) ? { ...i, sites: i.sites.filter((d) => shown.has(d)) } : i));
+}
+
+function groupShown(g: SiteGroup, list: "all" | "app" | "site", shown: Set<string>) {
+  if (list === "all") return true;
+  if (g.list) return g.list === list;
+  return g.sites.some((d) => shown.has(d));
+}
+
+/**
+ * Puts one list's changed arrangement back into the whole one, leaving
+ * what the list doesn't show (the other list's sites and groups) where it
+ * was. A group keeps the sites it holds that this list doesn't show.
+ */
+export function mergeShown(all: SiteItem[], list: "all" | "app" | "site", shown: Set<string>, next: SiteItem[]): SiteItem[] {
+  const hiddenOf = new Map(
+    all.filter(isGroup).map((g) => [g.group, g.sites.filter((d) => !shown.has(d))] as const),
+  );
+  const filled = next.map((i) => (isGroup(i) ? { ...i, sites: [...i.sites, ...(hiddenOf.get(i.group) ?? [])] } : i));
+  const kept = new Set(next.filter(isGroup).map((g) => g.group));
+  const out: SiteItem[] = [];
+  let k = 0;
+  for (const i of all) {
+    const visible = isGroup(i) ? groupShown(i, list, shown) : shown.has(i.site);
+    if (!visible) {
+      // A group this list doesn't show, unless it was renamed into one.
+      if (!(isGroup(i) && kept.has(i.group))) out.push(i);
+    } else if (k < filled.length) out.push(filled[k++]);
+  }
+  out.push(...filled.slice(k));
+  // A site a group in `next` now holds isn't listed at the top as well.
+  const inGroups = new Set(out.filter(isGroup).flatMap((g) => g.sites));
+  return out.filter((i) => isGroup(i) || !inGroups.has(i.site) || false);
 }
 
 /** The domains in the order they are listed, groups unfolded. */

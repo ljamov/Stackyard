@@ -112,15 +112,15 @@ export function useWorkbenchCommands({
         : []),
       ...sites.map((site) => ({
         id: `site.open.${site.domain}`,
-        category: t("Sites"),
-        title: t("Open {name} in your browser", { name: site.domain }),
+        category: site.project.category === "app" ? t("Apps") : t("Sites"),
+        title: t("Open {name} in your browser", { name: site.address ? site.domain : site.name }),
         run: () => void api.openLocalPage(site.url),
       })),
       ...(terminalOn
         ? sites.map((site) => ({
             id: `site.terminal.${site.domain}`,
-            category: t("Sites"),
-            title: t("Open a terminal in {name}", { name: site.domain }),
+            category: site.project.category === "app" ? t("Apps") : t("Sites"),
+            title: t("Open a terminal in {name}", { name: site.address ? site.domain : site.name }),
             run: () => openTerminal(site.project.folder, site.domain),
           }))
         : []),
@@ -166,8 +166,8 @@ export function useWorkbenchCommands({
     const places: Command[] = [
       ...sites.map((site) => ({
         id: `place.site.${site.domain}`,
-        category: t("Sites"),
-        title: site.domain,
+        category: site.project.category === "app" ? t("Apps") : t("Sites"),
+        title: site.address ? site.domain : site.name,
         detail: site.runtime,
         run: () => openTab(siteTab(site.domain)),
       })),
