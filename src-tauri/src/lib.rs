@@ -2422,6 +2422,8 @@ pub fn run() {
             wordpress::wp_woo_create,
             wordpress::wp_saved_connections,
             wordpress::wp_clone_inspect,
+            wordpress::wp_clone_inspect_stop,
+            wordpress::wp_backup_forget,
             wordpress::wp_clone,
             wordpress::wp_clone_check,
             wordpress::wp_clone_stop,

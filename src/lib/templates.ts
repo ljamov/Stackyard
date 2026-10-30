@@ -13,7 +13,7 @@ export type Template = { id: string; name: string; description: string; brand: s
   | { via: "wordpress"; kind: ProjectKind }
   /** A copy of a live WordPress site, made in the Clone form. */
   | { via: "clone" }
-  /** A site from a Stackyard export file or a backup. */
+  /** A site from a Stackyard export file or a backup, on the Import backup screen. */
   | { via: "import" }
 );
 
@@ -54,7 +54,7 @@ export function templatesFor(
       ? [{ id: "clone", name: "Clone a live WordPress", description: "Copy a WordPress site from its server (FTP or SFTP) with its database", brand: "wordpress", via: "clone" } as Template]
       : []),
     ...(can.import
-      ? [{ id: "import", name: "Import a site file", description: "A site packed by Stackyard (Backups › Export), with its files and database", brand: "", via: "import" } as Template]
+      ? [{ id: "import", name: "Import a backup", description: "A Stackyard Connect export (.tar), a hosting panel backup, or a site packed by Stackyard (Backups › Export), on the Import backup screen", brand: "", via: "import" } as Template]
       : []),
   ];
 }

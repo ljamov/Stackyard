@@ -18,6 +18,7 @@ export const SCREEN_ICON: Record<Screen, IconName> = {
   Projects: "projects",
   Apps: "apps",
   Sites: "sites",
+  "Import backup": "import",
   Services: "services",
   Runtimes: "runtimes",
   Logs: "logs",

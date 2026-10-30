@@ -414,6 +414,11 @@ details summary { cursor: pointer; color: var(--text-2); }
 .images-top > .card { flex: 1 1 360px; min-width: 0; }
 .drop-zone { border: 1px dashed var(--border); border-radius: 4px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .drop-zone p { margin: 0; }
+.import-drop { min-height: 180px; align-items: center; justify-content: center; text-align: center; border-width: 2px; transition: border-color 0.15s, background 0.15s; }
+.import-drop > svg { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
+.import-drop > .codicon { font-size: 32px; color: var(--muted); }
+.import-drop[data-over] { border-color: var(--accent); background: var(--surface-2); }
+.import-drop[data-over] > svg { color: var(--accent); }
 .images-top .grow { flex: 1 1 auto; min-width: 0; }
 .banner { display: flex; flex-direction: column; gap: 6px; border: 1px solid; border-radius: 4px; padding: 12px 16px; margin-bottom: 20px; }
 .banner p, .banner ul { margin: 0; }

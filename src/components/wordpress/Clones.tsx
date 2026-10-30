@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../../lib/i18n";
-import { clonePercent, closeClone, pauseClone, retryClone, showClone, stopClone, useClones, type Clone } from "../../lib/clones";
+import { cloneScreen, clonePercent, closeClone, pauseClone, retryClone, showClone, stopClone, useClones, type Clone } from "../../lib/clones";
 import { stageText } from "./CloneSite";
 import { size } from "./WordPressTools";
+import type { WpCloneProgress } from "../../lib/wordpress";
 
 /** A running clone's bar: the stage, what it is doing, and for files how much is downloaded. */
 export function CloneProgress({ clone }: { clone: Clone }) {
   const t = useT();
-  const p = clone.progress;
+  return <StepProgress progress={clone.progress} label={t("Cloning {domain}", { domain: `${clone.name}.stack` })} />;
+}
+
+/** A clone's or a Look for WordPress's bar, from its progress events. */
+export function StepProgress({ progress: p, label }: { progress: WpCloneProgress | null; label: string }) {
+  const t = useT();
   const percent = clonePercent(p);
-  const bytes = p?.stage === "files" && p.total > 0 ? `${size(p.done)} / ${size(p.total)}` : null;
+  // Files and the database being loaded count bytes.
+  const bytes = (p?.stage === "files" || p?.stage === "loading") && p.total > 0 ? `${size(p.done)} / ${size(p.total)}` : null;
   const message = p ? p.message : t("Starting…");
   // The amount sits at a fixed spot above the bar; the changing file name goes
   // on its own line below, cut to one line, so a long path never moves it.
@@ -24,7 +31,7 @@ export function CloneProgress({ clone }: { clone: Clone }) {
       <div
         className="progress"
         role="progressbar"
-        aria-label={t("Cloning {domain}", { domain: `${clone.name}.stack` })}
+        aria-label={label}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent ?? undefined}
@@ -89,7 +96,7 @@ export function ClonesList({ onShow, minimized = false }: { onShow: (id: string)
 }
 
 /** The status bar's clones item: how many run, and a list of all of them over the bar. */
-export function ClonesStatus({ onOpenSites }: { onOpenSites: () => void }) {
+export function ClonesStatus({ onOpenSites }: { onOpenSites: (screen: "Sites" | "Import backup") => void }) {
   const t = useT();
   const clones = useClones().filter((c) => c.state !== "new");
   const [open, setOpen] = useState(false);
@@ -145,7 +152,7 @@ export function ClonesStatus({ onOpenSites }: { onOpenSites: () => void }) {
             onShow={(id) => {
               showClone(id);
               setOpen(false);
-              onOpenSites();
+              onOpenSites(cloneScreen(id));
             }}
           />
         </div>

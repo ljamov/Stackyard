@@ -6,6 +6,20 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Import backup.** A screen of its own in the side bar: drop a backup on the box, or type or
+  browse to its path, and Stackyard makes the site from it. It takes an export from the Stackyard
+  Connect plugin (.tar), a hosting panel backup, a zip of the site with its .sql, or a site file
+  packed by Stackyard. Backups dropped on the Sites screen go there too.
+
+- **Backups unpack once, with a progress bar.** Look for WordPress shows how much of the backup
+  is unpacked (e.g. 1.0 GB / 2.8 GB · 40%) and can be stopped; the clone after uses what it
+  unpacked instead of unpacking it all again. Copying the files to another drive and loading the
+  database show how far they are too. A button that can't be pressed yet says what it waits for.
+
+- **A file that can't be unpacked no longer stops the import.** It is left out and named in the
+  notes with the reason. WordPress's leftovers from updates (`wp-content/upgrade`), caches and
+  backups kept inside the site are not unpacked at all.
+
 - **Plugin and theme zips land in the project's folder.** Build .zip in a WordPress plugin or theme's
   Manage tab now saves to `dist\` in the project's own folder (not Stackyard's data folder), shows
   that path, and Open folder opens it. A `dist\.gitignore` keeps the zips out of Git, and zips are
