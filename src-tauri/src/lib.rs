@@ -860,6 +860,17 @@ fn sites_folder() -> CmdResult<String> {
     Ok(settings.sites_folder(&paths::home()).display().to_string())
 }
 
+/// Picks the folder new sites are created in.
+#[tauri::command]
+fn set_sites_folder(path: String) -> CmdResult<String> {
+    let mut settings = Settings::load().map_err(err)?;
+    let folder = settings
+        .set_sites_folder(std::path::Path::new(path.trim()))
+        .map_err(err)?;
+    settings.save().map_err(err)?;
+    Ok(folder.display().to_string())
+}
+
 /// Empties every log so each starts again from nothing.
 #[tauri::command]
 fn clear_logs() -> CmdResult<usize> {
@@ -2331,6 +2342,8 @@ pub fn run() {
             sitetools::remove_site_backup,
             sitetools::open_site_backups,
             sitetools::open_site_folder,
+            sitetools::change_site_folder,
+            sitetools::move_site,
             sitetools::code_editors,
             sitetools::set_code_editor,
             sitetools::open_site_in_editor,
@@ -2410,6 +2423,7 @@ pub fn run() {
             setup_apply,
             setup_finish,
             sites_folder,
+            set_sites_folder,
             db_server,
             db_servers,
             db_list,

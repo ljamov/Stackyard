@@ -4,6 +4,21 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Sites follow their folder to another drive.** A site whose folder was moved into a parked
+  folder (say, from C:\stackyard\www to D:\Sites) now uses the new folder by itself and keeps its
+  settings, database and connections, instead of showing the old path. Before, the old entry won
+  and the moved copy was ignored.
+
+- **Move a site, or change its folder.** A site's Settings has Move to another folder (copies
+  everything there, another drive works too, and removes the old folder only once the copy is
+  complete) and Change folder (points the site at a folder you already copied).
+
+- **New sites go into the parked folder.** Parking a folder when new sites went into one that
+  isn't parked now makes new sites go there, and each parked folder has Use for new sites.
+  Before, New project kept using the first folder from setup.
+
 ## 0.18.0
 
 - **Put a site made here on a host.** A WordPress site that isn't a copy of a live one gets a

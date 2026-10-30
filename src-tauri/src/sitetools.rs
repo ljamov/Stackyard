@@ -101,6 +101,8 @@ pub struct SiteSettingsView {
     php: bool,
     /// The port a start command gets in `PORT`, if the site has one.
     port: Option<u16>,
+    /// The project folder.
+    folder: String,
 }
 
 #[tauri::command]
@@ -120,6 +122,7 @@ pub fn site_settings(domain: String) -> CmdResult<SiteSettingsView> {
         php: site.runtime.kind() == Some(RuntimeKind::Php),
         port: site.runtime.port(),
         parked,
+        folder: site.path.display().to_string(),
         settings: site.settings,
     })
 }
@@ -184,6 +187,107 @@ pub fn save_site_settings(
     Ok(SavedSettings {
         sites: site_views()?,
         domain: after.domain(),
+    })
+}
+
+/// Stops what runs from a site's folder (its dev or app server and its own
+/// PHP process), so the folder can change; the web server starts them again.
+fn stop_site_processes(engine: &Engine, site: &Site) {
+    let dev = stackyard_core::web::dev_server_id(&site.key());
+    let own = format!("-{}", site.domain());
+    for (id, state) in engine.supervisor().states() {
+        let stopped = state == stackyard_core::supervisor::ProcessState::Stopped;
+        let its_own = id == dev || (id.starts_with("php-") && id.ends_with(&own));
+        if its_own && !stopped {
+            let _ = engine.supervisor().stop(&id);
+        }
+    }
+}
+
+/// A site that was added (not one from a parked folder), to change its folder.
+fn added_site(domain: &str) -> CmdResult<Site> {
+    let (site, parked) = find_site(domain)?;
+    if parked {
+        return Err("This site comes from a parked folder, so its folder is where it is. Move the folder in your file manager instead.".into());
+    }
+    Ok(site)
+}
+
+/// Points a site at another folder, e.g. a copy on another drive. Its
+/// settings, database and connections stay as they are.
+#[tauri::command]
+pub fn change_site_folder(
+    app: AppHandle,
+    domain: String,
+    path: String,
+) -> CmdResult<Vec<SiteView>> {
+    let site = added_site(&domain)?;
+    let mut store = SiteStore::load().map_err(err)?;
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    stop_site_processes(&engine, &site);
+    store
+        .set_folder(&domain, std::path::Path::new(path.trim()))
+        .map_err(err)?;
+    store.save().map_err(err)?;
+    stackyard_core::thumbnails::forget(&paths::home(), &domain);
+    sites_changed(&app);
+    site_views()
+}
+
+/// How a site move is going, sent to the window as `site-move-progress`.
+#[derive(Clone, Serialize)]
+struct MoveProgress {
+    site: String,
+    done: u64,
+    total: u64,
+}
+
+#[derive(Serialize)]
+pub struct MovedSite {
+    sites: Vec<SiteView>,
+    /// Where the site's folder is now.
+    path: String,
+    /// Some of the old folder could not be removed; the new one is complete.
+    left_behind: Option<String>,
+}
+
+/// Moves a site's folder into `into` (e.g. a folder on another drive) and
+/// points the site there. The old folder goes only once everything is copied.
+#[tauri::command]
+pub async fn move_site(app: AppHandle, domain: String, into: String) -> CmdResult<MovedSite> {
+    let site = added_site(&domain)?;
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    let worker = app.clone();
+    let name = domain.clone();
+    let (path, left) = blocking(move || {
+        stop_site_processes(&engine, &site);
+        let mut last = Instant::now() - Duration::from_secs(1);
+        let into = paths::expand_home(std::path::Path::new(into.trim()));
+        stackyard_core::sites::move_folder(&site.path, &into, &mut |done, total| {
+            if done == total || last.elapsed() >= Duration::from_millis(100) {
+                last = Instant::now();
+                let _ = worker.emit(
+                    "site-move-progress",
+                    MoveProgress {
+                        site: name.clone(),
+                        done,
+                        total,
+                    },
+                );
+            }
+        })
+        .map(|(path, left)| (path, left.then(|| site.path.display().to_string())))
+        .map_err(err)
+    })
+    .await?;
+    let mut store = SiteStore::load().map_err(err)?;
+    store.set_folder(&domain, &path).map_err(err)?;
+    store.save().map_err(err)?;
+    sites_changed(&app);
+    Ok(MovedSite {
+        sites: site_views()?,
+        path: path.display().to_string(),
+        left_behind: left,
     })
 }
 

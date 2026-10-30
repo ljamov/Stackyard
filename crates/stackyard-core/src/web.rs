@@ -179,7 +179,12 @@ pub fn sites(
     settings: &Settings,
     runtimes: &RuntimeManager,
 ) -> Result<Vec<ServedSite>> {
-    let store = SiteStore::load_from(&home.join("sites.toml"))?;
+    let mut store = SiteStore::load_from(&home.join("sites.toml"))?;
+    // Projects moved to a parked folder (say, on another drive) take their
+    // site along instead of leaving it on a folder that is gone.
+    if !store.relink_moved(&settings.parked).is_empty() {
+        store.save()?;
+    }
     let mut served: Vec<ServedSite> = store
         .list()
         .iter()
@@ -195,6 +200,14 @@ pub fn sites(
     for folder in &settings.parked {
         for (name, path) in project_folders(folder) {
             if settings.hidden.contains(&path) {
+                continue;
+            }
+            // Already served as a site the user added, under its own name.
+            if store
+                .list()
+                .iter()
+                .any(|s| crate::sites::same_folder(&s.path, &path))
+            {
                 continue;
             }
             let site = parked_site(name, path, settings, runtimes);
@@ -980,6 +993,65 @@ mod tests {
         assert_eq!(names, ["shop.stack", "landing-page.stack"]);
         assert!(settings.unhide(&code.join("blog")));
         assert_eq!(sites(&home, &settings, &runtimes).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn moved_sites_follow_their_folder_into_a_parked_folder() {
+        let home = crate::testutil::tempdir();
+        let old = home.join("C/www");
+        let new = home.join("D/Sites");
+        touch(&new.join("shop/index.php"));
+        touch(&new.join("blog/index.php"));
+        touch(&old.join("blog/index.php"));
+        let mut store = SiteStore::load_from(&home.join("sites.toml")).unwrap();
+        for name in ["shop", "blog"] {
+            store
+                .add(Site {
+                    name: name.into(),
+                    tld: ".stack".into(),
+                    path: old.join(name),
+                    runtime: SiteRuntime::Static,
+                    https: true,
+                    dev_server: false,
+                    settings: crate::sites::SiteSettings {
+                        command: Some("npm start".into()),
+                        ..Default::default()
+                    },
+                })
+                .unwrap();
+        }
+        store.save().unwrap();
+
+        let mut settings = Settings::default();
+        settings.park(&new).unwrap();
+        let runtimes = RuntimeManager::new(&home);
+        let served = sites(&home, &settings, &runtimes).unwrap();
+        // The moved one now uses its new folder and keeps its settings; the
+        // one still in its old folder stays there. Neither shows up twice.
+        let paths: Vec<_> = served
+            .iter()
+            .map(|s| (s.domain(), s.site.path.clone(), s.parked))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                ("shop.stack".to_string(), new.join("shop"), false),
+                ("blog.stack".to_string(), old.join("blog"), false),
+            ]
+        );
+        assert!(served[0].site.settings.command.is_some());
+        // And it is saved.
+        let store = SiteStore::load_from(&home.join("sites.toml")).unwrap();
+        assert_eq!(store.list()[0].path, new.join("shop"));
+
+        // A site pointed at a folder inside the parked folder under another
+        // name is not listed twice.
+        let mut store = SiteStore::load_from(&home.join("sites.toml")).unwrap();
+        store.set_folder("blog", &new.join("blog")).unwrap();
+        store.save().unwrap();
+        let served = sites(&home, &settings, &runtimes).unwrap();
+        assert_eq!(served.len(), 2);
+        assert!(served.iter().all(|s| !s.parked));
     }
 
     #[test]

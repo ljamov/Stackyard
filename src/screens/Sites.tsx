@@ -201,6 +201,11 @@ export function Sites() {
     system.reload();
   }
 
+  function samePath(a: string, b: string) {
+    const spell = (p: string) => p.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
+    return spell(a) === spell(b);
+  }
+
   function folderFor(site: string) {
     const base = sitesFolder.data;
     if (!base) return `~/Code/${site}`;
@@ -224,9 +229,16 @@ export function Sites() {
     system.reload();
   }
 
+  async function useForNewSites(folder: string) {
+    await attempt(() => api.setSitesFolder(folder));
+    sitesFolder.reload();
+  }
+
   async function park(e: FormEvent) {
     e.preventDefault();
     if (await attempt(() => api.parkFolder(parkDraft))) setParkDraft("");
+    // Parking can change where new sites go.
+    sitesFolder.reload();
     parked.reload();
     sites.reload();
     system.reload();
@@ -234,6 +246,7 @@ export function Sites() {
 
   async function unpark(folder: string) {
     await attempt(() => api.unparkFolder(folder));
+    sitesFolder.reload();
     parked.reload();
     sites.reload();
     system.reload();
@@ -510,6 +523,18 @@ export function Sites() {
             {parked.data.map((folder) => (
               <div key={folder} className="list-row">
                 <span className="mono small">{folder}</span>
+                {samePath(folder, sitesFolder.data) ? (
+                  <span className="muted small">{t("New sites go here")}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn ghost small"
+                    aria-label={t("Make new sites in {folder}", { folder })}
+                    onClick={() => useForNewSites(folder)}
+                  >
+                    {t("Use for new sites")}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn ghost small"

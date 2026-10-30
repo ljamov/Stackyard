@@ -56,7 +56,13 @@ export type SiteSettingsInfo = {
   detected_database: SiteDatabase | null;
   php: boolean;
   port: number | null;
+  /** The project folder. */
+  folder: string;
 };
+
+/** What a site move did; `left_behind` is the old folder when some of it could not be removed. */
+export type MovedSite = { sites: Site[]; path: string; left_behind: string | null };
+export type SiteMoveProgress = { site: string; done: number; total: number };
 
 export type SiteBackup = { site: string; file: string; size: number; created: number; database: string | null };
 
@@ -715,6 +721,8 @@ export interface Api {
   listParked(): Promise<string[]>;
   /** Where new sites get their folder. */
   sitesFolder(): Promise<string>;
+  /** Picks where new sites get their folder; answers it as saved. */
+  setSitesFolder(path: string): Promise<string>;
   /** Opens the system's folder picker; null when cancelled. */
   pickFolder(title: string, start?: string): Promise<string | null>;
   phpMyAdminStatus(): Promise<PhpMyAdminStatus>;
@@ -841,6 +849,11 @@ export interface Api {
   openSiteBackups(domain: string): Promise<void>;
   /** Opens the site's own folder in the file manager. */
   openSiteFolder(domain: string): Promise<void>;
+  /** Points an added site at another folder; its settings stay. */
+  changeSiteFolder(domain: string, path: string): Promise<Site[]>;
+  /** Moves an added site's folder into `into` (e.g. on another drive) and points the site there. */
+  moveSite(domain: string, into: string): Promise<MovedSite>;
+  onSiteMoveProgress(handler: (p: SiteMoveProgress) => void): Promise<() => void>;
   /** Opens the site's folder in the code editor picked in Settings. */
   openSiteInEditor(domain: string): Promise<void>;
   codeEditors(): Promise<CodeEditors>;
@@ -955,6 +968,7 @@ const tauriApi: Api = {
   removeSite: (name) => invoke("remove_site", { name }),
   listParked: () => invoke("list_parked"),
   sitesFolder: () => invoke("sites_folder"),
+  setSitesFolder: (path) => invoke("set_sites_folder", { path }),
   pickFolder: async (title, start) => {
     const picked = await openDialog({ directory: true, multiple: false, title, defaultPath: start || undefined });
     return typeof picked === "string" ? picked : null;
@@ -1055,6 +1069,9 @@ const tauriApi: Api = {
   removeSiteBackup: (domain, file) => invoke("remove_site_backup", { domain, file }),
   openSiteBackups: (domain) => invoke("open_site_backups", { domain }),
   openSiteFolder: (domain) => invoke("open_site_folder", { domain }),
+  changeSiteFolder: (domain, path) => invoke("change_site_folder", { domain, path }),
+  moveSite: (domain, into) => invoke("move_site", { domain, into }),
+  onSiteMoveProgress: (handler) => listen<SiteMoveProgress>("site-move-progress", (e) => handler(e.payload)),
   openSiteInEditor: (domain) => invoke("open_site_in_editor", { domain }),
   codeEditors: () => invoke("code_editors"),
   setCodeEditor: (id) => invoke("set_code_editor", { id }),
@@ -1347,6 +1364,8 @@ function browserApi(): Api {
   ];
   let siteLayout: SiteItem[] = [];
   let parked = ["~/Code"];
+  let mockSitesFolder = "C:\\stackyard\\www";
+  const moveListeners = new Set<(p: SiteMoveProgress) => void>();
   const autostart = new Set<string>();
   /** The sample WordPress site keeps its database in MySQL; the others have none. */
   const sizes: Record<string, SiteSize> = {};
@@ -1753,7 +1772,8 @@ function browserApi(): Api {
       return sites;
     },
     listParked: async () => parked,
-    sitesFolder: async () => "C:\\stackyard\\www",
+    sitesFolder: async () => mockSitesFolder,
+    setSitesFolder: async (path) => (mockSitesFolder = path),
     pickFolder: async (_title, start) => window.prompt("Folder", start ?? "") || null,
     setupStatus: async () => ({
       needed: new URLSearchParams(location.search).has("setup"),
@@ -2205,6 +2225,7 @@ function browserApi(): Api {
         detected_database: site.framework === "WordPress" ? { server: "mysql", name: site.name } : null,
         php: site.runtime.startsWith("PHP"),
         port: site.runtime.startsWith("PHP") || site.runtime === "Static" ? null : 3000,
+        folder: site.path,
       };
     },
     saveSiteSettings: async (domain, tld, https, settings) => {
@@ -2255,6 +2276,30 @@ function browserApi(): Api {
     },
     openSiteBackups: async () => {},
     openSiteFolder: async () => {},
+    changeSiteFolder: async (domain, path) => {
+      if (!path.trim()) throw "choose a folder";
+      sites = sites.map((s) => (s.domain === domain ? { ...s, path } : s));
+      sitesChanged();
+      return sites;
+    },
+    moveSite: async (domain, into) => {
+      const site = sites.find((s) => s.domain === domain);
+      if (!site) throw `no site named ${domain}`;
+      const sep = into.includes("\\") ? "\\" : "/";
+      const path = `${into.replace(/[\\/]+$/, "")}${sep}${site.path.split(/[\\/]/).pop()}`;
+      const total = 48_000_000;
+      for (let done = 0; done <= total; done += total / 8) {
+        moveListeners.forEach((h) => h({ site: domain, done, total }));
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      sites = sites.map((s) => (s.domain === domain ? { ...s, path } : s));
+      sitesChanged();
+      return { sites, path, left_behind: null };
+    },
+    onSiteMoveProgress: async (handler) => {
+      moveListeners.add(handler);
+      return () => moveListeners.delete(handler);
+    },
     openSiteInEditor: async () => {},
     codeEditors: async () => previewEditors(),
     setCodeEditor: async (id) => {
