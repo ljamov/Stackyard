@@ -17,6 +17,7 @@ import { stageText } from "./CloneSite";
 import { FileGroups, MovePosts, SettingList, SwitchList, Undo, UndoWith, when } from "./Merge";
 import { size } from "./WordPressTools";
 import { useBusy } from "../../lib/tabLife";
+import { codeProblem, LiveLinkStatus } from "./LiveLink";
 import { duration, SyncPreview, syncPlan, SyncSteps, type SyncPlan } from "./SyncSteps";
 
 type Live = NonNullable<WpEnvironment["live"]>;
@@ -96,6 +97,9 @@ export function LivePanel({ domain, main, live, ask }: { domain: string; main: s
   }, [ask]);
   const [mode, setMode] = useState<"changes" | "posts">("changes");
   const [backupsShown, setBackupsShown] = useState(false);
+  // Bumped when a push or pull fails for want of a working code, so the status above checks again.
+  const [linkRound, setLinkRound] = useState(0);
+  const onError = useCallback((e: string) => codeProblem(e) && setLinkRound((n) => n + 1), []);
   if (live.route === "files") {
     return (
       <section className="stack" aria-label={t("Live site")}>
@@ -110,6 +114,7 @@ export function LivePanel({ domain, main, live, ask }: { domain: string; main: s
       <p className="muted small">
         <span className="mono">{live.url}</span> · {live.synced_at ? t("last in step {date}", { date: when(live.synced_at) }) : t("never in step yet")}
       </p>
+      <LiveLinkStatus domain={domain} way={way} round={linkRound} />
       <div className="stack tight">
         <div className="row" role="radiogroup" aria-label={t("Which way")}>
           <label className="row small">
@@ -132,7 +137,7 @@ export function LivePanel({ domain, main, live, ask }: { domain: string; main: s
           </label>
         </div>
       </div>
-      {mode === "changes" ? <SyncChanges key={way} domain={domain} main={main} way={way} /> : <LivePosts key={way} domain={domain} way={way} />}
+      {mode === "changes" ? <SyncChanges key={way} domain={domain} main={main} way={way} onError={onError} /> : <LivePosts key={way} domain={domain} way={way} />}
       <details open={backupsShown} onToggle={(e) => setBackupsShown((e.target as HTMLDetailsElement).open)}>
         <summary className="small">{t("Backups of the live site")}</summary>
         {backupsShown && <LiveBackups domain={domain} />}
@@ -141,7 +146,7 @@ export function LivePanel({ domain, main, live, ask }: { domain: string; main: s
   );
 }
 
-function SyncChanges({ domain, main, way }: { domain: string; main: string; way: WpWay }) {
+function SyncChanges({ domain, main, way, onError }: { domain: string; main: string; way: WpWay; onError: (error: string) => void }) {
   const t = useT();
   const [list, setList] = useState<WpSyncChanges | null>(null);
   const [files, setFiles] = useState<Set<string>>(new Set());
@@ -170,6 +175,7 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
       return await job();
     } catch (e) {
       setError(errorText(e));
+      onError(errorText(e));
     } finally {
       setBusy(null);
       setProgress(null);

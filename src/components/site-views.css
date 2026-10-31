@@ -269,3 +269,14 @@
 .sync-steps .next {
   color: var(--muted);
 }
+
+/* The themes and plugins a clone copies, under the file sizes. */
+.clone-items {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+}

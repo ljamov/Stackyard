@@ -6,6 +6,18 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **A connection code that stopped working can be replaced right on the Live site tab.** The top
+  of Manage › Servers & Git › Live site says how the copy reaches the live site: through Stackyard
+  Connect (its version, and whether the code can push or only pull) or with SFTP/FTP as which
+  user, with Check connection. When the code was stopped, replaced by a newer one or ran out, it
+  says so and gives a box to paste the new code; Stackyard checks the code is from the same site,
+  keeps it in the system's password store and checks it again. A code that can only copy gets the
+  same box when you pick Push. Tools › Stackyard is now called Tools › Stackyard Connect
+  everywhere, as the plugin names it from 0.3.0.
+- **Cloning with a connection code shows what will be copied.** With Stackyard Connect 0.3.0 or
+  later, Look for WordPress lists the files of WordPress itself, themes, plugins and media with
+  their sizes, and every theme and plugin, biggest first, before the clone starts.
+
 - **Pushing to live says what it will do, and shows each step.** Before you press Push to live
   (or Pull), a short list says what happens: the backup first, the maintenance page, how many
   files and how many MB go up, which plugins get switched, and whether the database changes.

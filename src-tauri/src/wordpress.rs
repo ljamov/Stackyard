@@ -940,22 +940,20 @@ pub fn wp_environment(domain: String) -> CmdResult<Option<env::Environment>> {
     env::load(&paths::home(), &domain).map_err(err)
 }
 
+/// The live site of a copy, or of the main site a staging belongs to.
+fn live_of(domain: &str) -> CmdResult<env::Live> {
+    let home = paths::home();
+    let of = |d: &str| env::load(&home, d).ok().flatten().and_then(|e| e.live);
+    of(domain)
+        .or_else(|| of(&staging::main_of(&home, domain)))
+        .ok_or_else(|| format!("{domain} has no live site"))
+}
+
 /// Opens the live site a copy was cloned from in the browser, or its
 /// wp-admin. Only the address Stackyard saved is opened, never one passed in.
 #[tauri::command]
 pub fn wp_open_live(domain: String, admin: bool) -> CmdResult<()> {
-    let home = paths::home();
-    let live = env::load(&home, &domain)
-        .ok()
-        .flatten()
-        .and_then(|e| e.live)
-        .or_else(|| {
-            env::load(&home, &staging::main_of(&home, &domain))
-                .ok()
-                .flatten()
-                .and_then(|e| e.live)
-        })
-        .ok_or_else(|| format!("{domain} has no live site"))?;
+    let live = live_of(&domain)?;
     let url = live.url.trim_end_matches('/');
     if !url.starts_with("https://") && !url.starts_with("http://") {
         return Err(format!("{domain}'s live address is not a web address"));
@@ -966,6 +964,147 @@ pub fn wp_open_live(domain: String, admin: bool) -> CmdResult<()> {
         format!("{url}/")
     };
     crate::sitetools::open_with_system(std::ffi::OsStr::new(&target))
+}
+
+/// How a copy reaches its live site, for the top of the Live site tab.
+#[derive(Serialize)]
+pub struct LiveLink {
+    /// `sftp`, `ftps`, `ftp`, `plugin`, or `files` when the copy was
+    /// cloned from backup files and has no way to the live site.
+    kind: String,
+    /// The saved connection's id, to check it or edit it.
+    connection: Option<String>,
+    host: String,
+    user: String,
+    /// The Stackyard Connect version on the live site, when it answered.
+    plugin: Option<String>,
+    /// Whether the code lets Stackyard change the live site (push).
+    can_push: Option<bool>,
+    /// Whether the live site answered; `None` when it wasn't asked (SFTP
+    /// and FTP are checked with Check connection instead).
+    works: Option<bool>,
+    /// What went wrong, in the live site's or Stackyard's words.
+    problem: Option<String>,
+    /// The plugin said the code stopped working: it was stopped, replaced
+    /// by a newer one, or ran out.
+    expired: bool,
+}
+
+fn live_link(domain: &str) -> CmdResult<LiveLink> {
+    let live = live_of(domain)?;
+    let Some(id) = live.connection.clone() else {
+        return Ok(LiveLink {
+            kind: "files".into(),
+            connection: None,
+            host: String::new(),
+            user: String::new(),
+            plugin: None,
+            can_push: None,
+            works: None,
+            problem: None,
+            expired: false,
+        });
+    };
+    let connection = RemoteStore::load()
+        .map_err(err)?
+        .get(&id)
+        .map_err(err)?
+        .clone();
+    let kind = match connection.protocol {
+        remote::Protocol::Sftp => "sftp",
+        remote::Protocol::Ftps => "ftps",
+        remote::Protocol::Ftp => "ftp",
+        remote::Protocol::Plugin => "plugin",
+    };
+    let mut link = LiveLink {
+        kind: kind.into(),
+        connection: Some(id),
+        host: connection.host.clone(),
+        user: connection.user.clone(),
+        plugin: None,
+        can_push: None,
+        works: None,
+        problem: None,
+        expired: false,
+    };
+    if connection.protocol != remote::Protocol::Plugin {
+        return Ok(link);
+    }
+    let code = remote::input_of(&connection).map_err(err)?.password;
+    let answer = code
+        .ok_or_else(|| "no connection code is saved for it".to_string())
+        .and_then(|code| connect::Link::parse(&code).map_err(err))
+        .and_then(|l| {
+            link.can_push = Some(l.write);
+            l.info().map_err(err)
+        });
+    match answer {
+        Ok(info) => {
+            link.works = Some(true);
+            link.plugin = Some(info.plugin);
+        }
+        Err(e) => {
+            link.works = Some(false);
+            link.expired = e.contains("not valid any more");
+            link.problem = Some(e);
+        }
+    }
+    Ok(link)
+}
+
+/// How this copy reaches its live site; with the plugin, asks the live
+/// site whether the code still works.
+#[tauri::command]
+pub async fn wp_live_link(domain: String) -> CmdResult<LiveLink> {
+    blocking(move || live_link(&domain)).await
+}
+
+/// `https://www.Shop.example/` → `shop.example`, to tell whether two
+/// addresses are the same site.
+fn same_site(a: &str, b: &str) -> bool {
+    let plain = |u: &str| {
+        let host = u.split("://").nth(1).unwrap_or(u);
+        let host = host
+            .split('/')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        host.strip_prefix("www.")
+            .map(str::to_string)
+            .unwrap_or(host)
+    };
+    plain(a) == plain(b)
+}
+
+/// Saves a new Stackyard Connect code for the copy's live site, in place of
+/// the one that stopped working, and checks it.
+#[tauri::command]
+pub async fn wp_live_set_code(app: AppHandle, domain: String, code: String) -> CmdResult<LiveLink> {
+    blocking(move || {
+        let live = live_of(&domain)?;
+        let id = live.connection.clone().ok_or_else(|| {
+            format!("{domain} was cloned from backup files and has no live connection")
+        })?;
+        let link = connect::Link::parse(&code).map_err(err)?;
+        if !same_site(&link.url, &live.url) && !same_site(&link.site, &live.url) {
+            return Err(format!(
+                "this code is from {}, but {domain}'s live site is {}; make the code on {}",
+                link.url, live.url, live.url
+            ));
+        }
+        let mut store = RemoteStore::load().map_err(err)?;
+        let mut input = remote::input_of(store.get(&id).map_err(err)?).map_err(err)?;
+        input.protocol = Some(remote::Protocol::Plugin);
+        input.password = Some(link.code().to_string());
+        store.update(&id, input).map_err(err)?;
+        store.save().map_err(err)?;
+        app.state::<CloneState>().sessions.close(&id);
+        app.state::<crate::remote::RemoteState>()
+            .sessions
+            .close(&id);
+        live_link(&domain)
+    })
+    .await
 }
 
 #[derive(Serialize)]

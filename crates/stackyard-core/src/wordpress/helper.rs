@@ -144,6 +144,20 @@ pub struct Sizes {
     pub skipped: Part,
     /// `false` when counting took too long and stopped partway.
     pub complete: bool,
+    /// Each theme and plugin with its size, biggest first, when the
+    /// Stackyard Connect plugin counted; the helper leaves it out.
+    #[serde(default)]
+    pub items: Vec<Item>,
+}
+
+/// A theme or plugin and how much it holds.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Item {
+    /// `theme` or `plugin`.
+    pub kind: String,
+    /// Its folder, or the file of a single-file plugin.
+    pub slug: String,
+    pub bytes: u64,
 }
 
 /// The seconds the helper counts files for before it answers with what it has.

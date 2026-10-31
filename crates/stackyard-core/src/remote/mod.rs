@@ -313,9 +313,7 @@ fn validate(id: String, input: ConnectionInput, old: Option<&Connection>) -> Res
             }
             None => match old {
                 Some(o) if o.protocol == Protocol::Plugin => (o.host.clone(), o.user.clone()),
-                _ => {
-                    return bad("paste the connection code from Tools › Stackyard on the live site")
-                }
+                _ => return bad("paste the code from Tools › Stackyard Connect on the live site"),
             },
         }
     } else {

@@ -1141,6 +1141,14 @@ pub fn inspect(
             if info.multisite {
                 notes.push("This is a multisite network; every site in it is copied.".into());
             }
+            // Plugins before 0.3.0 can't count the files.
+            let files = link.sizes().ok();
+            if files.is_none() {
+                notes.push(format!(
+                    "Stackyard Connect {} on the live site doesn't count the files; update it to 0.3.0 or later to see what will be copied before the clone starts.",
+                    info.plugin
+                ));
+            }
             Ok(Found {
                 route: Some(Route::Files),
                 url: info.url,
@@ -1150,6 +1158,7 @@ pub fn inspect(
                 prefix: info.prefix,
                 tables: info.tables,
                 database_bytes: info.database_bytes,
+                files,
                 notes,
                 ..Found::default()
             })
@@ -2165,7 +2174,7 @@ pub fn clone(
             // Everything is here now; the export holds the whole site, so
             // it doesn't stay on the live server.
             if link.delete_export().is_err() {
-                notes.push("The export could not be deleted from the live site; delete it under Tools › Stackyard there (it goes by itself after a day).".into());
+                notes.push("The export could not be deleted from the live site; delete it under Tools › Stackyard Connect there (it goes by itself after a day).".into());
             }
             side.php = info.php;
             if side.url.is_empty() {
@@ -2264,7 +2273,7 @@ pub fn clone(
             match saved {
                 Ok(saved) => {
                     if !link.write {
-                        notes.push("The connection code lets Stackyard pull the live site's changes, not push to it. To push, make a code that allows changes under Tools › Stackyard on the live site and paste it into the Live connection under Manage › Servers.".into());
+                        notes.push("The connection code lets Stackyard pull the live site's changes, not push to it. To push, make a code that allows changes under Tools › Stackyard Connect on the live site and paste it into the Live connection under Manage › Servers.".into());
                     }
                     Some(saved.id)
                 }

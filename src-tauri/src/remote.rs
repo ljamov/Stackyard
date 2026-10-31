@@ -22,7 +22,7 @@ use crate::{err, CmdResult};
 /// Open logins, and a stop switch for each connection that is busy.
 #[derive(Default)]
 pub struct RemoteState {
-    sessions: Sessions,
+    pub(crate) sessions: Sessions,
     busy: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
