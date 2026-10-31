@@ -1,5 +1,4 @@
-// Fills the download buttons with the latest release's installers and
-// highlights the visitor's system. Without JavaScript or the GitHub API,
+// Fills the download buttons with the latest release's installers. Without JavaScript or the GitHub API,
 // every button still opens the latest release page.
 (function () {
   var REPO = "ljamov/Stackyard";
@@ -14,15 +13,10 @@
   }
 
   var os = detectOs();
-  var primaryAsset = { windows: "setup.exe", mac: "aarch64.dmg", linux: ".AppImage" };
-  var primaryLabel = { windows: "Download for Windows", mac: "Download for macOS", linux: "Download for Linux" };
-
-  if (os) {
-    var card = document.querySelector('.platform[data-os="' + os + '"]');
-    if (card) card.classList.add("mine");
-    document.querySelector("[data-primary-label]").textContent = primaryLabel[os];
-    if (os === "mac") document.querySelector("[data-primary-note]").textContent = "Apple silicon · Intel Macs: see other systems below";
-  }
+  // Installers are built for Windows only for now.
+  var primaryAsset = { windows: "setup.exe" };
+  document.querySelector("[data-primary-label]").textContent = "Download for Windows";
+  if (os && os !== "windows") document.querySelector("[data-primary-note]").textContent = "Windows 10 and 11 · on macOS and Linux, build from source";
 
   fetch("https://api.github.com/repos/" + REPO + "/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
     .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
@@ -41,13 +35,11 @@
         a.title = asset.name + " · " + mb(asset.size);
       });
 
-      if (os) {
-        var main = find(primaryAsset[os]);
-        if (main) {
-          var btn = document.querySelector("[data-primary]");
-          btn.href = main.browser_download_url;
-          btn.title = main.name + " · " + mb(main.size);
-        }
+      var main = find(primaryAsset.windows);
+      if (main) {
+        var btn = document.querySelector("[data-primary]");
+        btn.href = main.browser_download_url;
+        btn.title = main.name + " · " + mb(main.size);
       }
 
       var v = release.tag_name || "";
