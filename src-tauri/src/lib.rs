@@ -2433,6 +2433,8 @@ pub fn run() {
             wordpress::wp_clones_saved,
             wordpress::wp_environment,
             wordpress::wp_open_live,
+            wordpress::wp_live_link,
+            wordpress::wp_live_set_code,
             wordpress::wp_stagings,
             wordpress::wp_staging_create,
             wordpress::wp_staging_stop,

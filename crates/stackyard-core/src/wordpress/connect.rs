@@ -2,7 +2,7 @@
 //! FTP or SSH log-in isn't known.
 //!
 //! The plugin (a repository of its own, `stackyard-connect`) makes a
-//! connection code on the live site's Tools › Stackyard page. The code
+//! connection code on the live site's Tools › Stackyard Connect page. The code
 //! holds the site's address, its `admin-ajax.php` address and a random key.
 //! With it Stackyard asks the plugin to export the whole site, steps the
 //! export along a few seconds at a time (hosts stop long requests),
@@ -129,7 +129,7 @@ impl Link {
     pub fn parse(code: &str) -> Result<Link> {
         let text: String = code.split_whitespace().collect();
         let body = text.strip_prefix(PREFIX).ok_or_else(|| {
-            fail("this is not a Stackyard Connect code; copy it from Tools › Stackyard on the live site")
+            fail("this is not a Stackyard Connect code; copy it from Tools › Stackyard Connect on the live site")
         })?;
         let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(body.trim_end_matches('='))
@@ -302,6 +302,12 @@ impl Link {
     /// What the plugin says about the site.
     pub fn info(&self) -> Result<Info> {
         self.call(&super::live::agent(), "info")
+    }
+
+    /// The site's files by part and each theme and plugin, as the plugin
+    /// counts them (0.3.0 and later).
+    pub fn sizes(&self) -> Result<super::helper::Sizes> {
+        self.call(&super::live::agent(), "sizes")
     }
 
     /// Removes the export from the live site. It holds everything, so it
@@ -647,7 +653,7 @@ mod tests {
             None
         }
 
-        /// A code the fake site takes, as Tools › Stackyard makes it.
+        /// A code the fake site takes, as Tools › Stackyard Connect makes it.
         fn link(&self) -> Link {
             self.link_with(false)
         }

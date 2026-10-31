@@ -210,7 +210,7 @@ pub(crate) fn check(connection: &Connection, secret: Option<&str>) -> check::Rep
                 Stage::Login,
                 Whose::Access,
                 format!("{} did not take the connection code: {e}.", connection.host),
-                "Make a new connection code under Tools › Stackyard on the live site and paste it into this connection. A code stops working after a day without use.",
+                "Make a new connection code under Tools › Stackyard Connect on the live site and paste it into this connection. A code stops working after a day without use.",
             );
             return check::report(connection.protocol, done, Some(stop), None);
         }

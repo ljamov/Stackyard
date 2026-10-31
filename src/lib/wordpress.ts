@@ -132,6 +132,8 @@ export type WpSizes = {
   skipped: WpPart;
   /** False when counting took too long and stopped partway. */
   complete: boolean;
+  /** Each theme and plugin with its size, biggest first (Stackyard Connect 0.3.0 and later). */
+  items?: { kind: "theme" | "plugin"; slug: string; bytes: number }[];
 };
 export type WpCloneOptions = {
   name: string;
@@ -227,6 +229,17 @@ export type WpPushed = { backup: string; files: number; switches: number; settin
 export type WpInstalled = { backup: string; files: number; site_answers: boolean; notes: string[] };
 export type WpPulled = { snapshot: string; files: number; switches: number; settings: number; notes: string[] };
 export type WpLiveBackup = { id: string; domain: string; created_at: number; database: string[]; saved: string[]; added: string[]; bytes: number };
+export type WpLiveLink = {
+  kind: "sftp" | "ftps" | "ftp" | "plugin" | "files";
+  connection: string | null;
+  host: string;
+  user: string;
+  plugin: string | null;
+  can_push: boolean | null;
+  works: boolean | null;
+  problem: string | null;
+  expired: boolean;
+};
 export type WpSyncProgress = { domain: string; stage: WpCloneStage; message: string; done: number; total: number };
 export type WpPostsMoved = { posts: number; files: number; warnings: WpMoveWarning[]; undo: string };
 
@@ -306,6 +319,10 @@ export interface WpApi {
   syncChanges(domain: string, way: WpWay): Promise<WpSyncChanges>;
   /** `confirm` is the main site's name, typed for an Everything push. */
   push(domain: string, choice: WpMergeChoice, confirm: string): Promise<WpPushed>;
+  /** How this copy reaches its live site; with the plugin, whether its code still works. */
+  liveLink(domain: string): Promise<WpLiveLink>;
+  /** Saves a new Stackyard Connect code in place of the one that stopped working. */
+  liveSetCode(domain: string, code: string): Promise<WpLiveLink>;
   /** Opens the live site this copy was cloned from, or its wp-admin, in the browser. */
   openLive(domain: string, admin: boolean): Promise<void>;
   pull(domain: string, choice: WpMergeChoice): Promise<WpPulled>;
@@ -388,6 +405,8 @@ const tauriWp: WpApi = {
   syncChanges: (domain, way) => invoke("wp_sync_changes", { domain, way }),
   push: (domain, choice, confirm) => invoke("wp_push", { domain, choice, confirm }),
   openLive: (domain, admin) => invoke("wp_open_live", { domain, admin }),
+  liveLink: (domain) => invoke("wp_live_link", { domain }),
+  liveSetCode: (domain, code) => invoke("wp_live_set_code", { domain, code }),
   pull: (domain, choice) => invoke("wp_pull", { domain, choice }),
   install: (domain, connection, url, confirm) => invoke("wp_install", { domain, connection, url, confirm }),
   syncStop: () => invoke("wp_sync_stop"),
@@ -569,6 +588,15 @@ function mockWp(): WpApi {
           other: { files: 120, bytes: 8.0e6, items: 0 },
           skipped: { files: 6100, bytes: 1.2e9, items: 0 },
           complete: true,
+          items:
+            source.kind === "code"
+              ? [
+                  { kind: "plugin", slug: "woocommerce", bytes: 1.2e8 },
+                  { kind: "plugin", slug: "elementor", bytes: 9.4e7 },
+                  { kind: "theme", slug: "storefront", bytes: 1.2e7 },
+                  { kind: "plugin", slug: "akismet", bytes: 2.1e6 },
+                ]
+              : undefined,
         },
         notes: [
           files
@@ -829,6 +857,16 @@ function mockWp(): WpApi {
       await wait(1500);
       return { backup: `${Date.now()}`, files: 4210, site_answers: true, notes: [] };
     },
+    liveLink: async () => {
+      await wait(600);
+      return liveLinkMock;
+    },
+    liveSetCode: async (_domain, code) => {
+      await wait(800);
+      if (!code.startsWith("stackyard-connect:")) throw new Error("this is not a Stackyard Connect code; copy it from Tools › Stackyard Connect on the live site");
+      liveLinkMock = { ...liveLinkMock, works: true, expired: false, problem: null, can_push: true, plugin: "0.3.0" };
+      return liveLinkMock;
+    },
     openLive: async (_domain, admin) => void window.open(admin ? "https://shop.example/wp-admin/" : "https://shop.example/", "_blank", "noopener"),
     syncStop: async () => {},
     onSyncProgress: async (handler) => {
@@ -854,6 +892,17 @@ function mockWp(): WpApi {
 }
 
 const syncHandlers: ((p: WpSyncProgress) => void)[] = [];
+let liveLinkMock: WpLiveLink = {
+  kind: "plugin",
+  connection: "live0001",
+  host: "https://shop.example",
+  user: "Stackyard Connect",
+  plugin: null,
+  can_push: true,
+  works: false,
+  problem: "the live site said: This connection code is not valid any more. Make a new one on Tools › Stackyard Connect.",
+  expired: true,
+};
 const liveBackups: WpLiveBackup[] = [
   { id: "1792600000", domain: "legacy.stack", created_at: Date.now() / 1000 - 172800, database: ["database/wp_posts.sql.gz"], saved: ["wp-content/themes/shop/style.css"], added: [], bytes: 2.9e8 },
 ];

@@ -119,6 +119,24 @@ function FileSizes({ sizes }: { sizes: WpSizes }) {
           )}
         </dd>
       </div>
+      {!!sizes.items?.length && (
+        <div className="list-row">
+          <dt className="muted small">{t("What is copied")}</dt>
+          <dd className="small">
+            <details>
+              <summary>{t("{count} themes and plugins, biggest first", { count: sizes.items.length })}</summary>
+              <ul className="clone-items">
+                {sizes.items.map((item) => (
+                  <li key={`${item.kind}:${item.slug}`}>
+                    <span className="mono">{item.slug}</span> <span className="muted">{item.kind === "theme" ? t("theme") : t("plugin")}</span>{" "}
+                    <span className="mono muted">{size(item.bytes)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </dd>
+        </div>
+      )}
     </>
   );
 }
@@ -339,7 +357,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
             />
             <span className="muted small">
               {t(
-                "For a site whose FTP login you don't have. Install the Stackyard Connect plugin on it, open Tools › Stackyard there, make a connection code and paste it here. The site then exports itself and Stackyard downloads it.",
+                "For a site whose FTP login you don't have. Install the Stackyard Connect plugin on it, open Tools › Stackyard Connect there, make a connection code and paste it here. The site then exports itself and Stackyard downloads it.",
               )}
             </span>
           </div>
@@ -432,7 +450,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
                 "A full backup from the hosting panel (cPanel, Plesk, DirectAdmin) or a zip of the site's files, plus the database export (.sql or .sql.gz) if it is separate.",
               )}{" "}
               {t(
-                "An export from the Stackyard Connect plugin (Tools › Stackyard in the site's admin) is one file with both. You can also drop it on the Sites screen.",
+                "An export from the Stackyard Connect plugin (Tools › Stackyard Connect in the site's admin) is one file with both. You can also drop it on the Sites screen.",
               )}
             </span>
           </div>

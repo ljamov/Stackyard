@@ -390,7 +390,7 @@ function ConnectionForm({
           />
           <Tip id={`r-pass-tip-${id}`}>
             {plugin &&
-              "Make it under Tools › Stackyard on the live site; tick the box there to allow push. "}
+              "Make it under Tools › Stackyard Connect on the live site; tick the box there to allow push. "}
             Kept in {secretStore}, never in Stackyard's files.
             {existing?.has_password && " Leave it empty to keep the saved one."}
           </Tip>
