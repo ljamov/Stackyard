@@ -934,6 +934,12 @@ pub fn wp_clone_unfinished(name: String) -> bool {
     live::unfinished(&paths::home(), name.trim())
 }
 
+/// How much room the drives a clone of `name` uses have.
+#[tauri::command]
+pub fn wp_clone_space(name: String, folder: Option<PathBuf>) -> CmdResult<live::Space> {
+    live::space(&paths::home(), name.trim(), folder.as_deref()).map_err(err)
+}
+
 /// Where a site came from: its live site, when Stackyard cloned it.
 #[tauri::command]
 pub fn wp_environment(domain: String) -> CmdResult<Option<env::Environment>> {

@@ -3,6 +3,7 @@ import { useT } from "../../lib/i18n";
 import { cloneScreen, clonePercent, closeClone, pauseClone, retryClone, showClone, stopClone, useClones, type Clone } from "../../lib/clones";
 import { stageText } from "./CloneSite";
 import { size } from "./WordPressTools";
+import { duration } from "./SyncSteps";
 import type { WpCloneProgress } from "../../lib/wordpress";
 
 /** A running clone's bar: the stage, what it is doing, and for files how much is downloaded. */
@@ -16,7 +17,15 @@ export function StepProgress({ progress: p, label }: { progress: WpCloneProgress
   const t = useT();
   const percent = clonePercent(p);
   // Files and the database being loaded count bytes.
-  const bytes = (p?.stage === "files" || p?.stage === "loading") && p.total > 0 ? `${size(p.done)} / ${size(p.total)}` : null;
+  const counted = (p?.stage === "files" || p?.stage === "loading") && p.total > 0;
+  const bytes = counted ? `${size(p.done)} / ${size(p.total)}` : null;
+  // The pace since this stage began, for the speed and the time left.
+  const pace = useRef<{ stage: string; since: number; from: number } | null>(null);
+  if (p && (!pace.current || pace.current.stage !== p.stage || p.done < pace.current.from)) pace.current = { stage: p.stage, since: Date.now(), from: p.done };
+  const spent = pace.current ? (Date.now() - pace.current.since) / 1000 : 0;
+  const rate = p && pace.current && spent > 3 ? (p.done - pace.current.from) / spent : 0;
+  const speed = counted && rate > 0 ? t("{size}/s", { size: size(rate) }) : null;
+  const left = counted && rate > 0 ? t("about {time} left", { time: duration(t, (p.total - p.done) / rate) }) : null;
   const message = p ? p.message : t("Starting…");
   // The amount sits at a fixed spot above the bar; the changing file name goes
   // on its own line below, cut to one line, so a long path never moves it.
@@ -25,7 +34,7 @@ export function StepProgress({ progress: p, label }: { progress: WpCloneProgress
       <div className="clone-progress-head small">
         <span>{p ? stageText(t, p.stage) : t("Starting…")}</span>
         {(bytes || percent !== null) && (
-          <span className="mono clone-progress-amount">{[bytes, percent !== null && `${percent}%`].filter(Boolean).join(" · ")}</span>
+          <span className="mono clone-progress-amount">{[bytes, percent !== null && `${percent}%`, speed, left].filter(Boolean).join(" · ")}</span>
         )}
       </div>
       <div

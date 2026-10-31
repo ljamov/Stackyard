@@ -3059,6 +3059,42 @@ pub fn unfinished(home: &Path, name: &str) -> bool {
         .is_some_and(|state| state.started())
 }
 
+/// Where a clone of `name` puts things, and how much room each drive has,
+/// so the form can say before it starts whether the copy fits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Space {
+    /// The new site's folder: its files go here.
+    pub site_folder: PathBuf,
+    /// Bytes free on its drive; `None` when the system can't say.
+    pub site_free: Option<u64>,
+    /// Stackyard's data folder: the download, the database export and the
+    /// database itself go here.
+    pub data_folder: PathBuf,
+    pub data_free: Option<u64>,
+    /// Both are on one drive, so what each needs adds up.
+    pub same_drive: bool,
+}
+
+pub fn space(home: &Path, name: &str, folder: Option<&Path>) -> Result<Space> {
+    let settings = Settings::load_from(&home.join("settings.toml"))?;
+    let site_folder = folder
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(crate::paths::expand_home)
+        .unwrap_or_else(|| settings.sites_folder(home).join(name));
+    let drive = |p: &Path| {
+        p.components()
+            .next()
+            .map(|c| c.as_os_str().to_ascii_lowercase())
+    };
+    Ok(Space {
+        site_free: crate::paths::free_space(&site_folder),
+        data_free: crate::paths::free_space(home),
+        same_drive: drive(&site_folder) == drive(home),
+        site_folder,
+        data_folder: home.to_path_buf(),
+    })
+}
+
 /// Throws away an unfinished clone's downloaded database chunks.
 pub fn discard(home: &Path, name: &str) {
     let _ = std::fs::remove_dir_all(Work::dir(home, name));

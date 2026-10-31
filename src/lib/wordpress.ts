@@ -148,6 +148,7 @@ export type WpCloneOptions = {
 export type WpCloneStage = "connecting" | "files" | "database" | "loading" | "finishing";
 /** `job` is the clone this is about (empty for a staging). */
 export type WpCloneProgress = { job: string; name: string; stage: WpCloneStage; message: string; done: number; total: number };
+export type WpCloneSpace = { site_folder: string; site_free: number | null; data_folder: string; data_free: number | null; same_drive: boolean };
 export type WpCloned = { url: string; live: string; replaced: number; notes: string[]; site: { name: string; tld: string } };
 export type WpEnvironment = {
   kind: "local" | "staging";
@@ -298,6 +299,8 @@ export interface WpApi {
   /** Logs out of the server typed in for a clone that is closed. */
   cloneForget(job: string): Promise<void>;
   cloneUnfinished(name: string): Promise<boolean>;
+  /** How much room the drives a clone of `name` uses have. */
+  cloneSpace(name: string, folder: string | null): Promise<WpCloneSpace>;
   onCloneProgress(handler: (p: WpCloneProgress) => void): Promise<() => void>;
   environment(domain: string): Promise<WpEnvironment | null>;
   stagings(domain: string): Promise<WpEnvironments>;
@@ -384,6 +387,7 @@ const tauriWp: WpApi = {
   clonePause: (job) => invoke("wp_clone_pause", { job }),
   cloneForget: (job) => invoke("wp_clone_forget", { job }),
   cloneUnfinished: (name) => invoke("wp_clone_unfinished", { name }),
+  cloneSpace: (name, folder) => invoke("wp_clone_space", { name, folder }),
   onCloneProgress: (handler) => listen<WpCloneProgress>("wp-clone-progress", (e) => handler(e.payload)),
   environment: (domain) => invoke("wp_environment", { domain }),
   stagings: (domain) => invoke("wp_stagings", { domain }),
@@ -618,10 +622,16 @@ function mockWp(): WpApi {
         if (cloneStopped.delete(job)) {
           throw "stopped; clone again with the same name to continue where it stopped";
         }
-        // The files stage counts bytes, like the app's.
-        const [done, total] = stage === "files" ? [2.1e8, 4.6e8] : [i + 1, steps.length];
-        for (const h of cloneHandlers) h({ job, name: options.name, stage, message, done, total });
-        await wait(stage === "files" ? 6000 : 1500);
+        // The files stage counts bytes, like the app's, a few times a second.
+        if (stage === "files") {
+          for (let n = 0; n < 12; n++) {
+            for (const h of cloneHandlers) h({ job, name: options.name, stage, message, done: 2.1e8 + n * 1.2e7, total: 4.6e8 });
+            await wait(500);
+          }
+          continue;
+        }
+        for (const h of cloneHandlers) h({ job, name: options.name, stage, message, done: i + 1, total: steps.length });
+        await wait(1500);
       }
       return {
         url: `https://${options.name}.stack`,
@@ -643,6 +653,7 @@ function mockWp(): WpApi {
     clonesSaved: async () => [],
     onCloneEnded: async () => () => {},
     cloneUnfinished: async () => false,
+    cloneSpace: async (name) => ({ site_folder: `C:\\Stackyard\\www\\${name}`, site_free: 6.2e9, data_folder: "C:\\Users\\you\\AppData\\Roaming\\Stackyard", data_free: 6.2e9, same_drive: true }),
     onCloneProgress: async (handler) => {
       cloneHandlers.push(handler);
       return () => cloneHandlers.splice(cloneHandlers.indexOf(handler), 1);
