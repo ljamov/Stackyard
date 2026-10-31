@@ -196,32 +196,36 @@ stackyard use php 8.3                  # pin a version for the current project
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/dashboard.png" alt="Dashboard with running services, sites, runtimes and the MCP server"></td>
-<td width="50%"><img src="docs/images/services.png" alt="Services screen: Caddy, MySQL, PostgreSQL, Redis and Mailpit with start and stop buttons"></td>
+<td width="50%"><img src="docs/images/dashboard.png" alt="Dashboard with running services, projects and runtimes"></td>
+<td width="50%"><img src="docs/images/projects.png" alt="Projects screen with the New project form: App or Site, and starters for WordPress, WooCommerce, Laravel, Astro, Next.js, React, Vue, Svelte and more"></td>
 </tr>
 <tr>
+<td><img src="docs/images/sites.png" alt="Sites screen: three local HTTPS sites running Laravel, Vite and WordPress, with pictures and icon buttons"></td>
+<td><img src="docs/images/wordpress.png" alt="A WordPress copy of a live site: Pull from live and Push to live, and its Staging tab with a staging and a form for a new one"></td>
+</tr>
+<tr>
+<td><img src="docs/images/import.png" alt="Import backup screen: drop a hosting panel backup or a zip with its .sql to make a local site"></td>
+<td><img src="docs/images/servers.png" alt="A site's Servers & Git tab with an SFTP server and upload, download and browse buttons"></td>
+</tr>
+<tr>
+<td><img src="docs/images/services.png" alt="Services screen: Caddy, MySQL, PostgreSQL, Mailpit and MongoDB, with turned-off services below"></td>
 <td><img src="docs/images/runtimes.png" alt="Runtimes screen with PHP 7.4 to 8.5, three versions installed"></td>
-<td><img src="docs/images/servers.png" alt="A site's Servers panel with an SFTP server and upload, download and browse buttons"></td>
 </tr>
 <tr>
 <td><img src="docs/images/databases.png" alt="Databases screen listing a database's tables, with Query and Backups tabs"></td>
-<td><img src="docs/images/logs.png" alt="The Logs panel under the Dashboard, with warnings and errors highlighted"></td>
+<td><img src="docs/images/logs.png" alt="The Logs panel under the Dashboard, with search and per-service logs"></td>
+</tr>
+<tr>
+<td><img src="docs/images/terminal.png" alt="The Terminal tab in the bottom panel, opened in a site's folder, running stackyard status, php -v and node -v"></td>
+<td><img src="docs/images/ai-tools.png" alt="AI tools screen: Claude Code and Codex installed, Gemini CLI and others ready to install, each opening in a chosen site's folder"></td>
 </tr>
 <tr>
 <td><img src="docs/images/images.png" alt="Image optimizer making WebP and AVIF copies of images"></td>
 <td><img src="docs/images/videos.png" alt="Video optimizer making MP4, WebM and GIF copies of videos"></td>
 </tr>
 <tr>
-<td><img src="docs/images/ai-tools.png" alt="AI tools screen: Claude Code and Codex installed, Gemini CLI and others ready to install, each opening in a chosen site's folder"></td>
-<td><img src="docs/images/settings.png" alt="Settings screen with updates, theme, accent color, language and modules you can switch off"></td>
-</tr>
-<tr>
-<td><img src="docs/images/wordpress.png" alt="A WordPress site's Staging tab: a staging copy and a form for a new staging"></td>
-<td><img src="docs/images/terminal.png" alt="The Terminal tab in the bottom panel, opened in a site's folder, running stackyard status, php -v and node -v"></td>
-</tr>
-<tr>
+<td><img src="docs/images/settings.png" alt="Settings screen with updates, theme, accent color, icons, density and zoom"></td>
 <td><img src="docs/images/light.png" alt="The Dashboard in the light theme"></td>
-<td></td>
 </tr>
 </table>
 

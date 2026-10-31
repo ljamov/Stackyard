@@ -51,13 +51,15 @@
   // Screenshot tabs
   var img = document.getElementById("tour-img");
   var alts = {
-    dashboard: "Dashboard with running services, sites, runtimes and the MCP server",
+    dashboard: "Dashboard with running services, projects and runtimes",
+    projects: "Projects screen with the New project form and its starters",
     sites: "The Sites screen with three local HTTPS sites",
-    services: "Services screen: Caddy, MySQL, PostgreSQL, Redis and Mailpit",
+    import: "Import backup screen: drop a hosting panel backup or a zip with its .sql",
+    services: "Services screen: Caddy, MySQL, PostgreSQL, Mailpit and MongoDB",
     runtimes: "Runtimes screen with PHP 7.4 to 8.5, three versions installed",
     servers: "A site's Servers panel with an SFTP server and upload, download and browse buttons",
     databases: "Databases screen listing a database's tables",
-    wordpress: "A WordPress site's Staging tab: stagings and a new staging",
+    wordpress: "A WordPress copy of a live site with Pull, Push and its Staging tab",
     logs: "The Logs panel with warnings and errors highlighted",
     terminal: "The Terminal tab in the bottom panel, opened in a site's folder",
     images: "Image optimizer making WebP and AVIF copies of images",

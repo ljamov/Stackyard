@@ -23,13 +23,9 @@ const SHOTS = {
   dashboard: { screen: "Dashboard" },
   sites: {
     screen: "Sites",
-    // The heading, the New site form (opened) and the site list under it.
+    // The heading and the site list, with the New project form folded away.
     wait: 1200,
-    prep: async (page) => {
-      const fold = page.getByRole("button", { name: "New site and parked folders" });
-      if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
-      await sleep(300);
-    },
+    prep: (page) => fold(page, false),
   },
   // A site in its own tab, opened with Manage.
   servers: {
@@ -50,9 +46,17 @@ const SHOTS = {
       await sleep(600);
       await page.getByRole("tab", { name: "Staging", exact: true }).click();
       await sleep(800);
+      // Scrolls so the WordPress view's header and the staging list fill the window.
+      await page.locator(".content:not([hidden])").getByRole("tab", { name: "WordPress", exact: true }).evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await sleep(300);
     },
     after: closeTab,
   },
+  // Every app and site in one list.
+  // Every app and site, with the New project form open on its starters.
+  projects: { screen: "Projects", wait: 1200, prep: (page) => fold(page, true), after: (page) => fold(page, false) },
+  // The Import backup screen.
+  import: { screen: "Import backup", wait: 600 },
   services: { screen: "Services" },
   runtimes: { screen: "Runtimes" },
   // The Logs panel, opened from the status bar under Home.
@@ -92,7 +96,7 @@ const SHOTS = {
   databases: {
     screen: "Databases",
     prep: async (page) => {
-      await page.getByRole("button", { name: /^shop/ }).first().click().catch(() => {});
+      await page.locator(".content:not([hidden])").getByRole("button", { name: /^shop/ }).first().click().catch(() => {});
     },
   },
   images: { screen: "Images" },
@@ -167,7 +171,7 @@ async function prepare(page) {
   }
 
   await open(page, "Settings");
-  for (const name of ["Mailpit", "PostgreSQL", "Redis", "Task scheduler", "MCP server"]) {
+  for (const name of ["Mailpit", "PostgreSQL", "MongoDB", "Task scheduler", "MCP server"]) {
     const box = page.getByRole("switch", { name: `${name} module`, exact: true });
     await box.waitFor({ state: "attached" });
     await box.setChecked(true, { force: true });
@@ -182,13 +186,13 @@ async function prepare(page) {
 
   await open(page, "Services");
   await page.getByRole("button", { name: "Start Caddy", exact: true }).waitFor();
-  for (const name of ["Mailpit", "PostgreSQL", "Redis"]) {
+  for (const name of ["Mailpit", "PostgreSQL", "MongoDB"]) {
     const install = page.getByRole("button", { name: `Install ${name}`, exact: true });
     // The sample data may have some installed already.
     if (await install.isVisible()) await install.click();
   }
   await sleep(2500);
-  for (const name of ["Caddy", "MySQL", "Mailpit", "Redis"]) {
+  for (const name of ["Caddy", "MySQL", "Mailpit", "MongoDB"]) {
     const start = page.getByRole("button", { name: `Start ${name}`, exact: true });
     await start.waitFor();
     await start.click();
@@ -211,6 +215,8 @@ async function dragPanel(page, by) {
 
 async function open(page, screen) {
   await page.locator(`.sidebar [data-screen="${screen}"]`).click();
+  // Clicking Settings at the bottom scrolls the side bar; put it back at the top.
+  await page.evaluate(() => document.querySelectorAll(".sidebar, .sidebar *").forEach((el) => el.scrollTop && (el.scrollTop = 0)));
   await sleep(300);
 }
 
@@ -222,6 +228,13 @@ async function closeTab(page) {
 
 // Opens a site in its own tab with the Manage button on its row.
 async function manage(page, domain) {
-  await page.getByRole("group", { name: `Actions for ${domain}` }).getByRole("button", { name: "Manage" }).click();
+  await page.locator(".content:not([hidden])").getByRole("group", { name: `Actions for ${domain}` }).getByRole("button", { name: "Manage" }).click();
+  await sleep(300);
+}
+
+// Opens or folds away the New project and parked folders box on the shown screen.
+async function fold(page, open) {
+  const button = page.locator(".content:not([hidden])").getByRole("button", { name: "New project and parked folders" });
+  if (((await button.getAttribute("aria-expanded")) === "true") !== open) await button.click();
   await sleep(300);
 }
