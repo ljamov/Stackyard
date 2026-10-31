@@ -131,3 +131,62 @@ export function LiveLinkStatus({ domain, way, round }: { domain: string; way: Wp
     </div>
   );
 }
+
+/**
+ * A copy made from backup files has no way to the live site. A Stackyard
+ * Connect code gives it one, so it can push and pull without cloning again.
+ */
+export function ConnectBackupCopy({ domain, url, onConnected }: { domain: string; url: string; onConnected: () => void }) {
+  const t = useT();
+  const [code, setCode] = useState("");
+  const [saving, setSaving] = useState(false);
+  useBusy(saving);
+  const [error, setError] = useState<string | null>(null);
+  async function connect() {
+    setSaving(true);
+    setError(null);
+    try {
+      const link = await wp.liveSetCode(domain, code.trim());
+      if (link.works === false) setError(link.problem ?? t("The live site did not answer through the plugin."));
+      else onConnected();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="stack tight">
+      <p className="muted small">
+        {url
+          ? t("This copy was made from a backup file of {url}, so it isn't connected to the live site yet.", { url })
+          : t("This copy was made from a backup file, so it isn't connected to the live site yet.")}{" "}
+        {t("Connect it with the Stackyard Connect plugin to push and pull, no need to clone again.")}
+      </p>
+      <label className="small" htmlFor={`connect-${domain}`}>
+        {t("On the live site, open Tools › Stackyard Connect, tick “Also let Stackyard push changes”, click Make a connection code, copy it and paste it here:")}
+      </label>
+      <div className="row">
+        <input
+          id={`connect-${domain}`}
+          className="mono grow"
+          value={code}
+          placeholder="stackyard-connect:…"
+          spellCheck={false}
+          onChange={(e) => setCode(e.target.value)}
+        />
+        <button type="button" className="btn primary" disabled={saving || !code.trim().startsWith("stackyard-connect:")} onClick={connect}>
+          {saving ? t("Connecting…") : t("Connect")}
+        </button>
+      </div>
+      <span className="muted small">
+        {t("The first compare marks every difference between this copy and the live site, since they were never in step; you pick what goes where.")}
+      </span>
+      {error && (
+        <p className="error small" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}

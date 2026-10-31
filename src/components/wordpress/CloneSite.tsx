@@ -4,6 +4,7 @@ import { useT } from "../../lib/i18n";
 import {
   wp,
   type WpCloneProgress,
+  type WpCloneSpace,
   type WpCloneSource,
   type WpFound,
   type WpMedia,
@@ -15,6 +16,7 @@ import {
 import { size } from "./WordPressTools";
 import { closeClone, editClone, minimizeClone, pauseClone, retryClone, startClone, stopClone, useClones } from "../../lib/clones";
 import { CloneProgress, StepProgress } from "./Clones";
+import { duration } from "./SyncSteps";
 import { ConnectionCheck } from "../ConnectionCheck";
 import { useBusy } from "../../lib/tabLife";
 
@@ -141,6 +143,68 @@ function FileSizes({ sizes }: { sizes: WpSizes }) {
   );
 }
 
+/** Bytes a clone needs on the site's drive and on the drive with Stackyard's data. */
+function spaceNeeded(from: From, found: WpFound, media: WpMedia) {
+  const sizes = found.files;
+  const all = sizes ? sizes.core.bytes + sizes.themes.bytes + sizes.plugins.bytes + sizes.uploads.bytes + sizes.other.bytes : 0;
+  const files = from !== "files" && from !== "code" && media === "from-live" && sizes ? all - sizes.uploads.bytes : all;
+  const db = found.database_bytes;
+  // The plugin's export (files and database in one .tar) is downloaded and
+  // kept until it is unpacked beside the sites; the files then move into place.
+  if (from === "code") return { site: files, data: files + db * 2 };
+  // The database export, then the database itself.
+  return { site: files, data: db * 2 };
+}
+
+/** Whether the copy fits, said before it starts. */
+function SpaceCheck({ need, space, override, onOverride }: { need: { site: number; data: number }; space: WpCloneSpace; override: boolean; onOverride: (on: boolean) => void }) {
+  const t = useT();
+  const drives = space.same_drive
+    ? [{ need: need.site + need.data, free: space.site_free, where: space.site_folder }]
+    : [
+        { need: need.site, free: space.site_free, where: space.site_folder },
+        { need: need.data, free: space.data_free, where: space.data_folder },
+      ];
+  const short = drives.filter((d) => d.free !== null && d.free < d.need * 1.1);
+  return (
+    <>
+      <div className="list-row">
+        <dt className="muted small">{t("Space needed")}</dt>
+        <dd className="small">
+          {drives.map((d) => (
+            <div key={d.where} className={d.free !== null && d.free < d.need * 1.1 ? "warn" : undefined}>
+              {d.free === null
+                ? t("about {need} on the drive with {folder}", { need: size(d.need), folder: d.where })
+                : t("about {need} on the drive with {folder} ({free} free)", { need: size(d.need), folder: d.where, free: size(d.free) })}
+            </div>
+          ))}
+        </dd>
+      </div>
+      {short.length > 0 && (
+        <div className="notice small stack tight" role="alert">
+          <span>
+            {t("This copy may not fit: the drive with {folder} has {free} free and the clone needs about {need}. Free up space there, or pick a site folder on a drive with more room (Settings › folder for new sites).", {
+              folder: short[0].where,
+              free: size(short[0].free ?? 0),
+              need: size(short[0].need),
+            })}
+          </span>
+          <label className="row centered">
+            <input type="checkbox" checked={override} onChange={(e) => onOverride(e.target.checked)} />
+            {t("Clone anyway")}
+          </label>
+        </div>
+      )}
+    </>
+  );
+}
+
+function spaceShort(need: { site: number; data: number }, space: WpCloneSpace | null) {
+  if (!space) return false;
+  const tight = (n: number, free: number | null) => free !== null && free < n * 1.1;
+  return space.same_drive ? tight(need.site + need.data, space.site_free) : tight(need.site, space.site_free) || tight(need.data, space.data_free);
+}
+
 /** New site › Clone from a live server: find WordPress, choose, clone. Each form is one clone of many. */
 export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: string) => void }) {
   const t = useT();
@@ -172,6 +236,8 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
   const [sites, setSites] = useState<Site[]>([]);
   // An imported backup is usually meant to take the old copy's place.
   const [replace, setReplace] = useState(from === "files");
+  const [space, setSpace] = useState<WpCloneSpace | null>(null);
+  const [spaceOverride, setSpaceOverride] = useState(false);
   const urlInput = useRef<HTMLInputElement>(null);
   const needsAddress = !!error?.includes(NEED_ADDRESS);
   const existing = name ? takenBy(sites, name) : undefined;
@@ -183,6 +249,12 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
       .catch(() => setSites([]));
   }, []);
   useEffect(() => setReplace(from === "files"), [name, from]);
+  useEffect(() => {
+    if (!found || !name) return;
+    wp.cloneSpace(name, null)
+      .then(setSpace)
+      .catch(() => setSpace(null));
+  }, [found, name]);
   useEffect(() => {
     if (needsAddress) urlInput.current?.focus();
   }, [needsAddress]);
@@ -547,6 +619,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
               </dd>
             </div>
             {found.files && <FileSizes sizes={found.files} />}
+            {space && name && <SpaceCheck need={spaceNeeded(from, found, media)} space={space} override={spaceOverride} onOverride={setSpaceOverride} />}
             <div className="list-row">
               <dt className="muted small">{t("How")}</dt>
               <dd className="small">
@@ -612,7 +685,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
             <button
               type="button"
               className={`btn ${existing && replace ? "danger" : "primary"}`}
-              disabled={!name || busy !== null || (!!existing && !unfinished && !replace)}
+              disabled={!name || busy !== null || (!!existing && !unfinished && !replace) || (!spaceOverride && spaceShort(spaceNeeded(from, found, media), space))}
               onClick={clone}
             >
               {unfinished ? t("Continue the clone") : existing && replace ? t("Replace and clone") : t("Clone")}
@@ -657,14 +730,26 @@ function CloneJob({ id, onCloned }: { id: string; onCloned: (domain: string) => 
           })}{" "}
           {t("Mail goes to Mailpit, search engines are kept away, and scheduled tasks can't call outside services.")}
         </p>
+        {job.startedAt && job.endedAt && <p className="muted small">{t("Took {time}.", { time: duration(t, (job.endedAt - job.startedAt) / 1000) })}</p>}
         {cloned.notes.map((n) => (
           <p key={n} className="warn small">
             {n}
           </p>
         ))}
-        <div className="row">
+        {job.source?.kind !== "files" && (
+          <p className="muted small">
+            {t("Work on it here, then send your changes to the live site from Manage › Servers & Git › Live site › Push to live. Stackyard backs up the live site before every push.")}
+          </p>
+        )}
+        <div className="row wrap">
           <button type="button" className="btn" onClick={() => api.openLocalPage(cloned.url)}>
             {t("Open site")}
+          </button>
+          <button type="button" className="btn" onClick={() => api.openLocalPage(`${cloned.url.replace(/\/$/, "")}/wp-admin/`)}>
+            {t("Open WP Admin")}
+          </button>
+          <button type="button" className="btn" onClick={() => void api.openSiteFolder(domain).catch(() => {})}>
+            {t("Open folder")}
           </button>
           <button
             type="button"

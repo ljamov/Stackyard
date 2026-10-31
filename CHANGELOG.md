@@ -6,6 +6,17 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **A site made from a backup file can push and pull.** Its Live site tab used to say "clone it
+  again from the server". Now it asks for a Stackyard Connect code from the live site; Stackyard
+  saves it as the site's Live connection and the tab works like a clone's. The first compare marks
+  every difference, since the two were never in step.
+
+- **A clone says up front whether it fits, and how fast it goes.** After Look for WordPress the
+  form shows the space the copy needs on each drive and how much is free there. When it may not
+  fit it says which drive and what to do, and Clone waits for "Clone anyway". While files download
+  the bar shows the speed and the time left. A finished clone says how long it took and has Open
+  WP Admin and Open folder next to Open site, plus where to push changes back to the live site.
+
 - **A connection code that stopped working can be replaced right on the Live site tab.** The top
   of Manage › Servers & Git › Live site says how the copy reaches the live site: through Stackyard
   Connect (its version, and whether the code can push or only pull) or with SFTP/FTP as which

@@ -27,6 +27,9 @@ export type Clone = {
   dropped?: string[];
   /** Shown on the Import backup screen instead of Sites; it looks for WordPress in `dropped` at once. */
   place?: "import";
+  /** When it was first started and when it finished, in ms, to say how long it took. */
+  startedAt?: number;
+  endedAt?: number;
 };
 
 let clones: Clone[] = [];
@@ -132,9 +135,9 @@ async function run(id: string) {
   const clone = clones.find((c) => c.id === id);
   if (!clone?.source || !clone.options) return;
   listen();
-  change(id, { state: "running", error: null, progress: null, result: null });
+  change(id, { state: "running", error: null, progress: null, result: null, startedAt: clone.startedAt ?? Date.now() });
   try {
-    change(id, { state: "done", result: await wp.clone(id, clone.source, clone.options, clone.from) });
+    change(id, { state: "done", result: await wp.clone(id, clone.source, clone.options, clone.from), endedAt: Date.now() });
   } catch (e) {
     const error = errorText(e);
     change(id, error === "paused" ? { state: "paused", error: null } : { state: "failed", error });

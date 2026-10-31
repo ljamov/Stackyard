@@ -17,7 +17,7 @@ import { stageText } from "./CloneSite";
 import { FileGroups, MovePosts, SettingList, SwitchList, Undo, UndoWith, when } from "./Merge";
 import { size } from "./WordPressTools";
 import { useBusy } from "../../lib/tabLife";
-import { codeProblem, LiveLinkStatus } from "./LiveLink";
+import { codeProblem, ConnectBackupCopy, LiveLinkStatus } from "./LiveLink";
 import { duration, SyncPreview, syncPlan, SyncSteps, type SyncPlan } from "./SyncSteps";
 
 type Live = NonNullable<WpEnvironment["live"]>;
@@ -100,11 +100,13 @@ export function LivePanel({ domain, main, live, ask }: { domain: string; main: s
   // Bumped when a push or pull fails for want of a working code, so the status above checks again.
   const [linkRound, setLinkRound] = useState(0);
   const onError = useCallback((e: string) => codeProblem(e) && setLinkRound((n) => n + 1), []);
-  if (live.route === "files") {
+  // A copy made from backup files that was just connected with a code.
+  const [connected, setConnected] = useState(false);
+  if (live.route === "files" && !connected) {
     return (
       <section className="stack" aria-label={t("Live site")}>
         <h3 className="small">{t("Live site")}</h3>
-        <p className="muted small">{t("This copy was cloned from backup files, so Stackyard can't reach the live server. Clone it again from the server to push and pull.")}</p>
+        <ConnectBackupCopy domain={domain} url={live.url} onConnected={() => setConnected(true)} />
       </section>
     );
   }
