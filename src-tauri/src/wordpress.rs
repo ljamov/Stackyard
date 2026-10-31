@@ -1083,22 +1083,26 @@ fn same_site(a: &str, b: &str) -> bool {
 }
 
 /// Saves a new Stackyard Connect code for the copy's live site, in place of
-/// the one that stopped working, and checks it.
+/// the one that stopped working, and checks it. A copy made from backup
+/// files gets its first connection this way, so it can push and pull.
 #[tauri::command]
 pub async fn wp_live_set_code(app: AppHandle, domain: String, code: String) -> CmdResult<LiveLink> {
     blocking(move || {
         let live = live_of(&domain)?;
-        let id = live.connection.clone().ok_or_else(|| {
-            format!("{domain} was cloned from backup files and has no live connection")
-        })?;
         let link = connect::Link::parse(&code).map_err(err)?;
-        if !same_site(&link.url, &live.url) && !same_site(&link.site, &live.url) {
+        if !live.url.is_empty()
+            && !same_site(&link.url, &live.url)
+            && !same_site(&link.site, &live.url)
+        {
             return Err(format!(
                 "this code is from {}, but {domain}'s live site is {}; make the code on {}",
                 link.url, live.url, live.url
             ));
         }
         let mut store = RemoteStore::load().map_err(err)?;
+        let Some(id) = live.connection.clone() else {
+            return connect_backup_copy(&domain, &link, &mut store);
+        };
         let mut input = remote::input_of(store.get(&id).map_err(err)?).map_err(err)?;
         input.protocol = Some(remote::Protocol::Plugin);
         input.password = Some(link.code().to_string());
@@ -1111,6 +1115,44 @@ pub async fn wp_live_set_code(app: AppHandle, domain: String, code: String) -> C
         live_link(&domain)
     })
     .await
+}
+
+/// Connects a copy made from backup files to its live site through
+/// Stackyard Connect: saves the code as its Live connection and makes the
+/// copy reach the site the way a clone with a code does.
+fn connect_backup_copy(
+    domain: &str,
+    link: &connect::Link,
+    store: &mut RemoteStore,
+) -> CmdResult<LiveLink> {
+    let home = paths::home();
+    let mut environment = env::load(&home, domain)
+        .map_err(err)?
+        .ok_or_else(|| format!("{domain} is not a copy of a live site"))?;
+    let Some(live) = environment.live.as_mut() else {
+        return Err(format!("{domain} is not a copy of a live site"));
+    };
+    // Asks the plugin first, so a code that doesn't work saves nothing.
+    let root = link.root().map_err(err)?;
+    let saved = store
+        .add(remote::ConnectionInput {
+            site: domain.to_string(),
+            name: "Live".into(),
+            protocol: Some(remote::Protocol::Plugin),
+            remote_dir: root.clone(),
+            password: Some(link.code().to_string()),
+            ..remote::ConnectionInput::default()
+        })
+        .map_err(err)?;
+    store.save().map_err(err)?;
+    if live.url.is_empty() {
+        live.url = link.url.clone();
+    }
+    live.connection = Some(saved.id);
+    live.path = root;
+    live.route = env::Route::Helper;
+    env::save(&home, domain, &environment).map_err(err)?;
+    live_link(domain)
 }
 
 #[derive(Serialize)]

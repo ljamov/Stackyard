@@ -6,6 +6,11 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **A site made from a backup file can push and pull.** Its Live site tab used to say "clone it
+  again from the server". Now it asks for a Stackyard Connect code from the live site; Stackyard
+  saves it as the site's Live connection and the tab works like a clone's. The first compare marks
+  every difference, since the two were never in step.
+
 - **A clone says up front whether it fits, and how fast it goes.** After Look for WordPress the
   form shows the space the copy needs on each drive and how much is free there. When it may not
   fit it says which drive and what to do, and Clone waits for "Clone anyway". While files download
