@@ -169,7 +169,7 @@ export type WpSnapshots = { list: WpSnapshot[]; base: number | null };
 
 export type WpChange = "added" | "changed" | "removed";
 export type WpMergeLevel = "code" | "settings" | "everything";
-export type WpFileChange = { path: string; group: string; change: WpChange; target: WpChange | null; conflict: boolean };
+export type WpFileChange = { path: string; group: string; change: WpChange; target: WpChange | null; conflict: boolean; bytes: number };
 export type WpSwitch = { id: string; title: string; on: boolean; conflict: boolean };
 export type WpSettingChange = { name: string; change: WpChange; conflict: boolean; staging: string | null; target: string | null };
 export type WpChangeList = {
@@ -306,6 +306,8 @@ export interface WpApi {
   syncChanges(domain: string, way: WpWay): Promise<WpSyncChanges>;
   /** `confirm` is the main site's name, typed for an Everything push. */
   push(domain: string, choice: WpMergeChoice, confirm: string): Promise<WpPushed>;
+  /** Opens the live site this copy was cloned from, or its wp-admin, in the browser. */
+  openLive(domain: string, admin: boolean): Promise<void>;
   pull(domain: string, choice: WpMergeChoice): Promise<WpPulled>;
   /** Puts a site made here on a host through one of its servers, replacing what is there. */
   install(domain: string, connection: string, url: string, confirm: string): Promise<WpInstalled>;
@@ -385,6 +387,7 @@ const tauriWp: WpApi = {
   postsMove: (source, target, choice) => invoke("wp_posts_move", { source, target, choice }),
   syncChanges: (domain, way) => invoke("wp_sync_changes", { domain, way }),
   push: (domain, choice, confirm) => invoke("wp_push", { domain, choice, confirm }),
+  openLive: (domain, admin) => invoke("wp_open_live", { domain, admin }),
   pull: (domain, choice) => invoke("wp_pull", { domain, choice }),
   install: (domain, connection, url, confirm) => invoke("wp_install", { domain, connection, url, confirm }),
   syncStop: () => invoke("wp_sync_stop"),
@@ -689,12 +692,12 @@ function mockWp(): WpApi {
         target,
         base_at: Date.now() / 1000 - 7200,
         files: [
-          { path: "wp-content/themes/shop/style.css", group: "theme:shop", change: "changed", target: null, conflict: false },
-          { path: "wp-content/themes/shop/checkout.php", group: "theme:shop", change: "added", target: null, conflict: false },
-          { path: "wp-content/themes/shop/header.php", group: "theme:shop", change: "changed", target: "changed", conflict: true },
-          { path: "wp-content/plugins/fast-checkout/fast-checkout.php", group: "plugin:fast-checkout", change: "added", target: null, conflict: false },
-          { path: "wp-content/plugins/fast-checkout/readme.txt", group: "plugin:fast-checkout", change: "added", target: null, conflict: false },
-          { path: "wp-content/uploads/2026/10/banner.jpg", group: "media", change: "added", target: null, conflict: false },
+          { path: "wp-content/themes/shop/style.css", group: "theme:shop", change: "changed", target: null, conflict: false, bytes: 9200 },
+          { path: "wp-content/themes/shop/checkout.php", group: "theme:shop", change: "added", target: null, conflict: false, bytes: 4100 },
+          { path: "wp-content/themes/shop/header.php", group: "theme:shop", change: "changed", target: "changed", conflict: true, bytes: 62000 },
+          { path: "wp-content/plugins/fast-checkout/fast-checkout.php", group: "plugin:fast-checkout", change: "added", target: null, conflict: false, bytes: 3300 },
+          { path: "wp-content/plugins/fast-checkout/readme.txt", group: "plugin:fast-checkout", change: "added", target: null, conflict: false, bytes: 840000 },
+          { path: "wp-content/uploads/2026/10/banner.jpg", group: "media", change: "added", target: null, conflict: false, bytes: 2100 },
         ],
         switches: [{ id: "plugin:fast-checkout", title: "Fast Checkout", on: true, conflict: false }],
         settings: [
@@ -770,14 +773,14 @@ function mockWp(): WpApi {
         base_at: Date.now() / 1000 - 86400,
         files: push
           ? [
-              { path: "wp-content/themes/shop/style.css", group: "theme:shop", change: "changed", target: null, conflict: false },
-              { path: "wp-content/themes/shop/checkout.php", group: "theme:shop", change: "added", target: null, conflict: false },
-              { path: "wp-content/plugins/fast-checkout/fast-checkout.php", group: "plugin:fast-checkout", change: "added", target: null, conflict: false },
-              { path: "wp-content/plugins/fast-checkout/readme.txt", group: "plugin:fast-checkout", change: "added", target: null, conflict: false },
+              { path: "wp-content/themes/shop/style.css", group: "theme:shop", change: "changed", target: null, conflict: false, bytes: 18400 },
+              { path: "wp-content/themes/shop/checkout.php", group: "theme:shop", change: "added", target: null, conflict: false, bytes: 9200 },
+              { path: "wp-content/plugins/fast-checkout/fast-checkout.php", group: "plugin:fast-checkout", change: "added", target: null, conflict: false, bytes: 4100 },
+              { path: "wp-content/plugins/fast-checkout/readme.txt", group: "plugin:fast-checkout", change: "added", target: null, conflict: false, bytes: 62000 },
             ]
           : [
-              { path: "wp-content/plugins/woocommerce/woocommerce.php", group: "plugin:woocommerce", change: "changed", target: null, conflict: false },
-              { path: "wp-content/themes/shop/header.php", group: "theme:shop", change: "changed", target: "changed", conflict: true },
+              { path: "wp-content/plugins/woocommerce/woocommerce.php", group: "plugin:woocommerce", change: "changed", target: null, conflict: false, bytes: 3300 },
+              { path: "wp-content/themes/shop/header.php", group: "theme:shop", change: "changed", target: "changed", conflict: true, bytes: 840000 },
             ],
         switches: push ? [{ id: "plugin:fast-checkout", title: "Fast Checkout", on: true, conflict: false }] : [],
         settings: push
@@ -792,12 +795,33 @@ function mockWp(): WpApi {
       };
     },
     push: async (domain, choice) => {
-      await wait(1200);
+      const steps: [WpCloneStage, string][] = [
+        ["connecting", "Connecting to the live server…"],
+        ["database", "Backing up the table wp_options (1 of 12)"],
+        ["files", "Switching the live site to maintenance mode…"],
+        ...choice.files.map((f): [WpCloneStage, string] => ["files", `Uploading ${f}`]),
+        ["loading", "Changing the live settings…"],
+        ["finishing", "Switching maintenance mode off…"],
+        ["finishing", "Checking the live site answers…"],
+      ];
+      for (const [i, [stage, message]] of steps.entries()) {
+        for (const h of syncHandlers) h({ domain, stage, message, done: i, total: steps.length });
+        await wait(500);
+      }
       liveBackups.unshift({ id: `${Date.now()}`, domain, created_at: Date.now() / 1000, database: ["database/wp_options.sql.gz"], saved: choice.files, added: [], bytes: 3.2e8 });
       return { backup: liveBackups[0].id, files: choice.files.length, switches: choice.switches.length, settings: choice.settings.length, site_answers: true, notes: [] };
     },
     pull: async (domain, choice) => {
-      await wait(1000);
+      const steps: [WpCloneStage, string][] = [
+        ["connecting", "Connecting to the live server…"],
+        ["files", `Saving a snapshot of ${domain} first…`],
+        ...choice.files.map((f): [WpCloneStage, string] => ["files", `Downloading ${f}`]),
+        ["finishing", "Noting where both sides stand…"],
+      ];
+      for (const [i, [stage, message]] of steps.entries()) {
+        for (const h of syncHandlers) h({ domain, stage, message, done: i, total: steps.length });
+        await wait(500);
+      }
       snapshots.unshift({ id: `${Date.now()}`, domain, reason: "Pull from live", created_at: Date.now() / 1000, saved: choice.files, added: [], bytes: 1.1e7 });
       return { snapshot: snapshots[0].id, files: choice.files.length, switches: choice.switches.length, settings: choice.settings.length, notes: [] };
     },
@@ -805,6 +829,7 @@ function mockWp(): WpApi {
       await wait(1500);
       return { backup: `${Date.now()}`, files: 4210, site_answers: true, notes: [] };
     },
+    openLive: async (_domain, admin) => void window.open(admin ? "https://shop.example/wp-admin/" : "https://shop.example/", "_blank", "noopener"),
     syncStop: async () => {},
     onSyncProgress: async (handler) => {
       syncHandlers.push(handler);

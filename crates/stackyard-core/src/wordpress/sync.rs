@@ -304,6 +304,7 @@ fn file_list(
             change,
             target,
             conflict: base.is_none() || target.is_some(),
+            bytes: f.map_or(0, |e| e.size),
         });
     }
     out
@@ -1690,6 +1691,11 @@ pub fn pull(
     let client = Client::open(home)?;
     let local_db = r.wp.database()?;
     let mut notes = Vec::new();
+    say(
+        progress,
+        Stage::Files,
+        format!("Saving a snapshot of {domain} first…"),
+    )?;
     let mut snap = snapshot::take(home, &r.wp, "Pull from live")?;
 
     // Everything about to change goes into the snapshot first, so the pull
