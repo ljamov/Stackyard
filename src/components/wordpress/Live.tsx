@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorText } from "../../lib/api";
+import { api, errorText } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import {
   wp,
   type WpEnvironment,
   type WpLiveBackup,
+  type WpMergeChoice,
   type WpMergeLevel,
   type WpPulled,
   type WpPushed,
@@ -16,6 +17,7 @@ import { stageText } from "./CloneSite";
 import { FileGroups, MovePosts, SettingList, SwitchList, Undo, UndoWith, when } from "./Merge";
 import { size } from "./WordPressTools";
 import { useBusy } from "../../lib/tabLife";
+import { duration, SyncPreview, syncPlan, SyncSteps, type SyncPlan } from "./SyncSteps";
 
 type Live = NonNullable<WpEnvironment["live"]>;
 
@@ -154,6 +156,9 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
   const [pulled, setPulled] = useState<WpPulled | null>(null);
   const [undone, setUndone] = useState(false);
   const [progress, setProgress] = useSyncProgress(domain);
+  // The push or pull running, or the last one: what it set out to do and how long it took.
+  const [running, setRunning] = useState<SyncPlan | null>(null);
+  const [took, setTook] = useState<number | null>(null);
   const push = way === "push";
   const name = main.split(".")[0];
 
@@ -172,6 +177,7 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
   }
 
   async function find() {
+    setRunning(null);
     setPushed(null);
     setPulled(null);
     setUndone(false);
@@ -186,13 +192,27 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
     if (!push && l.live_content_changed && !l.local_content_changed) setLevel("everything");
   }
 
-  async function run() {
-    const choice = {
+  function choice(): WpMergeChoice {
+    return {
       level,
       files: [...files],
       switches: level === "everything" ? [] : [...switches],
       settings: level === "settings" ? [...settings] : [],
     };
+  }
+  async function run() {
+    if (!list) return;
+    const picked = choice();
+    setRunning(syncPlan(list, picked));
+    setTook(null);
+    const began = Date.now();
+    try {
+      await send(picked);
+    } finally {
+      setTook((Date.now() - began) / 1000);
+    }
+  }
+  async function send(choice: WpMergeChoice) {
     if (push) {
       const done = await work(t("Pushing…"), () => wp.push(domain, choice, typed.trim()));
       if (done) {
@@ -293,6 +313,7 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
             <p className="warn small">{t("Posts or comments changed on {site} since it was last in step. Pulling everything replaces them with the live site's.", { site: domain })}</p>
           )}
 
+          {!busy && !(nothing === true && level !== "everything") && <SyncPreview plan={syncPlan(list, choice())} site={domain} />}
           {!busy && (
             <div className="row">
               <button
@@ -310,12 +331,15 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
           )}
         </>
       )}
-      {busy && (
-        <>
-          <p className="muted small">{busy}</p>
-          <Progress progress={progress} onStop={() => wp.syncStop()} />
-        </>
-      )}
+      {busy &&
+        (running && busy !== t("Comparing with the live site…") ? (
+          <SyncSteps plan={running} site={domain} progress={progress} onStop={() => wp.syncStop()} />
+        ) : (
+          <>
+            <p className="muted small">{busy}</p>
+            <Progress progress={progress} onStop={() => wp.syncStop()} />
+          </>
+        ))}
       {pushed && !undone && (
         <div className="stack tight" role="status">
           <p className="notice small">
@@ -325,13 +349,24 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
               settings: pushed.settings,
             })}
           </p>
+          <p className="muted small">
+            {[took !== null && t("Took {time}.", { time: duration(t, took) }), t("A backup of the live site was taken first; it is under Backups of the live site below.")]
+              .filter(Boolean)
+              .join(" ")}
+          </p>
           {!pushed.site_answers && <p className="warn small">{t("The live site did not answer as expected afterwards. Open it; if it is broken, put the backup back.")}</p>}
           {pushed.notes.map((n) => (
             <p key={n} className="warn small">
               {n}
             </p>
           ))}
-          <div className="row">
+          <div className="row wrap">
+            <button type="button" className="btn primary" onClick={() => void wp.openLive(domain, false).catch((e) => setError(errorText(e)))}>
+              {t("Open the live site")}
+            </button>
+            <button type="button" className="btn" onClick={() => void wp.openLive(domain, true).catch((e) => setError(errorText(e)))}>
+              {t("Open WP Admin on live")}
+            </button>
             <UndoWith undo={() => wp.restoreLiveBackup(domain, pushed.backup)} onDone={() => setUndone(true)} />
           </div>
         </div>
@@ -351,16 +386,29 @@ function SyncChanges({ domain, main, way }: { domain: string; main: string; way:
               {n}
             </p>
           ))}
-          <div className="row">
+          {took !== null && <p className="muted small">{t("Took {time}. A snapshot of {site} was saved first.", { time: duration(t, took), site: domain })}</p>}
+          <div className="row wrap">
+            <button type="button" className="btn primary" onClick={() => void api.openLocalPage(`https://${domain}/`).catch((e) => setError(errorText(e)))}>
+              {t("Open {site}", { site: domain })}
+            </button>
             <Undo target={domain} snapshot={pulled.snapshot} onDone={() => setUndone(true)} />
           </div>
         </div>
       )}
       {undone && <p className="notice small">{push ? t("The live site is back as it was before the push.") : t("{site} is back as it was before the pull.", { site: domain })}</p>}
       {error && (
-        <p className="error small" role="alert">
-          {error}
-        </p>
+        <div className="stack tight">
+          <p className="error small" role="alert">
+            {error}
+          </p>
+          {!busy && (
+            <div className="row">
+              <button type="button" className="btn" onClick={() => void (list && running ? run() : find())}>
+                {t("Try again")}
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

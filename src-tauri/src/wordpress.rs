@@ -940,6 +940,34 @@ pub fn wp_environment(domain: String) -> CmdResult<Option<env::Environment>> {
     env::load(&paths::home(), &domain).map_err(err)
 }
 
+/// Opens the live site a copy was cloned from in the browser, or its
+/// wp-admin. Only the address Stackyard saved is opened, never one passed in.
+#[tauri::command]
+pub fn wp_open_live(domain: String, admin: bool) -> CmdResult<()> {
+    let home = paths::home();
+    let live = env::load(&home, &domain)
+        .ok()
+        .flatten()
+        .and_then(|e| e.live)
+        .or_else(|| {
+            env::load(&home, &staging::main_of(&home, &domain))
+                .ok()
+                .flatten()
+                .and_then(|e| e.live)
+        })
+        .ok_or_else(|| format!("{domain} has no live site"))?;
+    let url = live.url.trim_end_matches('/');
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err(format!("{domain}'s live address is not a web address"));
+    }
+    let target = if admin {
+        format!("{url}/wp-admin/")
+    } else {
+        format!("{url}/")
+    };
+    crate::sitetools::open_with_system(std::ffi::OsStr::new(&target))
+}
+
 #[derive(Serialize)]
 pub struct Environments {
     /// The main site: this site, or the one it is a staging of.

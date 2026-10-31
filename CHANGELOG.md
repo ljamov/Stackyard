@@ -4,6 +4,15 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Pushing to live says what it will do, and shows each step.** Before you press Push to live
+  (or Pull), a short list says what happens: the backup first, the maintenance page, how many
+  files and how many MB go up, which plugins get switched, and whether the database changes.
+  While it runs you see every step with a tick once done, the current file, time left in the
+  step and the time so far. When it finishes there are Open the live site and Open WP Admin on
+  live buttons, next to Undo. A push or pull that fails has a Try again button.
+
 ## 0.22.0
 
 - **Big WordPress shops no longer run out of time on Windows.** PHP on Windows answered one

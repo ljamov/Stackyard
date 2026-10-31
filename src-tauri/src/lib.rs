@@ -2432,6 +2432,7 @@ pub fn run() {
             wordpress::wp_clone_unfinished,
             wordpress::wp_clones_saved,
             wordpress::wp_environment,
+            wordpress::wp_open_live,
             wordpress::wp_stagings,
             wordpress::wp_staging_create,
             wordpress::wp_staging_stop,

@@ -74,6 +74,8 @@ pub struct FileChange {
     pub target: Option<Change>,
     /// Changed on both sides, differently.
     pub conflict: bool,
+    /// The file's size on the side it is copied from; 0 when it is removed.
+    pub bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -248,6 +250,7 @@ pub fn file_changes(
                 change,
                 target: target_change,
                 conflict: target_change.is_some(),
+                bytes: s.map_or(0, |e| e.size),
             })
         })
         .collect()
