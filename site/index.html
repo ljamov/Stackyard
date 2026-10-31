@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stackyard: your whole local dev stack in one app</title>
-<meta name="description" content="Fast, native local development for Windows, macOS and Linux. PHP, Node.js, MySQL, PostgreSQL, Redis and more, local HTTPS sites and a built-in MCP server for AI coding tools. No containers.">
+<meta name="description" content="Fast, native local development. PHP, Node.js, Python, Go, Java, MySQL, MariaDB, PostgreSQL and more, local HTTPS sites, WordPress clone from live, staging, push and pull, and a built-in MCP server for AI coding tools. No containers.">
 <meta property="og:title" content="Stackyard">
 <meta property="og:description" content="Your whole local dev stack in one fast desktop app. No containers.">
 <meta property="og:image" content="images/sites.png">
@@ -22,6 +22,7 @@
     <a class="brand" href="#top"><img src="logo.svg" alt="" width="28" height="28"> Stackyard</a>
     <nav class="nav-links" aria-label="Main">
       <a href="#features">Features</a>
+      <a href="#wordpress">WordPress</a>
       <a href="#tour">Tour</a>
       <a href="#ai">AI tools</a>
       <a href="changelog.html">What's new</a>
@@ -38,15 +39,15 @@
   <div class="wrap hero-inner">
     <p class="eyebrow"><span class="dot"></span> Free and open source · <span data-version>Latest release</span></p>
     <h1>Your whole local dev stack.<br><span class="accent">One fast app.</span> No containers.</h1>
-    <p class="lead">PHP, Node.js, MySQL, PostgreSQL, Redis and more, running natively on Windows, macOS and Linux, with trusted HTTPS sites like <code>https://myapp.stack</code> and a built-in MCP server for AI coding tools.</p>
+    <p class="lead">PHP, Node.js, Python, Go, Java, MySQL, MariaDB, PostgreSQL and more, running natively on your computer, with trusted HTTPS sites like <code>https://myapp.stack</code>, a full WordPress workflow from live to local and back, and a built-in MCP server for AI coding tools.</p>
     <div class="cta">
       <a class="btn primary big" data-primary href="https://github.com/ljamov/Stackyard/releases/latest">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16" /></svg>
         <span data-primary-label>Download Stackyard</span>
       </a>
-      <a class="btn ghost big" href="#download">Other systems</a>
+      <a class="btn ghost big" href="#features">See what it does</a>
     </div>
-    <p class="fine" data-primary-note>Windows 10/11 · macOS 11+ · Linux x64</p>
+    <p class="fine" data-primary-note>Windows 10 and 11 · x64</p>
     <figure class="shot hero-shot">
       <img src="images/sites.png" alt="The Sites screen: three local HTTPS sites running Laravel, Vite and WordPress, each with its own runtime version" width="1920" height="1200">
     </figure>
@@ -57,6 +58,7 @@
   <div class="why-item"><h3>Native, not virtual</h3><p>Services run straight on your OS. No Docker, no VM, no waiting for containers to boot.</p></div>
   <div class="why-item"><h3>Per-project versions</h3><p>One project on PHP 8.2, the next on 8.5, a third on Node 22. Browser and terminal always agree.</p></div>
   <div class="why-item"><h3>Real HTTPS</h3><p>Every project gets <code>https://name.stack</code> with a trusted certificate, set up with one click.</p></div>
+  <div class="why-item"><h3>WordPress, both ways</h3><p>Clone a live site, try changes on a staging copy, merge, then push back with backups at every step.</p></div>
   <div class="why-item"><h3>Small by design</h3><p>Every runtime, service and screen is a module. Off means nothing downloaded, nothing running.</p></div>
 </section>
 
@@ -66,31 +68,61 @@
     <h2>Everything a local stack needs, in one place</h2>
     <div class="grid">
       <article class="card">
-        <div class="icon">🌐</div>
-        <h3>Sites and HTTPS</h3>
+        <div class="icon">📁</div>
+        <h3>Projects, apps and sites</h3>
         <ul>
-          <li>Local domains ending in <code>.stack</code>, <code>.test</code> or anything you like</li>
-          <li>Trusted HTTPS for every site, powered by Caddy</li>
-          <li>Park a folder and every project inside becomes a site</li>
-          <li>Detects Laravel, Symfony, WordPress, Drupal, Vite, Next.js, Astro and more</li>
+          <li>One list of everything, split into Apps and Sites</li>
+          <li>Starters: WordPress, WooCommerce, Laravel, Astro, Next.js, React, Vue, Svelte, static HTML</li>
+          <li>Apps: WordPress plugin or theme, PHP package, Node.js server, Python scripts</li>
+          <li>Park a folder and every project in it shows up, in your own order and groups</li>
         </ul>
       </article>
       <article class="card">
-        <div class="icon">⚡</div>
-        <h3>Starters</h3>
+        <div class="icon">🌐</div>
+        <h3>Local domains and HTTPS</h3>
         <ul>
-          <li>New WordPress, Laravel or Astro site in one click</li>
-          <li>Database and config files made for you</li>
-          <li>Node dev servers started and proxied automatically</li>
-          <li>Or <code>stackyard sites new blog wordpress</code></li>
+          <li>Local domains ending in <code>.stack</code>, <code>.test</code> or anything you like</li>
+          <li>Trusted HTTPS for every site, powered by Caddy</li>
+          <li>Detects Laravel, Symfony, WordPress, Drupal, Vite, Next.js, Astro and more</li>
+          <li>Django, FastAPI, Flask, Go and Spring Boot apps served over HTTPS too</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🟦</div>
+        <h3>Clone a live WordPress</h3>
+        <ul>
+          <li>Over SSH, SFTP or FTP, several at once, with Pause and Resume</li>
+          <li>Import backup: cPanel, Plesk, DirectAdmin or a zip with its <code>.sql</code></li>
+          <li>Addresses changed, mail caught, payments in test mode</li>
+          <li>See each part's size first; leave media on the live site if you like</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🔀</div>
+        <h3>Staging, merge, push and pull</h3>
+        <ul>
+          <li>Staging copies beside the site, merged back at three levels</li>
+          <li>Move single posts and pages between copies with their images</li>
+          <li>Push to live with backups, maintenance mode and automatic roll-back</li>
+          <li>Pull from live, and put a site made here on a host</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🛠️</div>
+        <h3>WordPress tools</h3>
+        <ul>
+          <li>Plugins, themes and users as in wp-admin; log in as anyone</li>
+          <li>Debug switches, live <code>debug.log</code>, search and replace</li>
+          <li>Change table prefix, check and repair the database</li>
+          <li>WooCommerce tools; theme and plugin <code>.zip</code> builds</li>
         </ul>
       </article>
       <article class="card">
         <div class="icon">⚙️</div>
         <h3>Runtimes</h3>
         <ul>
-          <li>PHP 8.1 to 8.5 (plus 7.4 and 8.0 on Windows) and Node.js 20 to 26</li>
-          <li>Python, Go and Java when you want them, with Django, FastAPI, Go and Spring Boot sites</li>
+          <li>PHP 7.4 to 8.5 and Node.js 20 to 26, side by side</li>
+          <li>Python, Go and Java when you want them</li>
           <li>Pick a version per site, or keep it in <code>.stackyard</code>, <code>.nvmrc</code> or <code>.tool-versions</code></li>
           <li><code>php</code>, <code>node</code>, <code>python</code>, <code>go</code> pick the right version in any terminal</li>
         </ul>
@@ -99,30 +131,10 @@
         <div class="icon">🗄️</div>
         <h3>Databases and services</h3>
         <ul>
-          <li>MySQL 8.4, MariaDB 11.8, PostgreSQL 18, Redis 8, MongoDB 9</li>
+          <li>MySQL 8.4, MariaDB 11.8, PostgreSQL 18, MongoDB 9</li>
           <li>Meilisearch, Mailpit, SeaweedFS for S3 storage, NATS for queues</li>
-          <li>phpMyAdmin in one click, already logged in</li>
+          <li>Databases screen and phpMyAdmin, already logged in</li>
           <li>Port taken by another app? It moves to the next free one</li>
-        </ul>
-      </article>
-      <article class="card">
-        <div class="icon">🧰</div>
-        <h3>Built-in tools</h3>
-        <ul>
-          <li>Databases screen: browse, run SQL, back up and restore</li>
-          <li>Live logs with text and regex search</li>
-          <li>Task scheduler with crontab syntax</li>
-          <li>Image and video optimizers: WebP, AVIF, MP4, WebM and GIF</li>
-        </ul>
-      </article>
-      <article class="card">
-        <div class="icon">🚀</div>
-        <h3>Servers and Git</h3>
-        <ul>
-          <li>Upload and download over SFTP, FTPS or FTP, with a preview first</li>
-          <li>Passwords kept in your system keychain</li>
-          <li>Link a site to GitHub: pull, commit and push</li>
-          <li>Signed auto-updates with release notes</li>
         </ul>
       </article>
       <article class="card">
@@ -130,9 +142,19 @@
         <h3>Site tools</h3>
         <ul>
           <li>Per-site settings: folder served, HTTPS, environment, PHP settings</li>
-          <li>Back up a site's files and database in one click, and restore</li>
-          <li>Move a site to another computer as one file</li>
-          <li>Share a local site at a temporary public link</li>
+          <li>Backups, export and import as one file, public links</li>
+          <li>Move a site to another drive; see how much room it takes</li>
+          <li>Servers and Git: SFTP, FTPS, FTP, pull, commit and push</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="icon">🧰</div>
+        <h3>Built-in tools</h3>
+        <ul>
+          <li>Image and video optimizers: WebP, AVIF, MP4, WebM and GIF</li>
+          <li>Live logs, a Terminal in each site's folder, task scheduler</li>
+          <li>Open in VS Code, Cursor, Windsurf, PhpStorm, Zed and more</li>
+          <li>Signed auto-updates with release notes</li>
         </ul>
       </article>
       <article class="card">
@@ -146,15 +168,67 @@
         </ul>
       </article>
       <article class="card">
+        <div class="icon">🗂️</div>
+        <h3>A real workspace</h3>
+        <ul>
+          <li>Tabs that keep working in the background</li>
+          <li>Problems, Logs and Terminal in a panel below</li>
+          <li>Command palette, quick open and keys you can change</li>
+          <li>A full <code>stackyard</code> CLI on the same engine</li>
+        </ul>
+      </article>
+      <article class="card">
         <div class="icon">🎨</div>
         <h3>Make it yours</h3>
         <ul>
-          <li>Dark, light or matching your computer, with six accent colors</li>
+          <li>Dark, light, high contrast or your own VS Code theme, any accent color</li>
           <li>English, Deutsch, Español, Français, Italiano, Македонски and Português</li>
           <li>Add your own language with one file</li>
           <li>Switch off any module you don't use: it downloads and runs nothing</li>
         </ul>
       </article>
+    </div>
+  </div>
+</section>
+
+<section id="wordpress" class="section alt">
+  <div class="wrap split">
+    <div>
+      <p class="kicker">WordPress</p>
+      <h2>From live to local, and back again</h2>
+      <p class="muted">Copy a live WordPress or WooCommerce site to your computer over SSH, SFTP or FTP, or from a hosting panel backup. Stackyard reads the database login from the live <code>wp-config.php</code>, changes every address to the local one, sends mail to Mailpit and puts payments into test mode. Try changes on a staging copy, merge them back, and push to live: the live database and every changed file are backed up first, the maintenance page shows while it works, and if a step fails the backup goes back by itself.</p>
+      <p><a class="link" href="https://github.com/ljamov/Stackyard/blob/master/docs/wordpress.md">WordPress guide →</a></p>
+    </div>
+    <div class="terminal" aria-label="Terminal example">
+      <div class="term-bar"><i></i><i></i><i></i></div>
+<pre><span class="c"># copy a live site, then make a staging copy</span>
+<span class="p">$</span> stackyard wp clone shop --host example.com --user me
+<span class="p">$</span> stackyard wp staging new checkout --site shop.stack
+
+<span class="c"># merge it back into shop.stack</span>
+<span class="p">$</span> stackyard wp staging merge checkout.shop.stack --yes
+
+<span class="c"># see what a push would send, then send it</span>
+<span class="p">$</span> stackyard wp push shop.stack
+<span class="p">$</span> stackyard wp push shop.stack --yes</pre>
+    </div>
+  </div>
+</section>
+
+<section id="pro" class="section">
+  <div class="wrap">
+    <div class="pro">
+      <div>
+        <p class="kicker">Stackyard Pro <span class="soon">Coming soon</span></p>
+        <h2>Stackyard Connect</h2>
+        <p class="muted">A WordPress plugin for your live sites, coming as a Pro feature. Install it on a live site and Stackyard can clone, pull and push that site with a connection code, with no FTP or SSH login, and export the whole site as one file on any host. Everything else on this page stays free and open source.</p>
+      </div>
+      <ul class="pro-list">
+        <li>Clone a live site with a connection code instead of an FTP login</li>
+        <li>Pull and push through the plugin, on any host</li>
+        <li>Export a whole site, files and database, as one file</li>
+        <li>Codes that expire by themselves and can be stopped any time</li>
+      </ul>
     </div>
   </div>
 </section>
@@ -201,8 +275,11 @@
           <tr><td>MariaDB 11.8</td><td>3306</td><td>Windows, Linux</td></tr>
           <tr><td>PostgreSQL 18</td><td>5432</td><td>All</td></tr>
           <tr><td>Redis 8</td><td>6379</td><td>macOS, Linux</td></tr>
+          <tr><td>MongoDB 9.0</td><td>27017</td><td>All</td></tr>
           <tr><td>Meilisearch 1</td><td>7700</td><td>All</td></tr>
           <tr><td>Mailpit</td><td>1025, 8025</td><td>All</td></tr>
+          <tr><td>SeaweedFS 4 (S3)</td><td>8333</td><td>All</td></tr>
+          <tr><td>NATS 2 (queue)</td><td>4222</td><td>All</td></tr>
           <tr><td>phpMyAdmin</td><td>phpmyadmin.stack</td><td>All</td></tr>
         </tbody>
       </table>
@@ -254,30 +331,16 @@
   <div class="wrap">
     <p class="kicker">Download</p>
     <h2>Get Stackyard <span class="accent" data-version-short></span></h2>
-    <p class="muted center">Free and open source (AGPL-3.0). Installers aren't code-signed yet: on Windows choose <b>More info → Run anyway</b>; on macOS right-click the app and choose <b>Open</b> the first time.</p>
-    <div class="platforms">
-      <article class="platform" data-os="windows">
+    <p class="muted center">Free and open source (AGPL-3.0). The installer isn't code-signed yet: on Windows choose <b>More info → Run anyway</b> the first time.</p>
+    <div class="platforms one">
+      <article class="platform mine" data-os="windows">
         <h3>Windows</h3>
         <p class="fine">Windows 10 and 11, x64</p>
         <a class="btn primary" data-asset="setup.exe" href="https://github.com/ljamov/Stackyard/releases/latest">Installer (.exe)</a>
         <a class="btn ghost" data-asset=".msi" href="https://github.com/ljamov/Stackyard/releases/latest">MSI package</a>
       </article>
-      <article class="platform" data-os="mac">
-        <h3>macOS</h3>
-        <p class="fine">macOS 11 or later</p>
-        <a class="btn primary" data-asset="aarch64.dmg" href="https://github.com/ljamov/Stackyard/releases/latest">Apple silicon (.dmg)</a>
-        <a class="btn ghost" data-asset="x64.dmg" href="https://github.com/ljamov/Stackyard/releases/latest">Intel (.dmg)</a>
-      </article>
-      <article class="platform" data-os="linux">
-        <h3>Linux</h3>
-        <p class="fine">x64</p>
-        <a class="btn primary" data-asset=".AppImage" href="https://github.com/ljamov/Stackyard/releases/latest">AppImage</a>
-        <div class="row">
-          <a class="btn ghost" data-asset=".deb" href="https://github.com/ljamov/Stackyard/releases/latest">.deb</a>
-          <a class="btn ghost" data-asset=".rpm" href="https://github.com/ljamov/Stackyard/releases/latest">.rpm</a>
-        </div>
-      </article>
     </div>
+    <p class="center fine">Installers are built for Windows only for now. On macOS and Linux you can <a class="link" href="https://github.com/ljamov/Stackyard#build-from-source">build Stackyard from source</a>.</p>
     <p class="center fine"><a class="link" href="https://github.com/ljamov/Stackyard/releases">All releases and release notes</a></p>
   </div>
 </section>

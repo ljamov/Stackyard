@@ -6,18 +6,20 @@
 
 **Your whole local dev stack in one fast desktop app. No containers.**
 
-PHP, Node.js, MySQL, PostgreSQL, Redis and more, running natively on Windows, macOS and Linux,
-with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for AI coding tools.
+PHP, Node.js, Python, Go, Java, MySQL, MariaDB, PostgreSQL, MongoDB and more, running natively on your
+computer, with local HTTPS sites like `https://myapp.stack`, a full WordPress workflow (clone a live
+site, stage, merge, push and pull) and a built-in MCP server for AI coding tools.
 
 [![Latest release](https://img.shields.io/github/v/release/ljamov/Stackyard?color=F2B035&label=release)](https://github.com/ljamov/Stackyard/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/ljamov/Stackyard/ci.yml?branch=master&label=CI)](https://github.com/ljamov/Stackyard/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-1F242C)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1F242C)
 ![Built with Tauri 2 and Rust](https://img.shields.io/badge/built%20with-Tauri%202%20%2B%20Rust-F7CD72)
 
 [**Download**](https://github.com/ljamov/Stackyard/releases/latest) ·
 [Website](https://ljamov.github.io/Stackyard/) ·
 [Features](#features) ·
+[WordPress](#wordpress-from-live-to-local-and-back) ·
 [Quick start](#quick-start) ·
 [CLI](docs/cli.md) ·
 [MCP](docs/mcp.md) ·
@@ -40,6 +42,8 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
   certificate, set up with one click.
 - **Small and switch-off-able.** Every runtime, service and screen is a module. Off means nothing is
   downloaded, nothing runs and the screen is gone.
+- **WordPress, both ways.** Copy a live WordPress or WooCommerce site to your computer, try
+  changes on a staging copy, merge them, and push them back, with backups at every step.
 - **AI-ready.** A built-in MCP server lets Claude Code, Cursor and others see your stack, and act on
   it only where you allow.
 
@@ -49,26 +53,51 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 <tr>
 <td width="50%" valign="top">
 
-### 🌐 Sites and HTTPS
-- Local domains ending in `.stack` (or `.test`, or any ending you like)
-- Trusted HTTPS for every site, powered by Caddy
-- **Park a folder** and every project inside becomes a site
-- Detects Laravel, Symfony, WordPress, Drupal, Craft, Magento, Vite, Next.js, Astro and more
-- Node dev servers proxied automatically; static sites served as is
-- **Django, FastAPI, Flask, Go, Spring Boot, Quarkus and Micronaut** apps run by Stackyard and served over HTTPS
-- **Starters**: a new WordPress, Laravel or Astro site in one click, database and config included
-- **Per-site settings**, one-click **backups** of files and database, **export and import** to move a site, and optional **public links**
+### 📁 Projects, apps and sites
+- **One list of everything you build**, split into **Apps** and **Sites** in the side bar
+- **Site starters**: WordPress, WooCommerce, Laravel, Astro, Next.js, React, Vue, Svelte or static HTML, database and config included
+- **App starters**: a WordPress plugin or theme, a PHP package, a Node.js server or Python scripts
+- **Park a folder** and every project inside shows up; folders you make by hand count too
+- Detects Laravel, Symfony, WordPress, WooCommerce, Drupal, Craft, Magento, Vite, Next.js, Astro and more
+- Your own order and **groups** (one per client, say), with pictures of each site's home page
+- **Move a site** to another folder or drive, see **how much room** it takes, remove it with or without its files
 
 </td>
 <td width="50%" valign="top">
 
+### 🌐 Local domains and HTTPS
+- Local domains ending in `.stack` (or `.test`, or any ending you like)
+- Trusted HTTPS for every site, powered by Caddy, set up once
+- Apps without an address open at `localhost:<port>` or `<name>.localhost`
+- Node dev servers proxied automatically; static sites served as is
+- **Django, FastAPI, Flask, Go, Spring Boot, Quarkus and Micronaut** apps run by Stackyard and served over HTTPS
+- **Per-site settings**: folder served, HTTPS, environment, own PHP settings, start command
+- **Backups**, **export and import** as one file, and **public links** to share a local site
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🟦 WordPress and WooCommerce
+- **Clone from a live server** over SSH, SFTP or FTP, or from a hosting panel backup; several at once, with Pause and Resume
+- **Import backup**: drop a cPanel, Plesk or DirectAdmin backup or a zip with its `.sql`, and get a working local site
+- **Staging** copies, **merge** them back at three levels, and move single posts and pages between copies
+- **Push to live and pull from live**, with live backups, maintenance mode and an automatic roll-back if a step fails
+- Plugins, themes, users, debug log, search and replace, change table prefix, **check and repair the database**
+- WooCommerce tools: scheduled actions, test-mode payments, test orders and customers
+- **Theme and plugin projects** with Set version and Build .zip, no WordPress needed
+
+</td>
+<td valign="top">
+
 ### ⚙️ Runtimes
-- **PHP 8.1 to 8.5** (plus 7.4 and 8.0 on Windows) and **Node.js 20 to 26**, side by side
+- **PHP 7.4 to 8.5** and **Node.js 20 to 26**, side by side
 - **Python 3.11 to 3.15**, **Go 1.25 to 1.27** and **Java 11 to 25** (Temurin), each a module you switch on
 - Pin a version per project with a `.stackyard` file (or an existing `.nvmrc`, `.php-version`, `.tool-versions`)
 - `php`, `composer`, `node`, `npm`, `python`, `pip`, `go`, `java` and `mysql` pick the right version in any terminal
 - Every download checked against a published SHA-256
-- Own `php.ini` per PHP version
+- Own `php.ini` per PHP version, several PHP workers and room for big shops
 
 </td>
 </tr>
@@ -76,7 +105,7 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 <td valign="top">
 
 ### 🗄️ Databases and services
-- **MySQL 8.4**, **MariaDB 11.8**, **PostgreSQL 18**, **Redis 8**
+- **MySQL 8.4**, **MariaDB 11.8**, **PostgreSQL 18**, and **Redis 8** on macOS and Linux
 - **MongoDB 9.0**, **SeaweedFS** (S3-compatible storage), **NATS** (message queue)
 - **Meilisearch** for search, **Mailpit** to catch outgoing mail
 - Everything listens on `127.0.0.1` only
@@ -87,14 +116,13 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 <td valign="top">
 
 ### 🧰 Built-in tools
-- **Databases screen**: browse tables, run SQL, back up and restore
+- **Databases screen**: browse tables, run SQL, back up and restore (MySQL, MariaDB, PostgreSQL)
 - **phpMyAdmin** in one click, already logged in to your local database
 - **Image optimizer**: WebP, AVIF and smaller JPG/PNG for a whole site folder
-- **Video optimizer**: web-ready MP4, WebM and GIF copies with FFmpeg, downloaded on first use
-- **Live logs** for every service, with text and regex search
-- **Task scheduler** with crontab syntax, in each project's folder
-- **Servers and Git per site**: upload and download over SFTP, FTPS or FTP; pull, commit and push to GitHub
-- **Disk space cleanup** that never touches your projects
+- **Video optimizer**: web-ready MP4, WebM and GIF copies with FFmpeg
+- **Live logs**, a **Terminal** tab in each site's folder, and a **task scheduler** with crontab syntax
+- **Servers and Git per site**: SFTP, FTPS or FTP with Check connection; pull, commit and push
+- **Open in your editor**: VS Code, Cursor, Windsurf, PhpStorm, Zed and more
 
 </td>
 </tr>
@@ -103,49 +131,54 @@ with local HTTPS sites like `https://myapp.stack` and a built-in MCP server for 
 
 ### 🤖 AI coding tools
 - **Install Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Qwen Code and OpenCode** in one click, on Stackyard's own Node.js
-- Update them from the same screen; **Open** starts one in a new terminal in a site's folder
+- Update them from the same screen; **Open** starts one in a site's folder
 - `stackyard mcp` works with Claude Code, Cursor, Claude Desktop, Windsurf
-- Lists sites, services and databases, reads logs, starts, stops and restarts services, runs SQL
-- Read-only by default; you allow each action in Settings
-- Never offers to delete sites, whole databases or files
+- AI tools see sites, services, databases, logs and WordPress sites; they act only where you allow
+- Pushing to a live site, deleting sites, whole databases or files are never offered
 - Every call is logged with the tool's name
 
 </td>
 <td valign="top">
 
-### 🖥️ Desktop and CLI
-- A first-run setup screen picks your folders and what to install
-- Lives in the tray (menu bar on macOS) with services running in the background
-- A full `stackyard` CLI that drives the same engine as the app
+### 🖥️ Workspace, desktop and CLI
+- Tabs that keep working in the background, a bottom panel with Problems, Logs and Terminal
+- Command palette (**Ctrl+Shift+P**), quick open (**Ctrl+P**) and keys you can change
+- Dark, light, high contrast or **your own VS Code theme**, any accent color, density and zoom
+- Seven languages (English, Deutsch, Español, Français, Italiano, Македонски, Português), add your own with one file
+- Lives in the tray with services in the background; a full `stackyard` CLI drives the same engine
 - Signed auto-updates with release notes, installed when you choose
-- Dark, light or system theme, six accent colors, and seven languages (add your own with one file)
-- Windows 10/11, macOS 11+ (Intel and Apple silicon), Linux x64
 
 </td>
 </tr>
 </table>
 
+### ⭐ Stackyard Pro: coming soon
+
+**Stackyard Connect**, a WordPress plugin for your live sites, will be a Pro feature. Install it on a
+live site and Stackyard can clone, pull and push that site with a connection code, with no FTP or
+SSH login, and export the whole site as one file on any host. Everything else above stays free and
+open source.
+
 ## Quick start
 
-1. **Download** the installer for your system from the
+1. **Download** the Windows installer from the
    [latest release](https://github.com/ljamov/Stackyard/releases/latest):
+   `Stackyard_<version>_x64-setup.exe` (no admin needed) or the `.msi`, for Windows 10 and 11 (x64).
 
-   | System | File |
-   | --- | --- |
-   | Windows 10 and 11 (x64) | `Stackyard_<version>_x64-setup.exe` (no admin needed) or `.msi` |
-   | macOS 11 or later | `.dmg`, `aarch64` for Apple silicon or `x64` for Intel |
-   | Linux (x64) | `.deb`, `.rpm` or `.AppImage` |
+   > The installer is not code-signed yet, so the first start needs one extra click: choose
+   > **More info**, then **Run anyway**.
 
-   > The installers are not code-signed yet, so the first start needs one extra click. On Windows
-   > choose **More info**, then **Run anyway**. On macOS right-click Stackyard and choose **Open**.
+   Installers are built for Windows only for now. The code still runs on macOS and Linux, so you
+   can [build it from source](#build-from-source) there.
 
 2. **Open Stackyard.** The first-run screen asks where to keep Stackyard's files and your sites
-   (`C:\stackyard` and `C:\stackyard\www` on Windows) and what to install. Then click **Set up** on
-   the Sites screen. It asks for your password once to
-   make `.stack` names and HTTPS work. Until then, every site also works at `<name>.localhost`.
-3. **Add a site**, start one from WordPress, Laravel or Astro, or park your code folder so every
-   project in it becomes one.
-4. **Start Caddy** (and MySQL if you need it) from the Dashboard, then open `https://<name>.stack`.
+   (`C:\stackyard` and `C:\stackyard\www` by default) and what to install. Then click **Set up**
+   for local domains. It asks for permission once to make `.stack` names and HTTPS work. Until
+   then, every site also works at `<name>.localhost`.
+3. **Click New project**, pick App or Site and what it starts from (WordPress, Laravel, Astro,
+   Next.js and more), or park your code folder so every project in it shows up. Have a live
+   WordPress site? Use **Clone a live WordPress** or **Import backup**.
+4. **Start Caddy** (and MySQL if you need it) from Home, then open `https://<name>.stack`.
 
 Prefer the terminal? The same steps as commands:
 
@@ -153,7 +186,8 @@ Prefer the terminal? The same steps as commands:
 stackyard system setup                 # local domains and HTTPS
 stackyard sites park ~/Code            # every folder in ~/Code becomes a site
 stackyard runtimes install php 8.4
-stackyard sites new blog wordpress    # a ready WordPress site at https://blog.stack
+stackyard sites new blog wordpress     # a ready WordPress site at https://blog.stack
+stackyard wp clone                     # copy a live WordPress site (see --help)
 stackyard start                        # run every installed service in the background
 stackyard use php 8.3                  # pin a version for the current project
 ```
@@ -191,6 +225,34 @@ stackyard use php 8.3                  # pin a version for the current project
 </tr>
 </table>
 
+## WordPress: from live to local and back
+
+- **Clone from a live server.** Give Stackyard the SSH, SFTP or FTP login (or a hosting panel
+  backup) and it makes a working local copy: the database password comes from the live
+  `wp-config.php`, every address is changed to the local one, mail goes to Mailpit, payments go
+  into test mode and outside calls are capped so a slow API can't hold up a page. You see the size
+  of each part first, can leave media on the live site, run several clones at once, and pause or
+  resume them, also after a restart.
+- **Import backup.** Drop a backup on the Import backup screen: a cPanel, Plesk or DirectAdmin
+  backup, a zip with its `.sql`, or a site file from Stackyard. It unpacks once with a progress bar,
+  on the drive your sites live on, and can replace a site you already have (after backing it up).
+- **Staging and merge.** Make a full staging copy next to the site, then merge it back as code only,
+  code and picked settings, or everything, with conflicts shown for you to decide. Single posts and
+  pages move between copies with their images. Snapshots let you undo.
+- **Push and pull.** The Live site tab shows what changed on each side. A push backs up the live
+  database and every file it changes, shows the maintenance page, checks the site afterwards and
+  puts the backup back by itself if a step fails. A site made locally can be put on a host the
+  same way. Each side keeps its own `wp-config.php`.
+- **Day-to-day tools.** Plugins and themes as in wp-admin, log in as any user, debug switches with a
+  live `debug.log`, search and replace that keeps serialized data intact, change the table prefix,
+  check and repair the database, and WooCommerce tools.
+- **Themes and plugins as projects.** Work on a theme or plugin in its own folder, set its version
+  and build the `.zip` you upload, into the project's `dist\` folder.
+- **From the terminal or an AI tool.** `stackyard wp` clones, stages, merges, pushes and pulls; the
+  MCP server can look at WordPress sites and, once you allow it, make stagings and run WP-CLI.
+
+See [docs/wordpress.md](docs/wordpress.md).
+
 ## What you get out of the box
 
 | Service | Port | Platforms | Default |
@@ -199,7 +261,7 @@ stackyard use php 8.3                  # pin a version for the current project
 | MySQL 8.4 | 3306 | All | On |
 | MariaDB 11.8 | 3306 | Windows, Linux | Off |
 | PostgreSQL 18 | 5432 | All | Off |
-| Redis 8 | 6379 | macOS, Linux | Off |
+| Redis 8 | 6379 | macOS, Linux (no Windows build exists) | Off |
 | Meilisearch 1 | 7700 | All | Off |
 | Mailpit | 1025 (SMTP), 8025 (web) | All | Off |
 | MongoDB 9.0 | 27017 | All | Off |
@@ -221,8 +283,8 @@ node = "22"
 
 The site in your browser and the `php`/`node` commands in your terminal both follow it. An existing
 `.nvmrc`, `.node-version`, `.php-version` or `.tool-versions` works too. Without one, Stackyard uses
-the site's version, then your default, then the newest installed. The Sites screen has a PHP and a
-Node.js picker on each site, and installs a missing version for you.
+the site's version, then your default, then the newest installed. Each site's own tab has a PHP and a
+Node.js picker, and installs a missing version for you.
 `stackyard which` shows what each command will run, and why.
 
 ## AI coding tools
@@ -297,7 +359,13 @@ data folder; set `STACKYARD_HOME` to use another one.
 - [x] Python, Go and Java runtimes
 - [x] Per-site settings, site backups, import and export, public links
 - [x] Light and dark themes, accent colors, translations, changelog on the website
-- [ ] Code-signed installers for Windows and macOS
+- [x] A workspace layout with tabs, command palette, shortcuts and VS Code themes
+- [x] WordPress tools, clone from live, staging, merge, push and pull
+- [x] Projects, apps and sites, with 11 starters and theme/plugin builds
+- [x] Import backup from hosting panels and zips
+- [ ] Stackyard Pro with the Stackyard Connect WordPress plugin (coming soon)
+- [ ] macOS and Linux installers again
+- [ ] Code-signed installers
 
 ## Contributing
 
