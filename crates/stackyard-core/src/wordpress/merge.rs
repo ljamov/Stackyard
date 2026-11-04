@@ -148,10 +148,14 @@ pub struct Merged {
     pub notes: Vec<String>,
 }
 
-/// Files a merge never touches: each copy's own config, Stackyard's plugin
-/// and leftovers.
+/// Files a merge never touches: each copy's own config (with the host's
+/// PHP settings, and the copies Fix live-server paths keeps of them),
+/// Stackyard's plugin and leftovers.
 pub(super) fn kept_apart(rel: &str, content: &str) -> bool {
-    matches!(rel, "wp-config.php" | "wp-config.live.php" | ".user.ini")
+    matches!(
+        rel,
+        "wp-config.php" | "wp-config.live.php" | ".user.ini" | "php.ini"
+    ) || crate::livepaths::is_backup_name(rel.rsplit('/').next().unwrap_or(rel))
         || rel == format!("{content}/mu-plugins/stackyard.php")
         || rel == format!("{content}/debug.log")
         || rel == format!("{content}/object-cache.php.stackyard-off")

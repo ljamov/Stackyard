@@ -881,6 +881,9 @@ fn php_defaults(cache: &Path, os: Os) -> Vec<(&'static str, String)> {
         ("date.timezone", "UTC"),
         ("realpath_cache_size", "16M"),
         ("realpath_cache_ttl", "600"),
+        // A site's .user.ini is read again within seconds of a change,
+        // not after PHP's usual five minutes.
+        ("user_ini.cache_ttl", "5"),
         ("opcache.enable", "1"),
         ("opcache.memory_consumption", "256"),
         ("opcache.interned_strings_buffer", "32"),
@@ -1457,6 +1460,7 @@ mod tests {
         assert!(new.contains("max_execution_time = 300\n"), "{new}");
         assert!(!new.contains("opcache.enable = 1"), "{new}");
         assert!(new.contains("realpath_cache_size = 16M\n"), "{new}");
+        assert!(new.contains("user_ini.cache_ttl = 5\n"), "{new}");
         assert!(new.contains("opcache.memory_consumption = 256\n"), "{new}");
         assert!(
             new.contains("opcache.file_cache = \"C:/stackyard/config/php/8.3/opcache\"\n"),

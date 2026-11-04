@@ -820,6 +820,16 @@ fn compare(home: &Path, r: &Reached, way: Way, progress: OnProgress) -> Result<C
         from_live,
     );
     let mut notes = Vec::new();
+    // Settings with live-server paths switched off here stay on each side:
+    // the live server keeps its own, firewall and all, and this copy works.
+    files.retain(|f| !crate::livepaths::stays_here(&r.site.path, &f.path));
+    let switched_off = crate::livepaths::changed_here(&r.site.path, &r.wp.root);
+    if !switched_off.is_empty() {
+        notes.push(format!(
+            "{} here has live-server paths switched off (Fix live-server paths), so it stays out of every push and pull; the live server keeps its own, with its firewall.",
+            switched_off.join(", ")
+        ));
+    }
     if way == Way::Push && from_live {
         // Media the copy fetched from the live site as pages asked for it
         // is already there: only what the live site lacks goes up.
@@ -2244,7 +2254,9 @@ pub fn install(
     let sending: Vec<&String> = local_files
         .iter()
         .filter(|(rel, entry)| {
-            !left_out(rel, &content) && !same_across(Some(entry), live_files.get(*rel), false)
+            !left_out(rel, &content)
+                && !crate::livepaths::stays_here(&r.site.path, rel)
+                && !same_across(Some(entry), live_files.get(*rel), false)
         })
         .map(|(rel, _)| rel)
         .collect();
