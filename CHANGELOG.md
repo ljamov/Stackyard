@@ -6,6 +6,19 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Fix live-server paths in a copied site.** A site copied from a host could fail on every page
+  with "Failed opening required '/home/…/wordfence-waf.php' … in Unknown on line 0": its
+  `.user.ini` told PHP to run a firewall file that only the host has. The site's tab now finds such
+  settings in `.user.ini`, `php.ini` and `.htaccess` (`auto_prepend_file`, `auto_append_file`,
+  `include_path`, `open_basedir`, `error_log`, `session.save_path`, `upload_tmp_dir`) and asks the
+  site's PHP for the home page, so an error that only showed in the page shows here too and goes
+  in the PHP log. **Fix it** keeps each file as `<name>.live` (never over an older copy), switches
+  the lines off with a note, restarts the site's PHP so there is no five-minute wait, and opens
+  the home page again. **Undo** puts the files back exactly as they were. Push and pull leave the
+  changed files and the `.live` copies out, so the live server keeps its firewall. Other leftovers,
+  such as a firewall's start file, a page cache drop-in or a host's PHP handler line, are listed
+  without being changed. PHP now also reads a changed `.user.ini` within 5 seconds.
+
 - **A site made from a backup file can push and pull.** Its Live site tab used to say "clone it
   again from the server". Now it asks for a Stackyard Connect code from the live site; Stackyard
   saves it as the site's Live connection and the tab works like a clone's. The first compare marks

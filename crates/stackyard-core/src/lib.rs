@@ -20,6 +20,7 @@ pub mod images;
 pub mod install;
 pub mod interface;
 pub mod languages;
+pub mod livepaths;
 pub mod logs;
 pub(crate) mod manifest;
 pub mod mcp;

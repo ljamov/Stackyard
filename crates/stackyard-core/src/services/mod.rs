@@ -373,6 +373,41 @@ impl ServiceManager {
         Ok(())
     }
 
+    /// Restarts the PHP process serving `domain`, so it reads the site's
+    /// `.user.ini` afresh instead of after its cache time. `false` when that
+    /// PHP isn't running (the web server is stopped).
+    pub fn restart_site_php(&self, supervisor: &Supervisor, domain: &str) -> Result<bool> {
+        let sites = self.sites()?;
+        let served = sites
+            .iter()
+            .find(|s| s.domain() == domain)
+            .ok_or_else(|| Error::SiteNotFound(domain.to_string()))?;
+        let web::Backend::Php { version, .. } = &served.backend else {
+            return Ok(false);
+        };
+        let id = match web::own_php_port(served) {
+            Some(_) => web::site_php_process_id(version, domain),
+            None => web::php_process_id(version),
+        };
+        if supervisor.state(&id) == ProcessState::Stopped {
+            return Ok(false);
+        }
+        let spec = web::php_processes(&self.home, &sites, &RuntimeManager::new(&self.home))?
+            .into_iter()
+            .find(|s| s.id == id)
+            .ok_or_else(|| Error::UnknownProcess(id.clone()))?;
+        supervisor.stop(&id)?;
+        // The old workers may hold the port for a moment after they end.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !spec.ports.iter().all(|p| crate::ports::is_free(*p))
+            && std::time::Instant::now() < until
+        {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        supervisor.start(spec)?;
+        Ok(true)
+    }
+
     /// Stops the web server, every PHP process and every dev server.
     pub fn stop_web(&self, supervisor: &Supervisor) -> Result<()> {
         for (id, state) in supervisor.states() {

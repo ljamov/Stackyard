@@ -7,6 +7,7 @@ import { siteBrand } from "../lib/brands";
 import { closeTab, setLayout, siteTab, type TabId } from "../lib/layout";
 import { BrandIcon } from "../components/BrandIcon";
 import { Icon } from "../components/Icon";
+import { LivePaths } from "../components/LivePaths";
 import { SiteActions } from "../components/SiteActions";
 import { SiteSizeFacts } from "../components/SiteSize";
 import { SiteThumb } from "../components/SiteThumb";
@@ -90,6 +91,7 @@ export function SitePage({ domain }: { domain: string }) {
         </p>
       )}
       {site.problem && <p className="warn">{site.problem}</p>}
+      <LivePaths site={site} />
 
       <section className="card facts-card" aria-label={t("Details")}>
         <dl className="facts-grid">

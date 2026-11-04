@@ -424,6 +424,8 @@ details summary { cursor: pointer; color: var(--text-2); }
 .banner p, .banner ul { margin: 0; }
 .banner.ok { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
 .banner.error { color: var(--error); border-color: var(--error); background: color-mix(in srgb, var(--error) 10%, transparent); }
+.banner.warn { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.banner .row { margin-top: 4px; }
 .banner p, .banner li { color: var(--text); }
 .banner-errors { padding-left: 18px; }
 .images-top .progress { width: 100%; }

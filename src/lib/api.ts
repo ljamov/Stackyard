@@ -270,6 +270,45 @@ export type FileSizes = {
   /** False when counting stopped partway. */
   complete: boolean;
 };
+/** A PHP setting in a copied site that names a path only its live server has. */
+export type LivePathFinding = {
+  /** Relative to the site's folder. */
+  file: string;
+  line: number;
+  directive: string;
+  value: string;
+  /** The part of the value this computer doesn't have. */
+  missing: string;
+  /** An `.htaccess` line: only Apache reads it, the web server here doesn't. */
+  apache_only: boolean;
+};
+/** Something left from the live server that does no harm here. */
+export type LivePathLeftover = { file: string; text: string };
+/** A file Fix live-server paths changed, and the copy kept of it. */
+export type LivePathChanged = { file: string; backup: string };
+export type LivePathsReport = {
+  findings: LivePathFinding[];
+  leftovers: LivePathLeftover[];
+  /** Files switched off by an earlier fix, which Undo puts back. */
+  changed: LivePathChanged[];
+};
+/** What the site's PHP answered for the home page. */
+export type PageCheck = {
+  status: number;
+  /** 2xx or 3xx with no PHP error. */
+  ok: boolean;
+  error: string | null;
+  /** A file PHP couldn't open that this computer doesn't have. */
+  missing: string | null;
+  millis: number;
+};
+export type LivePathsFixed = {
+  changed: LivePathChanged[];
+  restarted: boolean;
+  check: PageCheck | null;
+  check_error: string | null;
+};
+export type LivePathsUndone = { restored: string[]; restarted: boolean };
 /** A site's size when it was last measured. */
 export type SiteSize = {
   /** Files split into WordPress's parts; otherwise all in `files.other`. */
@@ -880,6 +919,14 @@ export interface Api {
   siteSizes(): Promise<Record<string, SiteSize>>;
   /** Measures the site's files and database now. */
   measureSiteSize(domain: string): Promise<SiteSize>;
+  /** PHP settings in a copied site that name the live server's folders, and other leftovers. */
+  siteLivePaths(domain: string): Promise<LivePathsReport>;
+  /** Asks the site's PHP for the home page, to catch errors PHP only puts in the page. */
+  checkSitePage(domain: string): Promise<PageCheck>;
+  /** Switches off live-server paths (keeping `.live` copies), restarts the site's PHP, checks the home page. */
+  fixLivePaths(domain: string): Promise<LivePathsFixed>;
+  /** Puts back the files the fix changed. */
+  undoLivePaths(domain: string): Promise<LivePathsUndone>;
   startSiteDatabase(domain: string): Promise<SiteDb | null>;
   setSiteDatabaseAutostart(domain: string, on: boolean): Promise<SiteDb | null>;
   siteSettings(domain: string): Promise<SiteSettingsInfo>;
@@ -1118,6 +1165,10 @@ const tauriApi: Api = {
   siteSize: (domain) => invoke("site_size", { domain }),
   siteSizes: () => invoke("site_sizes"),
   measureSiteSize: (domain) => invoke("measure_site_size", { domain }),
+  siteLivePaths: (domain) => invoke("site_live_paths", { domain }),
+  checkSitePage: (domain) => invoke("check_site_page", { domain }),
+  fixLivePaths: (domain) => invoke("fix_live_paths", { domain }),
+  undoLivePaths: (domain) => invoke("undo_live_paths", { domain }),
   startSiteDatabase: (domain) => invoke("start_site_database", { domain }),
   setSiteDatabaseAutostart: (domain, on) => invoke("set_site_database_autostart", { domain, on }),
   siteSettings: (domain) => invoke("site_settings", { domain }),
@@ -2251,6 +2302,11 @@ function browserApi(): Api {
     siteDatabase: async (domain) => mockSiteDb(domain),
     siteSize: async (domain) => sizes[domain] ?? null,
     siteSizes: async () => ({ ...sizes }),
+    // The sample sites came with no live-server paths.
+    siteLivePaths: async () => ({ findings: [], leftovers: [], changed: [] }),
+    checkSitePage: async () => ({ status: 200, ok: true, error: null, missing: null, millis: 840 }),
+    fixLivePaths: async () => ({ changed: [], restarted: false, check: { status: 200, ok: true, error: null, missing: null, millis: 840 }, check_error: null }),
+    undoLivePaths: async () => ({ restored: [], restarted: false }),
     measureSiteSize: async (domain) => {
       await new Promise((r) => setTimeout(r, 700));
       const site = sites.find((s) => s.domain === domain);

@@ -13,7 +13,7 @@ use stackyard_core::services::ServiceManager;
 use stackyard_core::settings::Settings;
 use stackyard_core::sitepack::{self, ImportOptions, PackStep, Packed, SiteBackup};
 use stackyard_core::sites::{Site, SiteDatabase, SiteSettings, SiteStore};
-use stackyard_core::{detect, editors};
+use stackyard_core::{detect, editors, livepaths};
 use stackyard_core::{paths, share};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -671,6 +671,40 @@ pub async fn wp_remove_old_wordpress(domain: String) -> CmdResult<WpPackageView>
     blocking(move || {
         stackyard_core::projects::remove_old_wordpress(&paths::home(), &site).map_err(err)?;
         wp_package_view(&site)
+    })
+    .await
+}
+
+/// Settings in a copied site that name folders only its live server has
+/// (Wordfence's `auto_prepend_file`…), and other leftovers from it.
+#[tauri::command]
+pub async fn site_live_paths(domain: String) -> CmdResult<livepaths::Report> {
+    blocking(move || livepaths::scan_site(&ServiceManager::open(), &domain).map_err(err)).await
+}
+
+/// Asks the site's PHP for its home page, to see an error PHP only puts in the page.
+#[tauri::command]
+pub async fn check_site_page(domain: String) -> CmdResult<livepaths::Check> {
+    blocking(move || livepaths::check_site(&ServiceManager::open(), &domain).map_err(err)).await
+}
+
+/// Switches off the live-server paths (keeping each file as `.live`),
+/// restarts the site's PHP and looks at the home page.
+#[tauri::command]
+pub async fn fix_live_paths(app: AppHandle, domain: String) -> CmdResult<livepaths::Fixed> {
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    blocking(move || {
+        livepaths::fix_site(engine.manager(), engine.supervisor(), &domain).map_err(err)
+    })
+    .await
+}
+
+/// Puts back the files Fix live-server paths changed.
+#[tauri::command]
+pub async fn undo_live_paths(app: AppHandle, domain: String) -> CmdResult<livepaths::Undone> {
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    blocking(move || {
+        livepaths::undo_site(engine.manager(), engine.supervisor(), &domain).map_err(err)
     })
     .await
 }

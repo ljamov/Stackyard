@@ -750,9 +750,15 @@ impl Sessions {
         if plan.counted.server.is_some() {
             self.counts.lock().unwrap().insert(key, plan.counted);
         }
-        if let Some(kept) = crate::wordpress::KeptApart::of(local_root) {
+        let kept = crate::wordpress::KeptApart::of(local_root);
+        let stays = |path: &str| {
+            let rel = path.trim_matches('/');
+            kept.as_ref().is_some_and(|k| k.keeps(rel))
+                || crate::livepaths::stays_here(local_root, rel)
+        };
+        if plan.files.iter().any(|f| stays(&f.path)) {
             let (apart, files): (Vec<_>, Vec<_>) =
-                plan.files.into_iter().partition(|f| kept.keeps(&f.path));
+                plan.files.into_iter().partition(|f| stays(&f.path));
             plan.files = files;
             plan.bytes = plan
                 .files
@@ -807,14 +813,15 @@ impl Sessions {
         progress: &mut dyn FnMut(Progress) -> bool,
     ) -> Result<Outcome> {
         // A plan from before the site held WordPress, or made elsewhere,
-        // still never carries one side's own files to the other.
+        // still never carries one side's own files to the other, nor
+        // settings with live-server paths switched off here.
         let kept = crate::wordpress::KeptApart::of(local_root);
         let files: Vec<PlannedFile> = files
             .iter()
             .filter(|f| {
-                !kept
-                    .as_ref()
-                    .is_some_and(|k| k.keeps(f.path.trim_matches('/')))
+                let rel = f.path.trim_matches('/');
+                !kept.as_ref().is_some_and(|k| k.keeps(rel))
+                    && !crate::livepaths::stays_here(local_root, rel)
             })
             .cloned()
             .collect();
