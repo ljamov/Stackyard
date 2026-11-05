@@ -8,6 +8,12 @@
 //! export along a few seconds at a time (hosts stop long requests),
 //! downloads the finished `.tar`, continuing where a broken download
 //! stopped, and then clones from it as from any backup file.
+//!
+//! From plugin 0.4.0 the export can leave out folders and files the person
+//! unticked in a folder tree (`op=tree` lists a folder with sizes), and is
+//! written in pieces small enough for hosts that refuse big downloads
+//! (error 413). The pieces are downloaded one after another into one file,
+//! which is the whole `.tar` again.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -26,6 +32,13 @@ pub const PREFIX: &str = "stackyard-connect:";
 /// Steps of the export that may fail in a row (a slow host timing one out)
 /// before the copy gives up.
 const STEP_TRIES: u32 = 4;
+
+/// The most bytes in one piece of an export: well under the 256 MB some
+/// hosts allow in one answer.
+pub const PIECE_BYTES: u64 = 100 * 1024 * 1024;
+
+/// The first plugin version that lists folders and leaves chosen ones out.
+pub const TREE_VERSION: &str = "0.4.0";
 
 fn fail(message: impl Into<String>) -> Error {
     Error::WordPress(message.into())
@@ -114,6 +127,86 @@ pub struct Export {
     pub started: i64,
     /// The archive's size once finished.
     pub size: u64,
+    /// The sizes of its pieces, in order, when it is in pieces (plugin
+    /// 0.4.0 and later); empty for one file.
+    #[serde(default)]
+    pub pieces: Vec<u64>,
+    /// Folders and files the export leaves out, relative to WordPress's folder.
+    #[serde(default)]
+    pub left_out: Vec<String>,
+}
+
+/// What goes into an export Stackyard asks for.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Choice {
+    /// Folders and files to leave out, relative to WordPress's folder.
+    #[serde(default)]
+    pub skip: Vec<String>,
+    /// The most bytes in one piece; 0 for one file.
+    #[serde(default)]
+    pub piece: u64,
+}
+
+/// One folder of the live site, as `op=tree` lists it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Folder {
+    /// The folder, relative to WordPress's folder; empty for WordPress's folder.
+    pub path: String,
+    /// Its folders and files, biggest first.
+    pub entries: Vec<Entry>,
+    /// Smaller entries left out of the list (a folder with very many).
+    #[serde(default)]
+    pub more: u64,
+    /// `false` when adding up folder sizes took too long and stopped.
+    #[serde(default = "yes")]
+    pub complete: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// A folder or file in a [`Folder`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Entry {
+    pub name: String,
+    /// Relative to WordPress's folder.
+    pub path: String,
+    pub dir: bool,
+    /// Bytes in it, everything inside for a folder.
+    pub bytes: u64,
+    /// Files in it: 1 for a file.
+    pub files: u64,
+    /// Left out of every export anyway: a cache or backup folder.
+    #[serde(default)]
+    pub skipped: bool,
+}
+
+/// Whether plugin `version` (e.g. `0.3.0`) is at least `least`.
+pub fn version_at_least(version: &str, least: &str) -> bool {
+    let parts = |v: &str| -> Vec<u64> {
+        v.trim()
+            .split('.')
+            .map(|p| {
+                p.chars()
+                    .take_while(char::is_ascii_digit)
+                    .collect::<String>()
+                    .parse()
+                    .unwrap_or(0)
+            })
+            .collect()
+    };
+    let (a, b) = (parts(version), parts(least));
+    for i in 0..a.len().max(b.len()) {
+        let (x, y) = (
+            a.get(i).copied().unwrap_or(0),
+            b.get(i).copied().unwrap_or(0),
+        );
+        if x != y {
+            return x > y;
+        }
+    }
+    true
 }
 
 /// The plugin's answers: `wp_send_json_success` and `_error`.
@@ -226,6 +319,19 @@ impl Link {
         self.answer(response)
     }
 
+    /// The live site's folder `path` (relative to WordPress's folder,
+    /// empty for WordPress's folder itself): its folders and files with
+    /// their sizes (plugin 0.4.0 and later).
+    pub fn tree(&self, path: &str) -> Result<Folder> {
+        self.request(&super::live::agent(), "tree", &[("path", path)])
+            .map_err(|e| match e {
+                Error::WordPress(m) if m.contains("Unknown request") => fail(format!(
+                    "the Stackyard Connect plugin on the live site is too old to list its folders; update it to {TREE_VERSION} or newer"
+                )),
+                other => other,
+            })
+    }
+
     /// Starts a download from the plugin at byte `from`. The answer is
     /// 206 when it starts there, or 200 when it sends the whole file.
     pub(crate) fn get(
@@ -321,7 +427,12 @@ impl Link {
     /// making, and downloads it into `dir`. A download that broke off is
     /// continued. Returns the archive, and what the plugin said about the
     /// site.
-    pub fn download(&self, dir: &Path, progress: OnProgress) -> Result<(PathBuf, Info)> {
+    pub fn download(
+        &self,
+        dir: &Path,
+        choice: &Choice,
+        progress: OnProgress,
+    ) -> Result<(PathBuf, Info)> {
         std::fs::create_dir_all(dir).map_err(io(dir))?;
         let agent = super::live::agent();
         say(progress, "Asking the live site for an export…".into(), 0, 0)?;
@@ -329,17 +440,47 @@ impl Link {
         let kept: Option<Export> = std::fs::read(&mine)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok());
+        let chosen = dir.join("choice.json");
+        let kept_choice: Choice = std::fs::read(&chosen)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
         let info: Info = self.call(&agent, "info")?;
-        // An export this copy asked for goes on; a finished one someone
-        // else made may be old, so a new one is made.
+        let new_plugin = version_at_least(&info.plugin, TREE_VERSION);
+        if !choice.skip.is_empty() && !new_plugin {
+            return Err(fail(format!(
+                "the Stackyard Connect plugin on the live site ({}) can't leave folders out; update it to {TREE_VERSION} or newer, or tick everything",
+                if info.plugin.is_empty() { "an old version" } else { &info.plugin }
+            )));
+        }
+        // Older plugins write one file whatever is asked.
+        let choice = Choice {
+            piece: if new_plugin { choice.piece } else { 0 },
+            ..choice.clone()
+        };
+        // An export this copy asked for, with the same choice, goes on; a
+        // finished one someone else made may be old, so a new one is made.
+        let same = kept_choice == choice;
         let mut export = match (info.export.clone(), kept) {
-            (Some(e), Some(k)) if e.started == k.started && e.name == k.name => e,
-            (Some(e), _) if !e.finished => e,
+            (Some(e), Some(k)) if same && e.started == k.started && e.name == k.name => e,
+            (Some(e), None) if !e.finished && choice == Choice::default() => e,
             _ => {
                 for file in list_files(dir) {
                     let _ = std::fs::remove_file(file);
                 }
-                self.call(&agent, "start")?
+                let skip = serde_json::to_string(&choice.skip).unwrap_or_default();
+                let piece = choice.piece.to_string();
+                let mut params: Vec<(&str, &str)> = Vec::new();
+                if !choice.skip.is_empty() {
+                    params.push(("skip", &skip));
+                }
+                if choice.piece > 0 {
+                    params.push(("piece", &piece));
+                }
+                let started = self.request(&agent, "start", &params)?;
+                let text = serde_json::to_vec(&choice).unwrap_or_default();
+                std::fs::write(&chosen, text).map_err(io(&chosen))?;
+                started
             }
         };
         let note = |export: &Export| {
@@ -395,7 +536,7 @@ impl Link {
         let part = dir.join(format!("{name}.part"));
         let mut failures = 0;
         loop {
-            match self.fetch(&agent, &part, export.size, progress) {
+            match self.fetch(&agent, &part, &export, progress) {
                 Ok(()) => break,
                 Err(e) if matches!(&e, Error::WordPress(m) if m.starts_with("stopped")) => {
                     return Err(e)
@@ -413,33 +554,92 @@ impl Link {
         Ok((archive, info))
     }
 
-    /// Downloads the finished export into `part`, from where it stopped.
+    /// Downloads the finished export into `part`, from where it stopped:
+    /// its one file, or its pieces one after another.
     fn fetch(
         &self,
         agent: &ureq::Agent,
         part: &Path,
-        size: u64,
+        export: &Export,
         progress: OnProgress,
     ) -> Result<()> {
+        let size = export.size;
         let mut have = file_len(part);
         if have > size {
             let _ = std::fs::remove_file(part);
             have = 0;
         }
-        if have == size {
+        if export.pieces.is_empty() {
+            return self.fetch_piece(agent, part, None, have, (0, size), size, progress);
+        }
+        if export.pieces.iter().sum::<u64>() != size {
+            return Err(fail(
+                "the live site's export pieces don't add up to its size",
+            ));
+        }
+        let mut start = 0u64;
+        for (i, &len) in export.pieces.iter().enumerate() {
+            let end = start + len;
+            if have < end {
+                self.fetch_piece(
+                    agent,
+                    part,
+                    Some(i + 1),
+                    have - start,
+                    (start, end),
+                    size,
+                    progress,
+                )?;
+                have = end;
+            }
+            start = end;
+        }
+        Ok(())
+    }
+
+    /// Downloads piece `piece` (or the export's one file) from byte
+    /// `from` of it into `part`, which holds everything before the piece
+    /// (`span.0` bytes) and `from` bytes of it; the piece ends at byte
+    /// `span.1` of the whole export, `size` bytes.
+    #[allow(clippy::too_many_arguments)]
+    fn fetch_piece(
+        &self,
+        agent: &ureq::Agent,
+        part: &Path,
+        piece: Option<usize>,
+        from: u64,
+        span: (u64, u64),
+        size: u64,
+        progress: OnProgress,
+    ) -> Result<()> {
+        let (before, end) = span;
+        let mut have = before + from;
+        if have == end {
             return Ok(());
         }
-        let mut response = self.get(agent, "download", &[], have)?;
-        // 200: the server sent all of it, so the file starts over.
-        let append = response.status().as_u16() == 206;
-        if !append {
-            have = 0;
+        let number = piece.map(|n| n.to_string()).unwrap_or_default();
+        let params: Vec<(&str, &str)> = match piece {
+            Some(_) => vec![("piece", &number)],
+            None => Vec::new(),
+        };
+        let mut response = self.get(agent, "download", &params, from)?;
+        // 200: the server sent all of the piece, so it starts over.
+        if response.status().as_u16() != 206 {
+            have = before;
+        }
+        // The file is cut back to where this piece (or byte) starts.
+        {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(false)
+                .open(part)
+                .map_err(io(part))?;
+            file.set_len(have).map_err(io(part))?;
         }
         let mut file = std::fs::OpenOptions::new()
             .create(true)
-            .write(true)
-            .append(append)
-            .truncate(!append)
+            .append(true)
             .open(part)
             .map_err(io(part))?;
         let mut reader = response.body_mut().with_config().limit(u64::MAX).reader();
@@ -461,7 +661,7 @@ impl Link {
             }
         }
         file.flush().map_err(io(part))?;
-        if have != size {
+        if have != end {
             return Err(fail(format!(
                 "the download broke off at {have} of {size} bytes"
             )));
@@ -708,7 +908,7 @@ mod tests {
         let local = dir.join("local");
         let mut seen = Vec::new();
         let (archive, _) = link
-            .download(&local, &mut |p| {
+            .download(&local, &Choice::default(), &mut |p| {
                 seen.push(p.message);
                 true
             })
@@ -743,7 +943,9 @@ mod tests {
         ));
         std::fs::write(&part, &whole[..1000]).unwrap();
         std::fs::remove_file(&archive).unwrap();
-        let (again, _) = link.download(&local, &mut |_| true).unwrap();
+        let (again, _) = link
+            .download(&local, &Choice::default(), &mut |_| true)
+            .unwrap();
         assert_eq!(again, archive);
         assert_eq!(std::fs::read(&archive).unwrap(), whole);
 
@@ -913,6 +1115,89 @@ mod tests {
             .to_string();
         assert!(refused.contains("not change"), "{refused}");
         assert!(dir.join("site/wp-content/uploads/2026/big.bin").is_file());
+    }
+
+    #[test]
+    fn leaves_chosen_folders_out_and_downloads_the_export_in_pieces_with_real_php() {
+        let dir = crate::testutil::tempdir();
+        let Some(site) = FakeSite::start(&dir) else {
+            return; // no PHP here
+        };
+        let videos = dir.join("site/wp-content/uploads/videos");
+        std::fs::create_dir_all(&videos).unwrap();
+        // Random-ish bytes, so the pieces are of a size worth splitting.
+        let big: Vec<u8> = (0..3_000_000u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+            .collect();
+        std::fs::write(videos.join("intro.mp4"), &big).unwrap();
+        let keep: Vec<u8> = big.iter().rev().take(2_500_000).copied().collect();
+        std::fs::write(dir.join("site/wp-content/uploads/keep.jpg"), &keep).unwrap();
+        let link = site.link();
+
+        let top = link.tree("").unwrap();
+        let content = top.entries.iter().find(|e| e.path == "wp-content").unwrap();
+        assert!(content.dir);
+        assert!(content.bytes >= 5_500_000, "{content:?}");
+        let uploads = link.tree("wp-content/uploads").unwrap();
+        assert_eq!(uploads.entries[0].path, "wp-content/uploads/videos");
+        assert_eq!(uploads.entries[0].bytes, 3_000_000);
+        assert!(link.tree("../etc").is_err());
+
+        let local = dir.join("local");
+        let choice = Choice {
+            skip: vec!["wp-content/uploads/videos".into()],
+            piece: 1024 * 1024,
+        };
+        let (archive, _) = link.download(&local, &choice, &mut |_| true).unwrap();
+        let export = link.info().unwrap().export.unwrap();
+        assert_eq!(export.pieces.len(), 3, "{export:?}");
+        assert_eq!(export.left_out, ["wp-content/uploads/videos"]);
+        let names: Vec<String> = tar::Archive::new(std::fs::File::open(&archive).unwrap())
+            .entries()
+            .unwrap()
+            .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names.contains(&"site/wp-content/uploads/keep.jpg".to_string()),
+            "{names:?}"
+        );
+        assert!(!names.iter().any(|n| n.contains("videos")), "{names:?}");
+        let whole = std::fs::read(&archive).unwrap();
+        assert_eq!(whole.len() as u64, export.size);
+
+        // Broken off in the second piece: it goes on from there.
+        let part = local.join(format!(
+            "{}.part",
+            archive.file_name().unwrap().to_string_lossy()
+        ));
+        std::fs::write(&part, &whole[..1_500_000]).unwrap();
+        std::fs::remove_file(&archive).unwrap();
+        let (again, _) = link.download(&local, &choice, &mut |_| true).unwrap();
+        assert_eq!(std::fs::read(&again).unwrap(), whole);
+
+        // Another choice makes a new export.
+        let (all, _) = link
+            .download(&local, &Choice::default(), &mut |_| true)
+            .unwrap();
+        assert!(link.info().unwrap().export.unwrap().pieces.is_empty());
+        let names: Vec<String> = tar::Archive::new(std::fs::File::open(&all).unwrap())
+            .entries()
+            .unwrap()
+            .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names.iter().any(|n| n.contains("videos/intro.mp4")),
+            "{names:?}"
+        );
+    }
+
+    #[test]
+    fn compares_plugin_versions() {
+        assert!(version_at_least("0.4.0", TREE_VERSION));
+        assert!(version_at_least("0.10.1", TREE_VERSION));
+        assert!(version_at_least("1.0", TREE_VERSION));
+        assert!(!version_at_least("0.3.0", TREE_VERSION));
+        assert!(!version_at_least("", TREE_VERSION));
     }
 
     #[test]

@@ -144,7 +144,13 @@ export type WpCloneOptions = {
   https: boolean;
   /** Back up the site that has this name and put the copy in its place. */
   replace?: boolean;
+  /** Folders and files to leave out, relative to WordPress's folder (copied by hand later). */
+  skip?: string[];
 };
+/** A folder or file of the live site, as Stackyard Connect lists it. */
+export type WpTreeEntry = { name: string; path: string; dir: boolean; bytes: number; files: number; skipped: boolean };
+/** One folder of the live site: its entries, biggest first. */
+export type WpTreeFolder = { path: string; entries: WpTreeEntry[]; more: number; complete: boolean };
 export type WpCloneStage = "connecting" | "files" | "database" | "loading" | "finishing";
 /** `job` is the clone this is about (empty for a staging). */
 export type WpCloneProgress = { job: string; name: string; stage: WpCloneStage; message: string; done: number; total: number };
@@ -301,6 +307,8 @@ export interface WpApi {
   cloneUnfinished(name: string): Promise<boolean>;
   /** How much room the drives a clone of `name` uses have. */
   cloneSpace(name: string, folder: string | null): Promise<WpCloneSpace>;
+  /** One folder of the live site through a connection code (Stackyard Connect 0.4.0+). */
+  cloneTree(code: string, path: string): Promise<WpTreeFolder>;
   onCloneProgress(handler: (p: WpCloneProgress) => void): Promise<() => void>;
   environment(domain: string): Promise<WpEnvironment | null>;
   stagings(domain: string): Promise<WpEnvironments>;
@@ -388,6 +396,7 @@ const tauriWp: WpApi = {
   cloneForget: (job) => invoke("wp_clone_forget", { job }),
   cloneUnfinished: (name) => invoke("wp_clone_unfinished", { name }),
   cloneSpace: (name, folder) => invoke("wp_clone_space", { name, folder }),
+  cloneTree: (code, path) => invoke("wp_clone_tree", { code, path }),
   onCloneProgress: (handler) => listen<WpCloneProgress>("wp-clone-progress", (e) => handler(e.payload)),
   environment: (domain) => invoke("wp_environment", { domain }),
   stagings: (domain) => invoke("wp_stagings", { domain }),
@@ -654,6 +663,17 @@ function mockWp(): WpApi {
     onCloneEnded: async () => () => {},
     cloneUnfinished: async () => false,
     cloneSpace: async (name) => ({ site_folder: `C:\\Stackyard\\www\\${name}`, site_free: 6.2e9, data_folder: "C:\\Users\\you\\AppData\\Roaming\\Stackyard", data_free: 6.2e9, same_drive: true }),
+    cloneTree: async (_code, path) => {
+      await new Promise((r) => setTimeout(r, 300));
+      const e = (name: string, dir: boolean, bytes: number, files = 1, skipped = false) => ({ name, path: path ? `${path}/${name}` : name, dir, bytes, files, skipped });
+      const entries: Record<string, WpTreeEntry[]> = {
+        "": [e("wp-content", true, 512e6, 9120), e("wp-includes", true, 31e6, 1980), e("wp-admin", true, 9e6, 790), e("wp-config.php", false, 3200), e("index.php", false, 405)],
+        "wp-content": [e("uploads", true, 431e6, 6400), e("plugins", true, 64e6, 2500), e("themes", true, 17e6, 210), e("cache", true, 48e6, 3100, true)],
+        "wp-content/uploads": [e("videos", true, 318e6, 3), e("2026", true, 70e6, 4100), e("2025", true, 43e6, 2297)],
+        "wp-content/uploads/videos": [e("intro.mp4", false, 214e6), e("factory-tour.mp4", false, 96e6), e("teaser.webm", false, 8e6)],
+      };
+      return { path, entries: entries[path] ?? [], more: 0, complete: true };
+    },
     onCloneProgress: async (handler) => {
       cloneHandlers.push(handler);
       return () => cloneHandlers.splice(cloneHandlers.indexOf(handler), 1);

@@ -164,6 +164,48 @@ pub struct CloneOptions {
     /// copy in its place (its folder and database are replaced).
     #[serde(default)]
     pub replace: bool,
+    /// Folders and files to leave out, relative to WordPress's folder,
+    /// e.g. big videos the host won't send, to copy by hand later. Pull and
+    /// push leave them alone afterwards too.
+    #[serde(default)]
+    pub skip: Vec<String>,
+}
+
+/// The paths to leave out of a clone, checked: relative to WordPress's
+/// folder, forward slashes, no `..`; wp-config.php can't be left out.
+pub fn clean_skip(paths: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for path in paths {
+        let path = path.replace('\\', "/");
+        let path = path.trim_matches('/');
+        if path.is_empty()
+            || path == "wp-config.php"
+            || path
+                .split('/')
+                .any(|p| p.is_empty() || p == "." || p == "..")
+            || path.contains(['\0', '\n', '\t'])
+        {
+            continue;
+        }
+        if !out.iter().any(|p| p == path) {
+            out.push(path.to_string());
+        }
+    }
+    out
+}
+
+/// The note a clone leaves when folders or files were left out.
+fn left_out_note(skip: &[String]) -> Option<String> {
+    if skip.is_empty() {
+        return None;
+    }
+    let shown: Vec<&str> = skip.iter().take(8).map(String::as_str).collect();
+    let more = skip.len().saturating_sub(shown.len());
+    Some(format!(
+        "Left out as you chose, to copy by hand into the site's folder: {}{}. Pull and push leave them alone.",
+        shown.join(", "),
+        if more > 0 { format!(" and {more} more") } else { String::new() }
+    ))
 }
 
 fn yes() -> bool {
@@ -1315,7 +1357,9 @@ fn is_sql(name: &str) -> bool {
 
 fn is_backup_archive(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    crate::archive::is_archive(&lower) || lower.ends_with(".tar")
+    crate::archive::is_archive(&lower)
+        || lower.ends_with(".tar")
+        || crate::archive::is_first_piece(&lower)
 }
 
 /// Folders a backup is unpacked without: WordPress's leftovers from
@@ -1378,7 +1422,8 @@ impl Unpacked {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            if is_sql(&name) {
+            if is_sql(&name) || crate::archive::is_later_piece(&name) {
+                // A later piece of a tar is read with its first one.
                 continue;
             } else if is_backup_archive(&name) {
                 unpack_archive(file, &work.join(format!("{i}")), &mut failed, progress)?;
@@ -1560,8 +1605,13 @@ fn unpacked_estimate(files: &[PathBuf]) -> u64 {
                 .file_name()
                 .map(|n| n.to_string_lossy().to_ascii_lowercase())
                 .unwrap_or_default();
-            if is_sql(&name) {
+            if is_sql(&name) || crate::archive::is_later_piece(&name) {
                 0
+            } else if crate::archive::is_first_piece(&name) {
+                crate::archive::pieces(file)
+                    .iter()
+                    .map(|p| std::fs::metadata(p).map_or(0, |m| m.len()))
+                    .sum()
             } else if name.ends_with(".tar") {
                 len
             } else if name.ends_with(".zip") {
@@ -2133,6 +2183,9 @@ pub fn clone(
     }
     .url();
     let mut notes: Vec<String> = replaced_note.into_iter().chain(database_note).collect();
+    if !matches!(source, Source::Files(_)) {
+        notes.extend(left_out_note(&clean_skip(&options.skip)));
+    }
     let mut replaced = 0;
     let live = match source {
         Source::Server(connection) => {
@@ -2160,7 +2213,11 @@ pub fn clone(
             home, files, &mut work, &folder, &database, &client, &mut notes, progress,
         )?,
         Source::Connect(link) => {
-            let (archive, info) = link.download(&work.dir.join("connect"), progress)?;
+            let choice = super::connect::Choice {
+                skip: clean_skip(&options.skip),
+                piece: super::connect::PIECE_BYTES,
+            };
+            let (archive, info) = link.download(&work.dir.join("connect"), &choice, progress)?;
             let mut side = clone_from_files(
                 home,
                 &[archive],
@@ -2302,6 +2359,7 @@ pub fn clone(
                 route: live.route,
                 media: options.media,
                 synced_at: env::now(),
+                left_out: clean_skip(&options.skip),
             }),
             safe: true,
             parent: parent.as_ref().map(Site::domain),
@@ -2434,6 +2492,7 @@ fn clone_from_server<'a>(
         if options.media == Media::FromLive {
             skip.push("wp-content/uploads".into());
         }
+        skip.extend(clean_skip(&options.skip));
         let mut halt = false;
         let quick = clone_by_helper(s, folder, &skip, &mut |message, done, total| {
             let go = progress(Progress {
@@ -3514,6 +3573,25 @@ mod tests {
 #[cfg(test)]
 mod server_tests {
     use super::*;
+
+    #[test]
+    fn keeps_only_plain_paths_to_leave_out() {
+        let asked = [
+            "wp-content/uploads/videos/".to_string(),
+            "\\wp-content\\big.zip".to_string(),
+            "wp-config.php".into(),
+            "../etc".into(),
+            "a//b".into(),
+            "wp-content/uploads/videos".into(),
+        ];
+        assert_eq!(
+            clean_skip(&asked),
+            ["wp-content/uploads/videos", "wp-content/big.zip"]
+        );
+        assert!(left_out_note(&[]).is_none());
+        let note = left_out_note(&clean_skip(&asked)).unwrap();
+        assert!(note.contains("wp-content/big.zip"), "{note}");
+    }
 
     fn clone_once(
         home: &Path,

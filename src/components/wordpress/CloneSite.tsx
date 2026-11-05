@@ -19,6 +19,7 @@ import { CloneProgress, StepProgress } from "./Clones";
 import { duration } from "./SyncSteps";
 import { ConnectionCheck } from "../ConnectionCheck";
 import { useBusy } from "../../lib/tabLife";
+import { FileTree } from "./FileTree";
 
 type T = ReturnType<typeof useT>;
 type From = "saved" | "new" | "files" | "code";
@@ -144,9 +145,9 @@ function FileSizes({ sizes }: { sizes: WpSizes }) {
 }
 
 /** Bytes a clone needs on the site's drive and on the drive with Stackyard's data. */
-function spaceNeeded(from: From, found: WpFound, media: WpMedia) {
+function spaceNeeded(from: From, found: WpFound, media: WpMedia, leftOut = 0) {
   const sizes = found.files;
-  const all = sizes ? sizes.core.bytes + sizes.themes.bytes + sizes.plugins.bytes + sizes.uploads.bytes + sizes.other.bytes : 0;
+  const all = sizes ? Math.max(0, sizes.core.bytes + sizes.themes.bytes + sizes.plugins.bytes + sizes.uploads.bytes + sizes.other.bytes - leftOut) : 0;
   const files = from !== "files" && from !== "code" && media === "from-live" && sizes ? all - sizes.uploads.bytes : all;
   const db = found.database_bytes;
   // The plugin's export (files and database in one .tar) is downloaded and
@@ -226,6 +227,9 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
   const [root, setRoot] = useState("");
   const [name, setName] = useState("");
   const [media, setMedia] = useState<WpMedia>("download");
+  // Folders and files unticked in the tree (code clones), and how much they hold.
+  const [skip, setSkip] = useState<string[]>([]);
+  const [leftOut, setLeftOut] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   useBusy(busy !== null);
   // Where Look for WordPress is: unpacking backup files says how far.
@@ -320,6 +324,8 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
     setLooking(null);
     setError(null);
     setFound(null);
+    setSkip([]);
+    setLeftOut(0);
     try {
       const result = await wp.cloneInspect(id, source(), root || null, url.trim() || null);
       setFound(result);
@@ -349,7 +355,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
     void startClone(
       id,
       source(),
-      { name, folder: null, root: root || null, url: url.trim() || null, media, https: true, replace: !!existing && replace },
+      { name, folder: null, root: root || null, url: url.trim() || null, media, https: true, replace: !!existing && replace, skip: from === "code" ? skip : [] },
       label,
     );
   }
@@ -619,7 +625,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
               </dd>
             </div>
             {found.files && <FileSizes sizes={found.files} />}
-            {space && name && <SpaceCheck need={spaceNeeded(from, found, media)} space={space} override={spaceOverride} onOverride={setSpaceOverride} />}
+            {space && name && <SpaceCheck need={spaceNeeded(from, found, media, from === "code" ? leftOut : 0)} space={space} override={spaceOverride} onOverride={setSpaceOverride} />}
             <div className="list-row">
               <dt className="muted small">{t("How")}</dt>
               <dd className="small">
@@ -627,6 +633,20 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
               </dd>
             </div>
           </dl>
+          {from === "code" && (
+            <details className="clone-pick">
+              <summary className="small">
+                {t("Choose folders and files")}
+                {skip.length > 0 && <span className="muted"> · {t("{count} left out", { count: skip.length })}</span>}
+              </summary>
+              <p className="muted small">
+                {t(
+                  "Untick what the live server can't send in one go, such as big videos, and copy it into the site's folder by hand later. Pull and push leave those alone. The export comes down in pieces of at most 100 MB, so hosts that refuse big downloads (error 413) work too.",
+                )}
+              </p>
+              <FileTree code={code.trim()} skip={skip} onSkip={setSkip} onLeftOutBytes={setLeftOut} />
+            </details>
+          )}
           {found.files && !found.files.complete && (
             <p className="muted small">{t("Counting the files on the server took too long, so the sizes above are what was counted before it stopped.")}</p>
           )}
@@ -685,7 +705,7 @@ export function CloneSite({ id, onCloned }: { id: string; onCloned: (domain: str
             <button
               type="button"
               className={`btn ${existing && replace ? "danger" : "primary"}`}
-              disabled={!name || busy !== null || (!!existing && !unfinished && !replace) || (!spaceOverride && spaceShort(spaceNeeded(from, found, media), space))}
+              disabled={!name || busy !== null || (!!existing && !unfinished && !replace) || (!spaceOverride && spaceShort(spaceNeeded(from, found, media, from === "code" ? leftOut : 0), space))}
               onClick={clone}
             >
               {unfinished ? t("Continue the clone") : existing && replace ? t("Replace and clone") : t("Clone")}

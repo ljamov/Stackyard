@@ -934,6 +934,20 @@ pub fn wp_clone_unfinished(name: String) -> bool {
     live::unfinished(&paths::home(), name.trim())
 }
 
+/// One folder of a live site, through its connection code (Stackyard
+/// Connect 0.4.0 and later): folders and files with sizes, for choosing
+/// what a clone leaves out.
+#[tauri::command]
+pub async fn wp_clone_tree(code: String, path: String) -> CmdResult<connect::Folder> {
+    require_clone()?;
+    blocking(move || {
+        connect::Link::parse(&code)
+            .and_then(|link| link.tree(&path))
+            .map_err(err)
+    })
+    .await
+}
+
 /// How much room the drives a clone of `name` uses have.
 #[tauri::command]
 pub fn wp_clone_space(name: String, folder: Option<PathBuf>) -> CmdResult<live::Space> {

@@ -509,12 +509,18 @@ impl Server<'_> {
     /// Every file of the live site, by path relative to WordPress's folder,
     /// and how they were listed: by the helper on the server when it can,
     /// else folder by folder over the connection.
-    fn files(&self, skip_media: bool, progress: OnProgress) -> Result<(Manifest, Lister)> {
+    fn files(
+        &self,
+        skip_media: bool,
+        left_out: &[String],
+        progress: OnProgress,
+    ) -> Result<(Manifest, Lister)> {
         let mut skip = remote::default_skip();
         skip.extend(live::SKIP.iter().map(|s| s.to_string()));
         if skip_media {
             skip.push("wp-content/uploads".into());
         }
+        skip.extend(left_out.iter().cloned());
         let mut halted = false;
         let by_helper = self.helper_files(&skip, &mut |found| {
             let going = progress(Progress {
@@ -794,8 +800,11 @@ fn compare(home: &Path, r: &Reached, way: Way, progress: OnProgress) -> Result<C
         .as_ref()
         .map(|b| b.local_files.clone())
         .unwrap_or_default();
-    let local_files = snapshot::manifest_with(&r.site.path, &known)?;
-    let (live_files, lister) = r.server.files(from_live, progress)?;
+    let mut local_files = snapshot::manifest_with(&r.site.path, &known)?;
+    // What was left out of the clone (copied by hand, maybe) stays out of
+    // the comparison on both sides.
+    local_files.retain(|rel, _| !remote::sync::skipped(rel, &r.live.left_out));
+    let (live_files, lister) = r.server.files(from_live, &r.live.left_out, progress)?;
     if let Some(b) = base.as_mut().filter(|b| b.live_lister != lister) {
         rekey(b, &live_files, lister);
         save_base(home, &domain, b)?;
@@ -1536,7 +1545,8 @@ pub fn push(
 
     // In step again: the new base.
     say(progress, Stage::Finishing, "Noting where both sides stand…")?;
-    let (live_files, live_lister) = s.files(media_from_live(&r), &mut |_| true)?;
+    let (live_files, live_lister) =
+        s.files(media_from_live(&r), &r.live.left_out, &mut |_| true)?;
     let live_facts = s.facts().ok();
     let content = merge::content_rel(&r.wp);
     let base = advance_base(
@@ -2153,6 +2163,7 @@ pub fn install(
         route: server.route(),
         media: Media::Download,
         synced_at: 0,
+        left_out: Vec::new(),
     };
     let mut r = Reached {
         site,
@@ -2247,7 +2258,7 @@ pub fn install(
     }
 
     say(progress, Stage::Files, "Listing the files on the host…")?;
-    let (live_files, _) = s.files(false, progress)?;
+    let (live_files, _) = s.files(false, &[], progress)?;
     say(progress, Stage::Files, "Listing the files here…")?;
     let content = merge::content_rel(&r.wp);
     let local_files = snapshot::manifest(&r.site.path)?;
