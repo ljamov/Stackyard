@@ -24,6 +24,45 @@ pub fn extract(archive: &Path, dest: &Path) -> Result<PathBuf> {
     extract_with(archive, dest, &mut |_, _| true, None)
 }
 
+/// Whether `file_name` is the first piece of a `.tar` written in pieces
+/// (`site.tar.001`); the pieces after it (`.002`, …) are read with it.
+pub fn is_first_piece(file_name: &str) -> bool {
+    file_name.to_ascii_lowercase().ends_with(".tar.001")
+}
+
+/// Whether `file_name` is a piece of a `.tar` after the first (`site.tar.002`).
+pub fn is_later_piece(file_name: &str) -> bool {
+    piece_number(file_name).is_some_and(|n| n > 1)
+}
+
+fn piece_number(file_name: &str) -> Option<u32> {
+    let lower = file_name.to_ascii_lowercase();
+    let (stem, number) = lower.rsplit_once('.')?;
+    if !stem.ends_with(".tar") || number.len() != 3 || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    number.parse().ok()
+}
+
+/// The pieces of a `.tar` from its first one (`site.tar.001`): every
+/// `.002`, `.003`, … beside it, in order, until one is missing.
+pub fn pieces(first: &Path) -> Vec<PathBuf> {
+    let name = first
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stem = &name[..name.len().saturating_sub(4)];
+    let mut out = vec![first.to_owned()];
+    for n in 2..1000 {
+        let next = first.with_file_name(format!("{stem}.{n:03}"));
+        if !next.is_file() {
+            break;
+        }
+        out.push(next);
+    }
+    out
+}
+
 /// How a site backup is unpacked: some folders are left out, and an entry
 /// that can't be written is noted in `failed` and the rest goes on, where
 /// a download for a program fails as a whole.
@@ -52,6 +91,24 @@ pub fn extract_with(
         .file_name()
         .map(|n| n.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
+    if is_first_piece(&name) {
+        // The pieces one after another are the whole tar.
+        let mut total = 0u64;
+        let mut chain: Box<dyn std::io::Read> = Box::new(std::io::empty());
+        for piece in pieces(archive) {
+            let file = File::open(&piece).map_err(|e| fail(e.to_string()))?;
+            total += file.metadata().map(|m| m.len()).unwrap_or(0);
+            chain = Box::new(std::io::Read::chain(chain, file));
+        }
+        let stream = Counted {
+            inner: chain,
+            at: 0,
+            total,
+            on,
+        };
+        extract_tar(stream, dest, lenient).map_err(fail)?;
+        return content_root(dest).map_err(|e| fail(e.to_string()));
+    }
     let kind = [".tar.gz", ".tgz", ".tar.xz", ".tar", ".zip"]
         .into_iter()
         .find(|ext| name.ends_with(ext))
@@ -270,6 +327,33 @@ pub(crate) mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_a_tar_written_in_pieces() {
+        let dir = crate::testutil::tempdir();
+        let mut builder = tar::Builder::new(Vec::new());
+        let body = vec![7u8; 5000];
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "site/wp-load.php", &body[..])
+            .unwrap();
+        let whole = builder.into_inner().unwrap();
+        for (i, piece) in whole.chunks(2048).enumerate() {
+            std::fs::write(dir.join(format!("shop.tar.{:03}", i + 1)), piece).unwrap();
+        }
+        let first = dir.join("shop.tar.001");
+        assert!(is_first_piece("shop.tar.001"));
+        assert!(is_later_piece("SHOP.TAR.002"));
+        assert!(!is_later_piece("shop.tar.001"));
+        assert!(!is_later_piece("notes.002"));
+        assert_eq!(pieces(&first).len(), whole.len().div_ceil(2048));
+        let out = dir.join("out");
+        extract_with(&first, &out, &mut |_, _| true, None).unwrap();
+        assert_eq!(std::fs::read(out.join("site/wp-load.php")).unwrap(), body);
+    }
 
     #[test]
     fn unpacks_tar_gz_and_finds_the_top_folder() {

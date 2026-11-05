@@ -58,6 +58,11 @@ pub struct Live {
     pub media: Media,
     /// When the copy was cloned or last pulled, in seconds since 1970.
     pub synced_at: u64,
+    /// Folders and files left out of the clone (relative to WordPress's
+    /// folder), e.g. big videos to copy by hand: pull and push leave them
+    /// alone on both sides.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,6 +136,7 @@ mod tests {
                 route: Route::Ssh,
                 media: Media::FromLive,
                 synced_at: 1_800_000_000,
+                left_out: vec!["wp-content/uploads/videos".into()],
             }),
             safe: true,
             ..Environment::default()

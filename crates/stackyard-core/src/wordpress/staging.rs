@@ -234,6 +234,7 @@ pub fn create(
                 https: parent.https,
                 staging_of: Some(parent_domain.clone()),
                 replace: false,
+                skip: live.left_out.clone(),
             };
             live::clone(
                 home,

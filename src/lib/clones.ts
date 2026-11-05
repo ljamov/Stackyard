@@ -128,7 +128,7 @@ export function cloneScreen(id: string) {
 /** Files a site backup can be made of: a Stackyard Connect export (.tar),
  * a hosting panel backup, a zip of the files, a database export. */
 export function isSiteBackup(path: string) {
-  return /\.(tar|tar\.gz|tgz|zip|sql|sql\.gz)$/i.test(path);
+  return /\.(tar|tar\.gz|tgz|zip|sql|sql\.gz|tar\.\d{3})$/i.test(path);
 }
 
 async function run(id: string) {
