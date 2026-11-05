@@ -4,7 +4,15 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.23.0
+
+- **Pick what a clone copies, and big sites download in pieces.** Clone with a connection code
+  now shows the live site as a folder tree, with a box and a size for each folder and file
+  (needs Stackyard Connect 0.4.0 on the live site). What you untick is left out of the export,
+  kept in the site's live settings, and left alone by pull and push on both sides. The export
+  comes down in pieces of at most 100 MB, so hosts that refuse big downloads (error 413) work.
+  Import backup also opens a split export (`name.tar.001`, `.002`, …). With an older plugin
+  and something unticked, the clone says to update Stackyard Connect to 0.4.0.
 
 - **Fix live-server paths in a copied site.** A site copied from a host could fail on every page
   with "Failed opening required '/home/…/wordfence-waf.php' … in Unknown on line 0": its
