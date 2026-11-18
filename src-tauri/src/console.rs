@@ -525,8 +525,12 @@ fn is_web_link(url: &str) -> bool {
 
 /// Shows terminal `id` in a window of its own; when that window closes, the
 /// terminal goes back to the panel (`console-docked`).
+///
+/// Async on purpose: making a window from a synchronous command deadlocks
+/// WebView2 on Windows, which hung the new window and kept both it and the
+/// main window from closing.
 #[tauri::command]
-pub fn console_window(app: AppHandle, id: u32, title: String) -> CmdResult<()> {
+pub async fn console_window(app: AppHandle, id: u32, title: String) -> CmdResult<()> {
     let label = format!("terminal-{id}");
     if let Some(window) = app.get_webview_window(&label) {
         let _ = window.unminimize();
