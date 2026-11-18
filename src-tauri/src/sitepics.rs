@@ -31,7 +31,7 @@ fn read_url(path: &Path) -> Option<String> {
 }
 
 /// A picture of the site's home page, as a `data:` URL; `None` when there
-/// is none to show. A missing or day-old picture is taken again while the
+/// is none to show. A missing or week-old picture is taken again while the
 /// web server runs (or always with `refresh`); a WordPress site without
 /// one shows its theme's picture. With `refresh`, failing to take one is an
 /// error that says why, so the person who asked knows what to fix.

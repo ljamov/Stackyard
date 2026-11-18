@@ -142,6 +142,7 @@ pub fn spec(home: &Path, program: &Path, site: &Site) -> ProcessSpec {
         ports: Vec::new(),
         // A new start gets a new address, which the person would not know.
         restart_on_crash: false,
+        stop_with: None,
     }
 }
 

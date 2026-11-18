@@ -56,7 +56,34 @@ pub(super) fn spec(ctx: &Context) -> Result<ProcessSpec> {
     let mut args = server_args(ctx, &datadir);
     // X Protocol is rarely used locally; off saves a port and memory.
     args.push("--mysqlx=OFF".into());
-    Ok(ctx.base_spec(args))
+    let mut spec = ctx.base_spec(args);
+    spec.stop_with = clean_stop(ctx, &["mysqladmin.exe"]);
+    Ok(spec)
+}
+
+/// On Windows, the admin tool's `shutdown`, so stopping the server (or
+/// quitting Stackyard) lets it write its data and close its files instead
+/// of being ended mid-write, which made it run crash recovery at every
+/// start. Other systems ask with a signal and need none.
+pub(super) fn clean_stop(ctx: &Context, tools: &[&str]) -> Option<crate::supervisor::StopCommand> {
+    if ctx.os != Os::Windows {
+        return None;
+    }
+    let tool = tools
+        .iter()
+        .map(|name| ctx.install.join("bin").join(name))
+        .find(|path| path.is_file())?;
+    Some((
+        tool,
+        vec![
+            "--no-defaults".to_string(),
+            "--user=root".to_string(),
+            "--protocol=TCP".to_string(),
+            "--host=127.0.0.1".to_string(),
+            format!("--port={}", ctx.ports[0]),
+            "shutdown".to_string(),
+        ],
+    ))
 }
 
 /// Options both MySQL and MariaDB servers take: their own files only

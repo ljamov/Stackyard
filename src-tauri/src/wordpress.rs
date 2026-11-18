@@ -1451,14 +1451,29 @@ async fn with_live<T: Send + 'static>(
         let stop = worker.state::<SyncState>().stop.clone();
         let emitter = worker.clone();
         let name = domain.clone();
+        let mut last: Option<(live::Stage, Instant)> = None;
         work(&paths::home(), &clones.sessions, &domain, &mut |progress| {
-            let _ = emitter.emit(
-                "wp-sync-progress",
-                SyncEvent {
-                    domain: name.clone(),
-                    progress,
-                },
-            );
+            // Ten updates a second at most, and every new step: a compare
+            // reports each file, and every update re-draws the open views.
+            let now = Instant::now();
+            let due = match last {
+                Some((stage, at)) => {
+                    stage != progress.stage
+                        || (progress.total > 0 && progress.done >= progress.total)
+                        || now.duration_since(at) >= Duration::from_millis(100)
+                }
+                None => true,
+            };
+            if due {
+                last = Some((progress.stage, now));
+                let _ = emitter.emit(
+                    "wp-sync-progress",
+                    SyncEvent {
+                        domain: name.clone(),
+                        progress,
+                    },
+                );
+            }
             !stop.load(Ordering::SeqCst)
         })
         .map_err(err)

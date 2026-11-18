@@ -8,7 +8,8 @@
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use image::imageops::FilterType;
@@ -19,8 +20,10 @@ use crate::{Error, Result};
 /// How big the kept pictures are, in pixels: 16:10, like the screenshot.
 const WIDTH: u32 = 480;
 const HEIGHT: u32 = 300;
-/// A picture older than this is taken again when it is next shown.
-pub const FRESH: Duration = Duration::from_secs(24 * 60 * 60);
+/// A picture older than this is taken again when it is next shown. Each
+/// one loads the site's home page, which on a slow disk keeps PHP and the
+/// disk busy for minutes, so pictures stay a week unless asked for anew.
+pub const FRESH: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// A browser that takes longer than this is stopped.
 const TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -125,7 +128,21 @@ pub fn capture(home: &Path, browser: &Path, domain: &str, url: &str) -> Result<P
 
 /// One headless screenshot of `url`, letting the page load for `budget_ms`.
 fn shoot(dir: &Path, browser: &Path, url: &str, budget_ms: u32) -> Result<Vec<u8>> {
-    let shot = dir.join(format!("{}.png", std::process::id()));
+    static SHOT: AtomicU64 = AtomicU64::new(0);
+    // A browser left from an earlier picture (or an earlier Stackyard) holds
+    // the profile: a new one would hand the page to it and quit at once,
+    // leaving no file. Once per run, and after every browser that had to be
+    // stopped, those are ended first.
+    static CHECKED: AtomicBool = AtomicBool::new(false);
+    let profile = dir.join("profile");
+    if !CHECKED.swap(true, Ordering::SeqCst) {
+        stop_profile_browsers(&profile);
+    }
+    let shot = dir.join(format!(
+        "{}-{}.png",
+        std::process::id(),
+        SHOT.fetch_add(1, Ordering::Relaxed)
+    ));
     let _ = std::fs::remove_file(&shot);
     let mut command = Command::new(browser);
     command
@@ -139,7 +156,7 @@ fn shoot(dir: &Path, browser: &Path, url: &str, budget_ms: u32) -> Result<Vec<u8
         // Sites use Stackyard's own local certificate authority, which a
         // separate profile may not trust yet.
         .arg("--ignore-certificate-errors")
-        .arg(format!("--user-data-dir={}", dir.join("profile").display()))
+        .arg(format!("--user-data-dir={}", profile.display()))
         .arg("--window-size=1280,800")
         .arg(format!("--virtual-time-budget={budget_ms}"))
         .arg(format!("--screenshot={}", shot.display()))
@@ -158,14 +175,17 @@ fn shoot(dir: &Path, browser: &Path, url: &str, budget_ms: u32) -> Result<Vec<u8
         program: browser.display().to_string(),
         source,
     })?;
+    // It ends with Stackyard, whatever happens.
+    #[cfg(windows)]
+    crate::platform::end_with_this_process(&child);
     let started = Instant::now();
     loop {
         if child.try_wait().ok().flatten().is_some() {
             break;
         }
         if started.elapsed() > TIMEOUT {
-            let _ = child.kill();
-            let _ = child.wait();
+            stop_tree(child);
+            CHECKED.store(false, Ordering::SeqCst);
             break;
         }
         std::thread::sleep(Duration::from_millis(200));
@@ -176,6 +196,48 @@ fn shoot(dir: &Path, browser: &Path, url: &str, budget_ms: u32) -> Result<Vec<u8
     })?;
     let _ = std::fs::remove_file(&shot);
     Ok(bytes)
+}
+
+/// Stops the browser and every process it started: ending only the first
+/// one left Edge's page, GPU and helper processes running (hundreds of MB).
+fn stop_tree(mut child: Child) {
+    #[cfg(windows)]
+    {
+        let mut taskkill = Command::new("taskkill");
+        taskkill
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        crate::platform::hide_console(&mut taskkill);
+        let _ = taskkill.status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Ends browsers still running with the picture profile (left by a stopped
+/// picture, or by an earlier Stackyard). Only processes whose command line
+/// names that profile folder are touched, never the person's own browser.
+fn stop_profile_browsers(profile: &Path) {
+    #[cfg(windows)]
+    {
+        let script = "$want = $env:STACKYARD_PROFILE; \
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | \
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains($want) } | \
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }";
+        let _ = crate::system::powershell_command(script)
+            .env(
+                "STACKYARD_PROFILE",
+                format!("--user-data-dir={}", profile.display()),
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    let _ = profile;
 }
 
 /// Whether a screenshot is one colour all over, give or take a few specks:

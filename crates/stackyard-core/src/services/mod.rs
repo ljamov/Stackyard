@@ -73,6 +73,7 @@ impl Context<'_> {
             cwd: Some(self.data.clone()),
             ports: self.ports.clone(),
             restart_on_crash: true,
+            stop_with: None,
         }
     }
 }

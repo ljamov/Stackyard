@@ -900,5 +900,6 @@
   "Put it on the host": "Le mettre chez l'hébergeur",
   "This site isn't linked to a live site yet. Put it on a host: Stackyard uploads every file and the database into a WordPress already installed there, with every address changed to the host's. After that, push and pull work as for a cloned site.": "Ce site n'est encore lié à aucun site en ligne. Mettez-le chez un hébergeur : Stackyard envoie tous les fichiers et la base de données dans un WordPress déjà installé là-bas, en remplaçant chaque adresse par celle de l'hébergeur. Ensuite, push et pull fonctionnent comme pour un site cloné.",
   "Type {host} to confirm: the site there is replaced": "Tapez {host} pour confirmer : le site là-bas est remplacé",
-  "{domain} is on {url}. {count} files were sent; the host's database was backed up first.": "{domain} est sur {url}. {count} fichiers ont été envoyés ; la base de données de l'hébergeur a d'abord été sauvegardée."
+  "{domain} is on {url}. {count} files were sent; the host's database was backed up first.": "{domain} est sur {url}. {count} fichiers ont été envoyés ; la base de données de l'hébergeur a d'abord été sauvegardée.",
+  "Show more ({count} not shown)": "Afficher plus ({count} non affichés)"
 }

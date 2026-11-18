@@ -4,6 +4,25 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## Unreleased
+
+- **Less memory and disk work on slower computers.** Site pictures were taken by a hidden Edge
+  that was only half stopped when a site took too long to load, so its other processes (often
+  300 MB or more) kept running and every later picture failed. Stackyard now stops all of Edge's
+  processes, clears any left from before, and retakes pictures once a week instead of every day,
+  since each one loads the site's home page. On computers with less than 8 GB of memory each PHP
+  version runs 4 workers instead of 6.
+
+- **MySQL and MariaDB stop cleanly on Windows.** Stopping a database server, or quitting Stackyard,
+  ended it at once, so it ran crash recovery at its next start. Stackyard now asks it to shut down
+  and waits up to 30 seconds before ending it.
+
+- **Comparing with the live site stays responsive with many changed files.** Grouping the changed
+  files took longer the more there were (a first compare can list tens of thousands), every file
+  row was drawn even with its group closed, and progress updates came for every file. Files are now
+  grouped in one pass, a group's rows are drawn when you open it, 200 at a time, and progress comes
+  at most ten times a second.
+
 ## 0.24.0
 
 - **Windows updates stay in the folder you installed Stackyard to.** Setup programs up to 0.17.0

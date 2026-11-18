@@ -92,42 +92,65 @@ export function toggled(set: Set<string>, keys: string[], on: boolean) {
 
 type Picker<V> = { picked: Set<string>; onChange: (next: Set<string>) => void } & V;
 
+/** Rows a group shows at first; more come in pages, so a first compare
+ * with tens of thousands of files does not build them all at once. */
+const GROUP_PAGE = 200;
+
 /** Changed files grouped by plugin, theme and so on, each group with a
  * box that picks all of it. `other` is the side the files go to. */
 export function FileGroups({ files, picked, onChange, other }: Picker<{ files: WpFileChange[]; other: string }>) {
   const t = useT();
   const groups = useMemo(() => {
     const m = new Map<string, WpFileChange[]>();
-    for (const f of files) m.set(f.group, [...(m.get(f.group) ?? []), f]);
+    for (const f of files) {
+      const list = m.get(f.group);
+      if (list) list.push(f);
+      else m.set(f.group, [f]);
+    }
     return [...m.entries()];
   }, [files]);
   if (groups.length === 0) return null;
   return (
     <div className="stack tight" aria-label={t("Files")}>
       <h4 className="small">{t("Files")}</h4>
-      {groups.map(([group, items]) => {
-        const all = items.every((f) => picked.has(f.path));
-        return (
-          <details key={group}>
-            <summary className="small">
-              <label className="small" style={{ display: "inline-flex", gap: 8, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
-                <input type="checkbox" checked={all} onChange={(e) => onChange(toggled(picked, items.map((f) => f.path), e.target.checked))} />
-                {groupText(t, group)} · {items.length === 1 ? t("1 file") : t("{count} files", { count: items.length })}
-                {items.some((f) => f.conflict) && <span className="warn">{t("changed on both")}</span>}
-              </label>
-            </summary>
-            {items.map((f) => (
-              <label key={f.path} className="row small">
-                <input type="checkbox" checked={picked.has(f.path)} onChange={(e) => onChange(toggled(picked, [f.path], e.target.checked))} />
-                <span className="mono">{f.path}</span>
-                <span className="muted">{changeText(t, f.change)}</span>
-                {f.conflict && f.target && <span className="warn">{t("also {change} on {site}", { change: changeText(t, f.target), site: other })}</span>}
-              </label>
-            ))}
-          </details>
-        );
-      })}
+      {groups.map(([group, items]) => (
+        <FileGroup key={group} group={group} items={items} picked={picked} onChange={onChange} other={other} />
+      ))}
     </div>
+  );
+}
+
+function FileGroup({ group, items, picked, onChange, other }: Picker<{ group: string; items: WpFileChange[]; other: string }>) {
+  const t = useT();
+  // Rows are built only once the group is opened, and then a page at a time.
+  const [open, setOpen] = useState(false);
+  const [limit, setLimit] = useState(GROUP_PAGE);
+  const all = items.every((f) => picked.has(f.path));
+  const conflict = useMemo(() => items.some((f) => f.conflict), [items]);
+  return (
+    <details open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary className="small">
+        <label className="small" style={{ display: "inline-flex", gap: 8, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" checked={all} onChange={(e) => onChange(toggled(picked, items.map((f) => f.path), e.target.checked))} />
+          {groupText(t, group)} · {items.length === 1 ? t("1 file") : t("{count} files", { count: items.length })}
+          {conflict && <span className="warn">{t("changed on both")}</span>}
+        </label>
+      </summary>
+      {open &&
+        items.slice(0, limit).map((f) => (
+          <label key={f.path} className="row small">
+            <input type="checkbox" checked={picked.has(f.path)} onChange={(e) => onChange(toggled(picked, [f.path], e.target.checked))} />
+            <span className="mono">{f.path}</span>
+            <span className="muted">{changeText(t, f.change)}</span>
+            {f.conflict && f.target && <span className="warn">{t("also {change} on {site}", { change: changeText(t, f.target), site: other })}</span>}
+          </label>
+        ))}
+      {open && items.length > limit && (
+        <button type="button" className="btn small ghost" onClick={() => setLimit((n) => n + GROUP_PAGE * 5)}>
+          {t("Show more ({count} not shown)", { count: (items.length - limit).toLocaleString() })}
+        </button>
+      )}
+    </details>
   );
 }
 
