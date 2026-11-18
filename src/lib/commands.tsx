@@ -96,7 +96,7 @@ export function useWorkbenchCommands({
               id: "services.startAll",
               category: svc,
               title: t("Start all services"),
-              run: () => installed.filter((s) => !isRunning(s)).forEach((s) => services.start(s.id)),
+              run: () => void services.startAll(),
             },
           ]
         : []),
