@@ -120,7 +120,8 @@ site, stage, merge, push and pull) and a built-in MCP server for AI coding tools
 - **phpMyAdmin** in one click, already logged in to your local database
 - **Image optimizer**: WebP, AVIF and smaller JPG/PNG for a whole site folder
 - **Video optimizer**: web-ready MP4, WebM and GIF copies with FFmpeg
-- **Live logs**, a **Terminal** tab in each site's folder, and a **task scheduler** with crontab syntax
+- **Live logs**, a **terminal** with several shells (PowerShell, Command Prompt, Git Bash, WSL), clickable links, search and
+  10,000 lines to scroll back, in the panel, a tab or its own window, and a **task scheduler** with crontab syntax
 - **Servers and Git per site**: SFTP, FTPS or FTP with Check connection; pull, commit and push
 - **Open in your editor**: VS Code, Cursor, Windsurf, PhpStorm, Zed and more
 

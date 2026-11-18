@@ -8,15 +8,16 @@ import { isTabBusy } from "./tabLife";
 
 /**
  * What a tab shows: a screen, one service ("service:mysql") or one site
- * ("site:blog.stack"), each of which can be open in a tab of its own.
+ * ("site:blog.stack"), each of which can be open in a tab of its own, or
+ * the terminal moved out of the panel ("terminal").
  */
-export type TabId = TabScreen | `service:${string}` | `site:${string}`;
+export type TabId = TabScreen | `service:${string}` | `site:${string}` | "terminal";
 
 export const serviceTab = (id: string): TabId => `service:${id}`;
 export const siteTab = (domain: string): TabId => `site:${domain}`;
 
 export const isTabId = (x: unknown): x is TabId =>
-  isTabScreen(x) || (typeof x === "string" && /^(service|site):./.test(x));
+  isTabScreen(x) || x === "terminal" || (typeof x === "string" && /^(service|site):./.test(x));
 
 export type Layout = {
   /** The side bar with screen names; false narrows it to a rail of icons. */

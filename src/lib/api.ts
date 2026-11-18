@@ -179,6 +179,14 @@ export type Service = {
 
 export type ServiceProgress = Omit<InstallProgress, "kind" | "version"> & { id: string };
 
+/** A shell the terminal can start. */
+export type ShellChoice = { id: string; name: string };
+/** A running terminal. */
+export type ConsoleInfo = { id: number; folder: string | null; label: string | null; shell: string };
+/** An AI tool installed with npm whose program is gone; installing it again fixes it. */
+export type BrokenTool = { id: string; name: string; command: string; reinstall: string };
+export type ConsoleOpened = { id: number; broken: BrokenTool[] };
+
 /** A code editor a site's folder can be opened in. */
 export type CodeEditor = { id: string; name: string; installed: boolean };
 export type CodeEditors = {
@@ -834,12 +842,32 @@ export interface Api {
   /** Fires when the tray menu has something for the window to show. */
   onTrayAction(handler: () => void): Promise<() => void>;
   /** Starts a shell for the Terminal tab in `folder` (the home folder when null); returns its number. */
-  consoleOpen(folder: string | null, cols: number, rows: number): Promise<number>;
+  consoleOpen(
+    folder: string | null,
+    label: string | null,
+    shell: string | null,
+    cols: number,
+    rows: number,
+  ): Promise<ConsoleOpened>;
   consoleWrite(id: number, data: string): Promise<void>;
   consoleResize(id: number, cols: number, rows: number): Promise<void>;
   consoleClose(id: number): Promise<void>;
-  onConsoleOutput(handler: (id: number, data: string) => void): Promise<() => void>;
+  /** The shells the terminal can start, the default first. */
+  consoleShells(): Promise<ShellChoice[]>;
+  /** The terminals still running, for a window opened again. */
+  consoleList(): Promise<ConsoleInfo[]>;
+  /** What a terminal printed so far (its last 2 MB). */
+  consoleHistory(id: number): Promise<{ text: string; seq: number }>;
+  /** The program the terminal's shell is running, if any. */
+  consoleBusy(id: number): Promise<string | null>;
+  /** Shows a terminal in a window of its own. */
+  consoleWindow(id: number, title: string): Promise<void>;
+  /** Opens an http(s) address in the browser. */
+  openLink(url: string): Promise<void>;
+  onConsoleOutput(handler: (id: number, data: string, seq: number) => void): Promise<() => void>;
   onConsoleExit(handler: (id: number) => void): Promise<() => void>;
+  /** A terminal's own window closed; it shows in the main window again. */
+  onConsoleDocked(handler: (id: number) => void): Promise<() => void>;
   updateStatus(): Promise<UpdateStatus>;
   checkForUpdate(): Promise<UpdateStatus>;
   /** Stops every service, installs the update and restarts Stackyard. */
@@ -1097,13 +1125,22 @@ const tauriApi: Api = {
   onSitesChanged: (handler) => listen("sites-changed", () => handler()),
   takeTrayAction: () => invoke("take_tray_action"),
   onTrayAction: (handler) => listen("tray-action", () => handler()),
-  consoleOpen: (folder, cols, rows) => invoke("console_open", { folder, cols, rows }),
+  consoleOpen: (folder, label, shell, cols, rows) => invoke("console_open", { folder, label, shell, cols, rows }),
   consoleWrite: (id, data) => invoke("console_write", { id, data }),
   consoleResize: (id, cols, rows) => invoke("console_resize", { id, cols, rows }),
   consoleClose: (id) => invoke("console_close", { id }),
+  consoleShells: () => invoke("console_shells"),
+  consoleList: () => invoke("console_list"),
+  consoleHistory: (id) => invoke("console_history", { id }),
+  consoleBusy: (id) => invoke("console_busy", { id }),
+  consoleWindow: (id, title) => invoke("console_window", { id, title }),
+  openLink: (url) => invoke("open_link", { url }),
   onConsoleOutput: (handler) =>
-    listen<{ id: number; data: string }>("console-output", (e) => handler(e.payload.id, e.payload.data)),
+    listen<{ id: number; data: string; seq: number }>("console-output", (e) =>
+      handler(e.payload.id, e.payload.data, e.payload.seq),
+    ),
   onConsoleExit: (handler) => listen<{ id: number }>("console-exit", (e) => handler(e.payload.id)),
+  onConsoleDocked: (handler) => listen<{ id: number }>("console-docked", (e) => handler(e.payload.id)),
   updateStatus: () => invoke("update_status"),
   checkForUpdate: () => invoke("check_for_update"),
   installUpdate: () => invoke("install_update"),
@@ -1212,7 +1249,12 @@ const tauriApi: Api = {
 let consoleCount = 0;
 const consoleLine: Record<number, string> = {};
 const consolePrompt: Record<number, string> = {};
-const consoleOut = new Set<(id: number, data: string) => void>();
+const consoleOut = new Set<(id: number, data: string, seq: number) => void>();
+let consoleSeq = 0;
+const consoleSend = (id: number, data: string) => {
+  consoleSeq += 1;
+  consoleOut.forEach((h) => h(id, data, consoleSeq));
+};
 
 function browserApi(): Api {
   const family = (kind: RuntimeKind, name: string, versions: string[], available: boolean): RuntimeFamily => ({
@@ -1963,13 +2005,16 @@ function browserApi(): Api {
     },
     // The preview has no shell: the terminal answers a few commands from the
     // sample data and repeats anything else.
-    consoleOpen: async (folder) => {
+    consoleOpen: async (_folder, label) => {
       const id = ++consoleCount;
       consoleLine[id] = "";
-      const prompt = `${folder ?? "~"} $ `;
-      setTimeout(() => consoleOut.forEach((h) => h(id, prompt)), 50);
+      const prompt = `\x1b[38;5;214m${label ?? "~"}\x1b[0m \x1b[2m$\x1b[0m `;
+      const welcome =
+        "\x1b[1mStackyard terminal\x1b[0m \x1b[2m(browser preview: try \x1b[0mstackyard status\x1b[2m, \x1b[0mphp -v\x1b[2m or \x1b[0mhelp\x1b[2m)\x1b[0m\r\n" +
+        "Docs: https://github.com/ljamov/Stackyard\r\n";
+      setTimeout(() => consoleSend(id, welcome + prompt), 50);
       consolePrompt[id] = prompt;
-      return id;
+      return { id, broken: [] };
     },
     consoleWrite: async (id, data) => {
       for (const ch of data) {
@@ -1977,20 +2022,32 @@ function browserApi(): Api {
           const typed = consoleLine[id];
           consoleLine[id] = "";
           const reply = typed.trim() ? consoleReply(typed.trim()) : [];
-          consoleOut.forEach((h) => h(id, `\r\n${reply.map((l) => `${l}\r\n`).join("")}${consolePrompt[id]}`));
+          consoleSend(id, `\r\n${reply.map((l) => `${l}\r\n`).join("")}${consolePrompt[id]}`);
         } else if (ch === "\u007f") {
           if (consoleLine[id]) {
             consoleLine[id] = consoleLine[id].slice(0, -1);
-            consoleOut.forEach((h) => h(id, "\b \b"));
+            consoleSend(id, "\b \b");
           }
         } else if (ch >= " ") {
           consoleLine[id] += ch;
-          consoleOut.forEach((h) => h(id, ch));
+          consoleSend(id, ch);
         }
       }
     },
     consoleResize: async () => {},
     consoleClose: async () => {},
+    consoleShells: async () => [
+      { id: "powershell", name: "Windows PowerShell" },
+      { id: "pwsh", name: "PowerShell 7" },
+      { id: "cmd", name: "Command Prompt" },
+      { id: "gitbash", name: "Git Bash" },
+    ],
+    consoleList: async () => [],
+    consoleHistory: async () => ({ text: "", seq: 0 }),
+    consoleBusy: async () => null,
+    consoleWindow: async () => {},
+    openLink: async (url) => void window.open(url, "_blank", "noopener"),
+    onConsoleDocked: async () => () => {},
     onConsoleOutput: async (handler) => {
       consoleOut.add(handler);
       return () => void consoleOut.delete(handler);

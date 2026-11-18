@@ -440,3 +440,71 @@ export function brandColor(id: string, background: string): string | null {
   }
   return hex(toward);
 }
+
+// The 16 colours programs pick from, chosen to read well on the theme's
+// background; the rest follows the theme.
+const DARK_ANSI = {
+  black: "#3b3f4a",
+  red: "#f27474",
+  green: "#8fd185",
+  yellow: "#f0c56c",
+  blue: "#6cb0f5",
+  magenta: "#d38cf0",
+  cyan: "#5fd3d1",
+  white: "#d4d7de",
+  brightBlack: "#7a808d",
+  brightRed: "#ff9a9a",
+  brightGreen: "#ade8a3",
+  brightYellow: "#ffdc8f",
+  brightBlue: "#94c8ff",
+  brightMagenta: "#e6aefc",
+  brightCyan: "#8ce9e7",
+  brightWhite: "#f4f5f7",
+};
+const LIGHT_ANSI = {
+  black: "#2b2f36",
+  red: "#c4302b",
+  green: "#2f7d32",
+  yellow: "#946200",
+  blue: "#1f5fbf",
+  magenta: "#8e3fae",
+  cyan: "#0b7a78",
+  white: "#8a8f99",
+  brightBlack: "#5c626d",
+  brightRed: "#dc4a45",
+  brightGreen: "#3b9440",
+  brightYellow: "#ad7700",
+  brightBlue: "#3576d6",
+  brightMagenta: "#a855c7",
+  brightCyan: "#12918e",
+  brightWhite: "#3a3f47",
+};
+
+/** The terminal's colours (xterm.js theme) for the painted theme. */
+export function terminalTheme(c: ThemeColors | null): Record<string, string> {
+  if (!c) return {};
+  const dark = luminance(c["window.background"]) < 0.4;
+  return {
+    ...(dark ? DARK_ANSI : LIGHT_ANSI),
+    background: c["window.background"],
+    foreground: c["foreground"],
+    cursor: c["accent"],
+    cursorAccent: c["window.background"],
+    selectionBackground: dark ? "#ffffff33" : "#00000026",
+    selectionInactiveBackground: dark ? "#ffffff1f" : "#00000014",
+    scrollbarSliderBackground: dark ? "#ffffff26" : "#00000026",
+    scrollbarSliderHoverBackground: dark ? "#ffffff40" : "#00000040",
+    scrollbarSliderActiveBackground: dark ? "#ffffff59" : "#00000059",
+  };
+}
+
+/** How the terminal's search marks what it found; xterm.js wants #rrggbb. */
+export function terminalFindColors(c: ThemeColors | null) {
+  const accent = /^#[0-9a-f]{6}$/i.test(c?.accent ?? "") ? c!.accent : "#f0b429";
+  return {
+    matchBackground: "#8888884d",
+    matchOverviewRuler: "#888888",
+    activeMatchBackground: `${accent}99`,
+    activeMatchColorOverviewRuler: accent,
+  };
+}

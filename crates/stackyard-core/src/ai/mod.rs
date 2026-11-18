@@ -458,7 +458,7 @@ fn program(dir: &Path, tool: &AiTool) -> Result<Program> {
         serde_json::from_str(&text).map_err(|_| broken("its package.json is damaged"))?;
     let bin = bin_entry(&json, tool).ok_or_else(|| broken("it names no program"))?;
     let path = package.join(&bin);
-    if !path.is_file() && repair_package(&package, &package_root(dir), tool).is_none() {
+    if !is_program(&path) && repair_package(&package, &package_root(dir), tool).is_none() {
         return Err(broken(&format!("{bin} is missing")));
     }
     let script = matches!(
@@ -507,24 +507,24 @@ fn global_roots(home: &Path, settings: &Settings, os: Os) -> Vec<PathBuf> {
 /// Puts back the program of AI tools that an update left without one, in
 /// Stackyard's own installs and in global npm ones, and returns their names.
 ///
-/// Claude Code's updater moves its running `claude.exe` aside, as
-/// `claude.exe.old.<time>`, before it writes the new one. When the update
-/// stops in between, because the terminal closed with Stackyard or the
-/// download failed, `claude` no longer starts. The package still holds the
-/// program in its part for this computer, which npm's install copies into
-/// place; that copy is made again.
+/// An update of Claude Code can stop half way, when the terminal it runs in
+/// is closed or restarted, Stackyard quits or the computer shuts down. What
+/// is left depends on where it stopped:
+/// - its updater moved the running `claude.exe` aside, as
+///   `claude.exe.old.<time>`, and never wrote the new one;
+/// - npm moved the old package aside, as `.claude-code-<random>` next to it,
+///   and stopped before the new one was complete: no `claude.exe`, only the
+///   small stand-in npm's install replaces, or no package at all.
+///
+/// The program comes back from the package's part for this computer, from
+/// what npm moved aside, or from what the updater moved aside, in that order.
 pub fn repair(home: &Path, settings: &Settings) -> Vec<&'static str> {
-    let os = Platform::current().os;
-    let mut roots = global_roots(home, settings, os);
-    roots.extend(TOOLS.iter().map(|t| package_root(&dir(home, t))));
     let mut fixed = Vec::new();
-    for root in &roots {
+    for root in &roots(home, settings) {
         for tool in TOOLS {
-            let package = tool
-                .package
-                .split('/')
-                .fold(root.clone(), |p, part| p.join(part));
-            if repair_package(&package, root, tool).is_some() && !fixed.contains(&tool.name) {
+            if repair_package(&package_in(root, tool), root, tool).is_some()
+                && !fixed.contains(&tool.name)
+            {
                 fixed.push(tool.name);
             }
         }
@@ -532,31 +532,211 @@ pub fn repair(home: &Path, settings: &Settings) -> Vec<&'static str> {
     fixed
 }
 
-/// Restores the program of the package in `package` when it is missing;
-/// `root` is the `node_modules` folder it was installed into.
-fn repair_package(package: &Path, root: &Path, tool: &AiTool) -> Option<PathBuf> {
+/// Every `node_modules` folder an AI tool may be installed in.
+fn roots(home: &Path, settings: &Settings) -> Vec<PathBuf> {
+    let os = Platform::current().os;
+    let mut roots = global_roots(home, settings, os);
+    roots.extend(TOOLS.iter().map(|t| package_root(&dir(home, t))));
+    roots
+}
+
+/// Where `tool`'s package is in the `node_modules` folder `root`.
+fn package_in(root: &Path, tool: &AiTool) -> PathBuf {
+    tool.package
+        .split('/')
+        .fold(root.to_path_buf(), |p, part| p.join(part))
+}
+
+/// A global npm install of an AI tool that [`repair`] could not mend: its
+/// command is there, but the program it starts is gone with nothing left
+/// to bring it back from. Installing it again fixes it.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct Broken {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub command: &'static str,
+    /// What to type to install it again.
+    pub reinstall: String,
+}
+
+/// The global npm installs of AI tools whose command no longer starts
+/// anything, after [`repair`] has had its go.
+pub fn broken(home: &Path, settings: &Settings) -> Vec<Broken> {
+    let os = Platform::current().os;
+    broken_in(&global_roots(home, settings, os), os)
+}
+
+fn broken_in(roots: &[PathBuf], os: Os) -> Vec<Broken> {
+    let mut found: Vec<Broken> = Vec::new();
+    for root in roots {
+        for tool in TOOLS {
+            if found.iter().any(|b| b.id == tool.id) || !has_command(root, tool, os) {
+                continue;
+            }
+            if program_in(&package_in(root, tool), tool).is_none() {
+                found.push(Broken {
+                    id: tool.id,
+                    name: tool.name,
+                    command: tool.command,
+                    reinstall: format!("npm install -g {}@latest", tool.package),
+                });
+            }
+        }
+    }
+    found
+}
+
+/// npm made `tool`'s command in the global folder whose packages are in `root`.
+fn has_command(root: &Path, tool: &AiTool, os: Os) -> bool {
+    let Some(prefix) = root.parent() else {
+        return false;
+    };
+    match os {
+        Os::Windows => ["", ".cmd", ".ps1"]
+            .iter()
+            .any(|ext| prefix.join(format!("{}{ext}", tool.command)).is_file()),
+        // prefix is `<prefix>/lib`; the command is a link in `<prefix>/bin`,
+        // which leads nowhere once the package is gone.
+        _ => prefix
+            .parent()
+            .map(|p| p.join("bin").join(tool.command))
+            .is_some_and(|p| p.symlink_metadata().is_ok()),
+    }
+}
+
+/// The program of the package in `package`, when it is there and real.
+fn program_in(package: &Path, tool: &AiTool) -> Option<PathBuf> {
     let text = std::fs::read_to_string(package.join("package.json")).ok()?;
     let json: serde_json::Value = serde_json::from_str(&text).ok()?;
     let bin = package.join(bin_entry(&json, tool)?);
-    if bin.is_file() {
-        return None;
+    is_program(&bin).then_some(bin)
+}
+
+/// `path` is a program, not missing and not the few-line stand-in that
+/// Claude Code's package holds until its install copies the real one over.
+fn is_program(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    if meta.len() > 4096 {
+        return true;
+    }
+    !std::fs::read(path)
+        .is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains("native binary not installed"))
+}
+
+/// Restores the program of the package in `package` when it is missing;
+/// `root` is the `node_modules` folder it was installed into.
+fn repair_package(package: &Path, root: &Path, tool: &AiTool) -> Option<PathBuf> {
+    let restored_package =
+        !package.join("package.json").is_file() && restore_set_aside_package(package, tool);
+    let text = std::fs::read_to_string(package.join("package.json")).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let bin = package.join(bin_entry(&json, tool)?);
+    if is_program(&bin) {
+        return restored_package.then_some(bin);
     }
     let name = bin.file_name()?.to_os_string();
     let platform = platform_key(Platform::current());
     let part = format!("{}-{platform}", tool.package);
+    // The part for this computer, where npm puts it.
     let in_part = [package.join("node_modules"), root.to_path_buf()]
         .into_iter()
         .map(|modules| {
             part.split('/')
                 .fold(modules, |p, piece| p.join(piece))
                 .join(&name)
-        })
-        .find(|p| p.is_file());
-    let restored = match in_part {
-        Some(source) => std::fs::copy(&source, &bin).is_ok(),
-        None => newest_set_aside(&bin).is_some_and(|old| std::fs::rename(old, &bin).is_ok()),
+        });
+    // The part, or the whole package, as npm moved it aside mid-update.
+    let relative = bin.strip_prefix(package).ok()?.to_path_buf();
+    let set_aside = [
+        set_aside_by_npm(
+            &part
+                .split('/')
+                .fold(root.to_path_buf(), |p, piece| p.join(piece)),
+        )
+        .into_iter()
+        .map(|dir| dir.join(&name))
+        .collect::<Vec<_>>(),
+        set_aside_by_npm(package)
+            .into_iter()
+            .map(|dir| dir.join(&relative))
+            .collect(),
+    ]
+    .concat();
+    let source = in_part.chain(set_aside).find(|p| is_program(p));
+    let restored = match (source, newest_set_aside(&bin)) {
+        (Some(source), _) => {
+            // The stand-in, if any, makes way.
+            let _ = std::fs::remove_file(&bin);
+            if let Some(parent) = bin.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::copy(&source, &bin).is_ok()
+        }
+        (None, Some(old)) => {
+            let _ = std::fs::remove_file(&bin);
+            std::fs::rename(old, &bin).is_ok()
+        }
+        (None, None) => false,
     };
     restored.then_some(bin)
+}
+
+/// The copies of the package in `package` that npm moved aside while
+/// replacing it (`.claude-code-<random>` next to `claude-code`), newest first.
+fn set_aside_by_npm(package: &Path) -> Vec<PathBuf> {
+    let (Some(parent), Some(name)) = (package.parent(), package.file_name()) else {
+        return Vec::new();
+    };
+    let prefix = format!(".{}-", name.to_string_lossy());
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| {
+            let time = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            (time, e.path())
+        })
+        .collect();
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.into_iter().map(|(_, p)| p).collect()
+}
+
+/// When npm stopped after moving the package aside and before writing the
+/// new one, moves the newest whole copy it set aside back. What a cut-off
+/// install left in the package's place is moved aside in turn, not deleted.
+fn restore_set_aside_package(package: &Path, tool: &AiTool) -> bool {
+    let Some(copy) = set_aside_by_npm(package)
+        .into_iter()
+        .find(|dir| program_in(dir, tool).is_some())
+    else {
+        return false;
+    };
+    if package.exists() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or_default();
+        let name = package
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let aside = package.with_file_name(format!(".{name}-unfinished-{stamp}"));
+        if std::fs::rename(package, aside).is_err() {
+            return false;
+        }
+    }
+    std::fs::rename(copy, package).is_ok()
 }
 
 /// The newest `<program>.old.<time>` an updater left next to `bin`.

@@ -50,6 +50,14 @@ const PATHS = {
   // Moving and naming sites and their groups.
   grip: "M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01",
   edit: "M4.5 19.5h4l10-10-4-4-10 10zM13 7l4 4",
+  // The terminal's own buttons.
+  clear: "M4 6.5h16M4 11h10M4 15.5h6M14.5 14.5l5 5M19.5 14.5l-5 5",
+  copy: "M8.5 8.5h11v11h-11zM15.5 8.5v-4h-11v11h4",
+  restart: "M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4",
+  newWindow: "M3.5 6.5h12v12h-12zM8.5 6.5v-3h12v12h-5",
+  tab: "M3.5 5.5h17v13h-17zM3.5 9.5h17M10.5 5.5v4",
+  arrowDown: "M12 4.5v15M6 13.5l6 6 6-6",
+  arrowUp: "M12 19.5v-15M6 10.5l6-6 6 6",
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -96,6 +104,13 @@ const CODICONS: Record<IconName, string> = {
   git: "source-control",
   grip: "gripper",
   edit: "edit",
+  clear: "clear-all",
+  copy: "copy",
+  restart: "debug-restart",
+  newWindow: "multiple-windows",
+  tab: "window",
+  arrowDown: "arrow-down",
+  arrowUp: "arrow-up",
 };
 
 export function Icon({ name }: { name: IconName }) {
