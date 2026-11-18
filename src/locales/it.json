@@ -901,5 +901,13 @@
   "This site isn't linked to a live site yet. Put it on a host: Stackyard uploads every file and the database into a WordPress already installed there, with every address changed to the host's. After that, push and pull work as for a cloned site.": "Questo sito non è ancora collegato a un sito live. Mettilo su un host: Stackyard carica tutti i file e il database in un WordPress già installato lì, cambiando ogni indirizzo con quello dell'host. Dopo, push e pull funzionano come per un sito clonato.",
   "Type {host} to confirm: the site there is replaced": "Scrivi {host} per confermare: il sito lì viene sostituito",
   "{domain} is on {url}. {count} files were sent; the host's database was backed up first.": "{domain} è su {url}. Sono stati inviati {count} file; prima è stato fatto il backup del database dell'host.",
-  "Show more ({count} not shown)": "Mostra altro ({count} non mostrati)"
+  "Show more ({count} not shown)": "Mostra altro ({count} non mostrati)",
+  "Windows Defender exclusions": "Esclusioni di Windows Defender",
+  "Defender scans every file PHP and the databases open, so the first load of a big site can take minutes. Leaving these folders and programs out of the scans makes sites load much faster. Windows asks for administrator rights once.": "Defender analizza ogni file aperto da PHP e dai database, quindi il primo caricamento di un sito grande può richiedere minuti. Escludere queste cartelle e questi programmi dall'analisi rende i siti molto più veloci. Windows chiede i diritti di amministratore una volta.",
+  "All set: Defender leaves these alone.": "Tutto pronto: Defender li lascia stare.",
+  "Added by Stackyard. (Windows only shows the list to administrators.)": "Aggiunte da Stackyard. (Windows mostra l'elenco solo agli amministratori.)",
+  "{count} not excluded yet": "{count} non ancora esclusi",
+  "not excluded": "non escluso",
+  "Waiting for Windows…": "In attesa di Windows…",
+  "Add exclusions": "Aggiungi esclusioni"
 }

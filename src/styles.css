@@ -847,3 +847,7 @@ details summary { cursor: pointer; color: var(--text-2); }
 .crashed { margin: 16px; max-width: 760px; }
 .crashed-frame { padding: 24px; overflow: auto; }
 .crashed-text { margin: 0; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
+
+/* A web address that opens in the browser: shown whole, wrapping where it must. */
+.external-link { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; }
+.external-link:hover { text-decoration-thickness: 2px; }

@@ -901,5 +901,13 @@
   "This site isn't linked to a live site yet. Put it on a host: Stackyard uploads every file and the database into a WordPress already installed there, with every address changed to the host's. After that, push and pull work as for a cloned site.": "Ce site n'est encore lié à aucun site en ligne. Mettez-le chez un hébergeur : Stackyard envoie tous les fichiers et la base de données dans un WordPress déjà installé là-bas, en remplaçant chaque adresse par celle de l'hébergeur. Ensuite, push et pull fonctionnent comme pour un site cloné.",
   "Type {host} to confirm: the site there is replaced": "Tapez {host} pour confirmer : le site là-bas est remplacé",
   "{domain} is on {url}. {count} files were sent; the host's database was backed up first.": "{domain} est sur {url}. {count} fichiers ont été envoyés ; la base de données de l'hébergeur a d'abord été sauvegardée.",
-  "Show more ({count} not shown)": "Afficher plus ({count} non affichés)"
+  "Show more ({count} not shown)": "Afficher plus ({count} non affichés)",
+  "Windows Defender exclusions": "Exclusions de Windows Defender",
+  "Defender scans every file PHP and the databases open, so the first load of a big site can take minutes. Leaving these folders and programs out of the scans makes sites load much faster. Windows asks for administrator rights once.": "Defender analyse chaque fichier ouvert par PHP et les bases de données, donc le premier chargement d’un gros site peut prendre des minutes. Exclure ces dossiers et programmes de l’analyse accélère beaucoup le chargement. Windows demande une fois les droits d’administrateur.",
+  "All set: Defender leaves these alone.": "Tout est prêt : Defender les laisse tranquilles.",
+  "Added by Stackyard. (Windows only shows the list to administrators.)": "Ajoutées par Stackyard. (Windows ne montre la liste qu’aux administrateurs.)",
+  "{count} not excluded yet": "{count} pas encore exclus",
+  "not excluded": "non exclu",
+  "Waiting for Windows…": "En attente de Windows…",
+  "Add exclusions": "Ajouter les exclusions"
 }

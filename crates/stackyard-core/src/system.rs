@@ -521,7 +521,7 @@ pub fn apply(home: &Path, wanted: &Wanted, how: Elevate) -> Result<()> {
     write_toml(&applied_file(home), &applied)
 }
 
-fn elevated(os: Os, script: &str, how: Elevate) -> Command {
+pub(crate) fn elevated(os: Os, script: &str, how: Elevate) -> Command {
     match (os, how) {
         (Os::Windows, Elevate::AlreadyAdmin) => powershell_command(script),
         (Os::Windows, _) => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { DefenderExclusions } from "../components/DefenderExclusions";
 import { DiskSpace } from "../components/DiskSpace";
 import { McpPermissions } from "../components/McpPermissions";
 import { Updates } from "../components/Updates";
@@ -132,6 +133,8 @@ export function Settings() {
           </div>
         </section>
       )}
+
+      <DefenderExclusions />
 
       <section aria-labelledby="editor-h" className="card stack">
         <h2 id="editor-h">{t("Code editor")}</h2>

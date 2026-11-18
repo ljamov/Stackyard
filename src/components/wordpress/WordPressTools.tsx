@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { ExternalLink } from "../ExternalLink";
 import { api, errorText, type Site } from "../../lib/api";
 import { useModules } from "../../lib/modules";
 import { useT } from "../../lib/i18n";
@@ -361,7 +362,7 @@ function OverviewTab({
           [
             t("Live site"),
             <>
-              <span className="mono">{live.url}</span>
+              <ExternalLink url={live.url} />
               {` · ${t("copied {date}", { date: new Date(live.synced_at * 1000).toLocaleString() })}`}
               {live.media === "from-live" ? ` · ${t("media loads from the live site")}` : ""}
             </>,

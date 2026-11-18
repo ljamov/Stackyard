@@ -6,6 +6,15 @@ Update button, and the app shows its own version's section after it updates.
 
 ## Unreleased
 
+- **Windows Defender exclusions from Settings.** Defender scans every file PHP and the databases
+  open, which can make the first load of a big site take minutes. Settings has a Windows Defender
+  exclusions card listing the folders that hold your sites, Stackyard's data folder, and PHP,
+  MariaDB, MySQL and Caddy. It shows which are not excluded yet, and Add exclusions adds them
+  behind one Windows administrator prompt.
+
+- **The Live site address is a link.** In the WordPress view and in the Live site part of
+  Servers & Git, the live site's address is shown in full and opens in your browser when clicked.
+
 - **Less memory and disk work on slower computers.** Site pictures were taken by a hidden Edge
   that was only half stopped when a site took too long to load, so its other processes (often
   300 MB or more) kept running and every later picture failed. Stackyard now stops all of Edge's
