@@ -9,7 +9,6 @@
 //! shows the same screen and the lines above it.
 
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -608,7 +607,8 @@ mod tests {
     fn history_keeps_the_end_cut_at_a_line() {
         let mut history = History::default();
         let line = format!("{}\r\n", "é".repeat(500));
-        while history.text.len() <= History::LIMIT {
+        // Three times what it keeps.
+        for _ in 0..(3 * History::LIMIT / line.len()) {
             history.push(&line);
         }
         history.push("last");
