@@ -1006,5 +1006,6 @@
   "Copy a WordPress site from its server (FTP or SFTP) with its database": "Копирај WordPress сајт од неговиот сервер (FTP или SFTP) со базата на податоци",
   "Import a site file": "Увези датотека на сајт",
   "A site packed by Stackyard (Backups › Export), with its files and database": "Сајт спакуван од Stackyard (Резервни копии › Извези), со датотеките и базата",
-  "Give this app a local address": "Дај ѝ на апликацијава локална адреса"
+  "Give this app a local address": "Дај ѝ на апликацијава локална адреса",
+  "Show more ({count} not shown)": "Прикажи повеќе ({count} не се прикажани)"
 }

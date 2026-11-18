@@ -86,6 +86,26 @@ pub fn hide_console(command: &mut std::process::Command) {
     let _ = command;
 }
 
+/// The computer's memory in bytes, where Stackyard can tell (Windows).
+pub fn total_memory() -> Option<u64> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        // SAFETY: `status` is a zeroed struct with its size filled in, as
+        // GlobalMemoryStatusEx requires.
+        unsafe {
+            let mut status: MEMORYSTATUSEX = std::mem::zeroed();
+            status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+            if GlobalMemoryStatusEx(&mut status) != 0 {
+                return Some(status.ullTotalPhys);
+            }
+        }
+        None
+    }
+    #[cfg(not(windows))]
+    None
+}
+
 /// Windows keeps a program running when the app that started it closes or
 /// crashes, so a database server could outlive Stackyard and keep its files
 /// and port. Each service joins a job that Windows ends together with this

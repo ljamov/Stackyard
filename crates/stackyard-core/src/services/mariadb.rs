@@ -100,7 +100,9 @@ pub(super) fn spec(ctx: &Context) -> Result<ProcessSpec> {
         };
         initialize(ctx, &program, &args, &datadir)?;
     }
-    Ok(ctx.base_spec(server_args(ctx, &datadir)))
+    let mut spec = ctx.base_spec(server_args(ctx, &datadir));
+    spec.stop_with = super::mysql::clean_stop(ctx, &["mariadb-admin.exe", "mysqladmin.exe"]);
+    Ok(spec)
 }
 
 #[cfg(test)]

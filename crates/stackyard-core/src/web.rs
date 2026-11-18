@@ -564,6 +564,7 @@ pub fn dev_servers(home: &Path, sites: &[ServedSite]) -> Vec<ProcessSpec> {
                 cwd: Some(served.site.path.clone()),
                 ports: vec![port],
                 restart_on_crash: true,
+                stop_with: None,
             })
         })
         .collect()
@@ -636,6 +637,7 @@ fn command_server(
         cwd: Some(site.path.clone()),
         ports: port.into_iter().collect(),
         restart_on_crash: true,
+        stop_with: None,
     })
 }
 
@@ -825,7 +827,7 @@ fn php_process(
                 // the time limit. php-cgi starts this many workers instead.
                 (
                     "PHP_FCGI_CHILDREN".to_string(),
-                    WINDOWS_PHP_WORKERS.to_string(),
+                    windows_php_workers(platform::total_memory()).to_string(),
                 ),
             ],
         )
@@ -854,11 +856,19 @@ fn php_process(
         cwd: Some(config),
         ports: vec![port],
         restart_on_crash: true,
+        stop_with: None,
     })
 }
 
-/// php-cgi workers per PHP process on Windows.
-const WINDOWS_PHP_WORKERS: u32 = 6;
+/// php-cgi workers per PHP process on Windows: six, or four on a computer
+/// with less than 8 GB of memory, where each idle worker (tens of MB, per
+/// PHP version in use) pushes the sites' files out of the disk cache.
+fn windows_php_workers(memory: Option<u64>) -> u32 {
+    match memory {
+        Some(bytes) if bytes < 8 * 1024 * 1024 * 1024 - 512 * 1024 * 1024 => 4,
+        _ => 6,
+    }
+}
 
 const PHP_INI_HEADER: &str =
     "; Created by Stackyard with development defaults. Your edits are kept.\n";
@@ -1440,10 +1450,17 @@ mod tests {
         assert!(ini.contains("max_execution_time = 300\n"), "{ini}");
         assert!(ini.contains("opcache.file_cache = "), "{ini}");
         assert!(home.join("config/php/8.3/opcache").is_dir());
-        assert!(windows
-            .env
-            .iter()
-            .any(|(k, v)| k == "PHP_FCGI_CHILDREN" && v == "6"));
+        assert!(windows.env.iter().any(|(k, _)| k == "PHP_FCGI_CHILDREN"));
+    }
+
+    #[test]
+    fn fewer_php_workers_with_little_memory() {
+        const GB: u64 = 1024 * 1024 * 1024;
+        assert_eq!(windows_php_workers(Some(6 * GB)), 4);
+        // "8 GB" computers report a little less.
+        assert_eq!(windows_php_workers(Some(8 * GB - 200 * 1024 * 1024)), 6);
+        assert_eq!(windows_php_workers(Some(16 * GB)), 6);
+        assert_eq!(windows_php_workers(None), 6);
     }
 
     #[test]

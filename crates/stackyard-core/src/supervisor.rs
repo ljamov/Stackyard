@@ -40,7 +40,14 @@ pub struct ProcessSpec {
     /// Ports that must be free before starting.
     pub ports: Vec<u16>,
     pub restart_on_crash: bool,
+    /// A program that asks the process to stop cleanly, run before it is
+    /// ended. Windows has no polite signal, so a database server would be
+    /// killed mid-write and run crash recovery at its next start.
+    pub stop_with: Option<StopCommand>,
 }
+
+/// A program and its arguments; see [`ProcessSpec::stop_with`].
+pub type StopCommand = (PathBuf, Vec<String>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -167,31 +174,35 @@ impl Supervisor {
                 .ok_or_else(|| Error::UnknownProcess(id.to_string()))?;
             entry.state = ProcessState::Stopped;
             entry.restart_at = None;
-            entry.child.take()
+            (entry.child.take(), entry.spec.stop_with.clone())
         };
         self.shared.changed();
-        if let Some(child) = child {
-            terminate(child);
+        if let (Some(child), stop_with) = child {
+            terminate(child, stop_with.as_ref());
         }
         Ok(())
     }
 
     pub fn stop_all(&self) {
-        let children: Vec<Child> = {
+        let children: Vec<(Child, Option<StopCommand>)> = {
             let mut entries = self.shared.lock();
             entries
                 .values_mut()
                 .filter_map(|entry| {
                     entry.state = ProcessState::Stopped;
                     entry.restart_at = None;
-                    entry.child.take()
+                    let stop_with = entry.spec.stop_with.clone();
+                    entry.child.take().map(|child| (child, stop_with))
                 })
                 .collect()
         };
         self.shared.changed();
-        for child in children {
-            terminate(child);
-        }
+        // Side by side, so quitting waits for the slowest, not for the sum.
+        std::thread::scope(|scope| {
+            for (child, stop_with) in children {
+                scope.spawn(move || terminate(child, stop_with.as_ref()));
+            }
+        });
     }
 
     pub fn state(&self, id: &str) -> ProcessState {
@@ -378,7 +389,7 @@ fn spawn(spec: &ProcessSpec, log_dir: &Path) -> std::io::Result<Child> {
 }
 
 #[cfg(unix)]
-fn terminate(mut child: Child) {
+fn terminate(mut child: Child, _stop_with: Option<&StopCommand>) {
     let group = -(child.id() as i32);
     // SAFETY: kill(2) with a negative pid signals the process group we created.
     unsafe { libc::kill(group, libc::SIGTERM) };
@@ -394,8 +405,39 @@ fn terminate(mut child: Child) {
     let _ = child.wait();
 }
 
+/// How long a clean stop may take before the process is ended anyway; a
+/// database server writes what it holds in memory first.
 #[cfg(not(unix))]
-fn terminate(mut child: Child) {
+const CLEAN_STOP_GRACE: Duration = Duration::from_secs(30);
+
+#[cfg(not(unix))]
+fn terminate(mut child: Child, stop_with: Option<&StopCommand>) {
+    if let Some((program, args)) = stop_with {
+        let mut ask = Command::new(program);
+        ask.args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        crate::platform::hide_console(&mut ask);
+        if let Ok(mut asking) = ask.spawn() {
+            let deadline = Instant::now() + CLEAN_STOP_GRACE;
+            while Instant::now() < deadline {
+                if let Ok(Some(_)) = child.try_wait() {
+                    let _ = asking.wait();
+                    return;
+                }
+                // Refused (a password set by hand, say): no use waiting.
+                if let Ok(Some(status)) = asking.try_wait() {
+                    if !status.success() {
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            let _ = asking.kill();
+            let _ = asking.wait();
+        }
+    }
     // Programs started this way (`npm run dev` starting the dev server)
     // would keep running and hold the port, so end the whole tree.
     let mut taskkill = Command::new("taskkill");
@@ -441,6 +483,7 @@ mod tests {
             cwd: None,
             ports: Vec::new(),
             restart_on_crash: false,
+            stop_with: None,
         }
     }
 
@@ -508,6 +551,7 @@ mod tests {
         let sup = Supervisor::new(crate::testutil::tempdir());
         sup.start(ProcessSpec {
             restart_on_crash: true,
+            stop_with: None,
             ..crasher("flaky")
         })
         .unwrap();
