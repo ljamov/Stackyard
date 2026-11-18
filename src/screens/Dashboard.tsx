@@ -2,6 +2,7 @@ import { api } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useServices } from "../lib/useServices";
 import { ServiceCard } from "../components/ServiceCard";
+import { StartAllButtons } from "../components/StartAllButtons";
 import { BrandIcon } from "../components/BrandIcon";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
@@ -59,26 +60,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (s: Screen) => void }) {
               <span className="muted"> · {t("{running} of {total} running", { running, total: installed.length })}</span>
             )}
           </h2>
-          {installed.length > 0 && (
-            <div className="row">
-              <button
-                type="button"
-                className="btn small"
-                disabled={running === 0}
-                onClick={() => installed.filter(isRunning).forEach((s) => services.stop(s.id))}
-              >
-                {t("Stop all")}
-              </button>
-              <button
-                type="button"
-                className="btn primary small"
-                disabled={running === installed.length}
-                onClick={() => installed.filter((s) => !isRunning(s)).forEach((s) => services.start(s.id))}
-              >
-                {t("Start all")}
-              </button>
-            </div>
-          )}
+          <StartAllButtons hook={services} shown={shownServices} />
         </div>
         <div className="grid services">
           {shownServices.length === 0 && <p className="muted">{t("All services are switched off in Settings.")}</p>}

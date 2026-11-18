@@ -483,6 +483,31 @@ async fn start_service(app: AppHandle, id: String) -> CmdResult<Vec<ServiceView>
     ))
 }
 
+#[derive(Serialize)]
+struct StartAllView {
+    services: Vec<ServiceView>,
+    /// One line per service that could not start, with why.
+    problems: Vec<String>,
+}
+
+/// Starts every installed service that is switched on, the same way the
+/// tray's Start all does: MySQL and MariaDB never both, as they share ports.
+#[tauri::command]
+async fn start_all_services(app: AppHandle) -> CmdResult<StartAllView> {
+    let engine = app.state::<Arc<Engine>>().inner().clone();
+    let (_, problems) = tauri::async_runtime::spawn_blocking(move || engine.start_all())
+        .await
+        .map_err(|e| e.to_string())?;
+    tray::changed(&app);
+    Ok(StartAllView {
+        services: service_views(
+            app.state::<Arc<Engine>>().supervisor(),
+            &app.state::<Installs>(),
+        ),
+        problems,
+    })
+}
+
 /// Runs database work off the interface thread: queries can take a while.
 /// `server` is `postgres` for PostgreSQL; anything else is MySQL or MariaDB.
 async fn with_db<T: Send + 'static>(
@@ -2510,6 +2535,7 @@ pub fn run() {
             install_service,
             uninstall_service,
             start_service,
+            start_all_services,
             stop_service,
             service_log,
             open_local_page,

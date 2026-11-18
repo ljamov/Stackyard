@@ -42,7 +42,12 @@
     "homepage": "https://github.com/ljamov/Stackyard",
     "shortDescription": "Local development stack manager",
     "copyright": "Copyright (c) 2026 Kristijan Ljamov",
-    "license": "AGPL-3.0-only"
+    "license": "AGPL-3.0-only",
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/installer-hooks.nsh"
+      }
+    }
   },
   "plugins": {
     "updater": {

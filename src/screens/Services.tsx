@@ -4,6 +4,7 @@ import { useModules } from "../lib/modules";
 import { useServices } from "../lib/useServices";
 import { ServiceCard } from "../components/ServiceCard";
 import { BrandIcon } from "../components/BrandIcon";
+import { StartAllButtons } from "../components/StartAllButtons";
 import { useT } from "../lib/i18n";
 import { useBusy } from "../lib/tabLife";
 
@@ -26,6 +27,7 @@ export function Services() {
             {t("Everything listens on 127.0.0.1 only. Databases start with user root and no password.")}
           </p>
         </div>
+        <StartAllButtons hook={hook} shown={shown} />
       </header>
 
       <div className="grid">
