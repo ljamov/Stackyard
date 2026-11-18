@@ -114,19 +114,28 @@ export function Workbench() {
   // Until the module switches load, every screen counts as off; keep the tabs.
   const loaded = modules.length > 0;
   const tabOn = (id: TabId) =>
-    isTabScreen(id) ? on(id) : id.startsWith("service:") ? isOn(id.slice("service:".length)) : true;
+    id === "terminal"
+      ? terminalOn
+      : isTabScreen(id)
+        ? on(id)
+        : id.startsWith("service:")
+          ? isOn(id.slice("service:".length))
+          : true;
   const tabs = loaded ? layout.tabs.filter(tabOn) : layout.tabs;
   // A service or site tab always shows the row of tabs, so it can be closed.
   const showTabs = tabs.length > 1 || tabs.some((x) => !isTabScreen(x));
   /** A tab's name: the screen's, the service's or the site's. */
   const tabTitle = (id: TabId): string =>
-    id.startsWith("service:")
+    id === "terminal"
+      ? t("Terminal")
+      : id.startsWith("service:")
       ? (services.services.find((x) => `service:${x.id}` === id)?.name ?? id.slice("service:".length))
       : id.startsWith("site:")
         ? (sites.data.find((x) => `site:${x.domain}` === id && !x.address)?.name ?? id.slice("site:".length))
         : t(id);
   /** The logo before a service's or site's tab name. */
   const tabIcon = (id: TabId): ReactNode => {
+    if (id === "terminal") return <Icon name="terminal" />;
     if (id.startsWith("service:")) return <BrandIcon id={id.slice("service:".length)} />;
     if (!id.startsWith("site:")) return null;
     const site = sites.data.find((x) => `site:${x.domain}` === id);
@@ -341,7 +350,7 @@ export function Workbench() {
           {panelTab === "logs" ? (
             <Logs inPanel />
           ) : panelTab === "terminal" ? (
-            <TerminalPane sites={sites.data} />
+            <TerminalPane sites={sites.data} place={layout.tabs.includes("terminal") ? "elsewhere" : "panel"} />
           ) : (
             <ProblemsList problems={problems} />
           )}
@@ -443,7 +452,7 @@ export function Workbench() {
                   <main
                     key={s}
                     id={s === active ? "editor-content" : undefined}
-                    className="content"
+                    className={s === "terminal" ? "content terminal-content" : "content"}
                     hidden={s !== active}
                     role={showTabs ? "tabpanel" : undefined}
                     aria-labelledby={showTabs ? tabId(s) : undefined}
@@ -452,7 +461,9 @@ export function Workbench() {
                   >
                     {s === active && <UpdateNotice />}
                     <TabContext.Provider value={tabContext(s, s === active)}>
-                      <Crashed where={`screen ${s}`}>{screen(s)}</Crashed>
+                      <Crashed where={`screen ${s}`}>
+                        {s === "terminal" ? <TerminalPane sites={sites.data} place="tab" /> : screen(s)}
+                      </Crashed>
                     </TabContext.Provider>
                   </main>
                 ))

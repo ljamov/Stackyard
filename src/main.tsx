@@ -8,6 +8,10 @@ import { startViewOptions } from "./lib/viewOptions";
 import { I18nProvider, loadLanguage, savedLanguage } from "./lib/i18n";
 import { catchPageErrors } from "./lib/applog";
 import { Crashed } from "./components/Crashed";
+import { TerminalWindow } from "./components/TerminalWindow";
+
+// A terminal popped out of the main window opens this page with ?terminal=<id>.
+const terminalId = Number(new URLSearchParams(location.search).get("terminal")) || null;
 
 catchPageErrors();
 startAppearance();
@@ -19,7 +23,7 @@ loadLanguage(savedLanguage()).then((initial) =>
     <StrictMode>
       <I18nProvider initial={initial}>
         <Crashed where="the window" full>
-          <App />
+          {terminalId ? <TerminalWindow id={terminalId} /> : <App />}
         </Crashed>
       </I18nProvider>
     </StrictMode>,

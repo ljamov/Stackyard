@@ -61,10 +61,16 @@ Tools you install yourself with `npm install -g` in Stackyard's Terminal tab wor
   replaces. Set `NPM_CONFIG_PREFIX` yourself to use another folder.
 - The Terminal tab finds commands in that folder, and in your default Node.js version's folder,
   where `npm install -g` put them before.
-- Claude Code updates itself by moving its running `claude.exe` aside and writing the new one. If
-  that stops half way, for example because Stackyard closed and took the terminal with it, `claude`
-  no longer starts ("The term '...\bin\claude.exe' is not recognized"). Each new terminal puts
-  the program back from the package, so `claude` works again without reinstalling.
+- Claude Code updates itself while it runs. If that stops half way, because the terminal was
+  restarted or closed, Stackyard quit or the computer shut down, `claude` no longer starts
+  (`...\bin\claude.exe: No such file or directory`). So in Stackyard's terminal it does not update
+  itself (`claude update` still does, in plain sight), and **Restart** and closing a terminal ask
+  first while a program is running in it.
+- Each new terminal puts the program back when an update was cut off: from the package's part for
+  this computer, from the copy npm moved aside (`.claude-code-<random>` next to the package), or
+  from `claude.exe.old.<time>`. When nothing is left to put back, the terminal says so with an
+  **Install Claude Code again** button, which runs `npm install -g @anthropic-ai/claude-code@latest`
+  (your settings and sign-in stay).
 - Claude Code installed on this screen does not update itself; Stackyard shows **Update** instead.
 
 ## Command line

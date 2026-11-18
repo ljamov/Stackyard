@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main window",
-  "windows": ["main"],
+  "description": "Permissions for the main window and terminals popped out of it",
+  "windows": ["main", "terminal-*"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",
