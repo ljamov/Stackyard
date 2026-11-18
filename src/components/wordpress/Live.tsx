@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ExternalLink } from "../ExternalLink";
 import { api, errorText } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import {
@@ -114,7 +115,7 @@ export function LivePanel({ domain, main, live, ask }: { domain: string; main: s
     <section className="stack" aria-label={t("Live site")} ref={panel}>
       <h3 className="small">{t("Live site")}</h3>
       <p className="muted small">
-        <span className="mono">{live.url}</span> · {live.synced_at ? t("last in step {date}", { date: when(live.synced_at) }) : t("never in step yet")}
+        <ExternalLink url={live.url} /> · {live.synced_at ? t("last in step {date}", { date: when(live.synced_at) }) : t("never in step yet")}
       </p>
       <LiveLinkStatus domain={domain} way={way} round={linkRound} />
       <div className="stack tight">

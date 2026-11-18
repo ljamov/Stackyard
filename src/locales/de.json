@@ -901,5 +901,13 @@
   "This site isn't linked to a live site yet. Put it on a host: Stackyard uploads every file and the database into a WordPress already installed there, with every address changed to the host's. After that, push and pull work as for a cloned site.": "Diese Website ist noch mit keiner Live-Website verbunden. Bring sie auf einen Host: Stackyard lädt alle Dateien und die Datenbank in ein dort bereits installiertes WordPress hoch und ändert jede Adresse auf die des Hosts. Danach funktionieren Push und Pull wie bei einer geklonten Website.",
   "Type {host} to confirm: the site there is replaced": "Gib {host} zur Bestätigung ein: Die Website dort wird ersetzt",
   "{domain} is on {url}. {count} files were sent; the host's database was backed up first.": "{domain} ist auf {url}. {count} Dateien wurden gesendet; die Datenbank des Hosts wurde vorher gesichert.",
-  "Show more ({count} not shown)": "Mehr anzeigen ({count} nicht angezeigt)"
+  "Show more ({count} not shown)": "Mehr anzeigen ({count} nicht angezeigt)",
+  "Windows Defender exclusions": "Windows Defender-Ausnahmen",
+  "Defender scans every file PHP and the databases open, so the first load of a big site can take minutes. Leaving these folders and programs out of the scans makes sites load much faster. Windows asks for administrator rights once.": "Defender prüft jede Datei, die PHP und die Datenbanken öffnen, daher kann das erste Laden einer großen Website Minuten dauern. Wenn diese Ordner und Programme von der Prüfung ausgenommen sind, laden Websites viel schneller. Windows fragt einmal nach Administratorrechten.",
+  "All set: Defender leaves these alone.": "Alles erledigt: Defender lässt diese in Ruhe.",
+  "Added by Stackyard. (Windows only shows the list to administrators.)": "Von Stackyard hinzugefügt. (Windows zeigt die Liste nur Administratoren.)",
+  "{count} not excluded yet": "{count} noch nicht ausgenommen",
+  "not excluded": "nicht ausgenommen",
+  "Waiting for Windows…": "Warte auf Windows…",
+  "Add exclusions": "Ausnahmen hinzufügen"
 }

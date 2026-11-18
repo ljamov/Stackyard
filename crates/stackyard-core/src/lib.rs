@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod cleanup;
 pub mod control;
 pub mod databases;
+pub mod defender;
 pub mod detect;
 pub mod dns;
 pub mod domain;

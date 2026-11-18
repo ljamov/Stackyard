@@ -357,6 +357,17 @@ export type SiteVersion = {
   can_unset: boolean;
 };
 
+export type DefenderExclusions = { paths: string[]; processes: string[] };
+
+/** Windows Defender exclusions for the sites, Stackyard's data and its servers. */
+export type DefenderStatus = {
+  supported: boolean;
+  wanted: DefenderExclusions;
+  missing: DefenderExclusions;
+  /** false when Defender's list could not be read (it needs administrator rights) and `missing` comes from what Stackyard added. */
+  read_from_defender: boolean;
+};
+
 export type SystemStatus = {
   /** What setup would change; empty when everything is set up. */
   needed: string[];
@@ -834,6 +845,9 @@ export interface Api {
   systemStatus(): Promise<SystemStatus>;
   /** Shows the system's password prompt, then applies setup. */
   runSystemSetup(): Promise<SystemStatus>;
+  defenderStatus(): Promise<DefenderStatus>;
+  /** Shows Windows' administrator prompt, then adds the missing Defender exclusions. */
+  addDefenderExclusions(): Promise<DefenderStatus>;
   terminalStatus(): Promise<TerminalStatus>;
   /** Creates or removes the terminal commands and their PATH entry. */
   setTerminal(on: boolean): Promise<TerminalStatus>;
@@ -1123,6 +1137,8 @@ const tauriApi: Api = {
   unparkFolder: (path) => invoke("unpark_folder", { path }),
   systemStatus: () => invoke("system_status"),
   runSystemSetup: () => invoke("run_system_setup"),
+  defenderStatus: () => invoke("defender_status"),
+  addDefenderExclusions: () => invoke("add_defender_exclusions"),
   terminalStatus: () => invoke("terminal_status"),
   setTerminal: (on) => invoke("set_terminal", { on }),
   onSitesChanged: (handler) => listen("sites-changed", () => handler()),
@@ -1548,6 +1564,11 @@ function browserApi(): Api {
       found: true,
     };
   };
+  const preview: DefenderExclusions = {
+    paths: ["C:\\Users\\you\\AppData\\Roaming\\Stackyard", "D:\\Stackyard"],
+    processes: ["php-cgi.exe", "mariadbd.exe", "mysqld.exe", "caddy.exe"],
+  };
+  let defender: DefenderStatus = { supported: true, wanted: preview, missing: preview, read_from_defender: false };
   let system: SystemStatus = {
     needed: ["Send .stack names to Stackyard", "Trust Stackyard's local HTTPS certificate"],
     waiting_for_certificate: false,
@@ -2003,6 +2024,12 @@ function browserApi(): Api {
       await new Promise((r) => setTimeout(r, 400));
       system = { ...system, needed: [], ready_domains: sites.map((s) => s.domain) };
       return system;
+    },
+    defenderStatus: async () => defender,
+    addDefenderExclusions: async () => {
+      await new Promise((r) => setTimeout(r, 400));
+      defender = { ...defender, missing: { paths: [], processes: [] } };
+      return defender;
     },
     terminalStatus: async () => terminal,
     setTerminal: async (on) => {

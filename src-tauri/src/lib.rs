@@ -2283,6 +2283,49 @@ async fn run_system_setup(app: AppHandle) -> CmdResult<SystemView> {
     system_view(&app)
 }
 
+fn site_folders(manager: &ServiceManager) -> CmdResult<Vec<std::path::PathBuf>> {
+    Ok(manager
+        .user_sites()
+        .map_err(err)?
+        .into_iter()
+        .map(|s| s.site.path)
+        .collect())
+}
+
+/// Whether Windows Defender leaves the sites, Stackyard's data and its
+/// servers unscanned; reading Defender's list runs PowerShell, so on a worker thread.
+#[tauri::command]
+async fn defender_status() -> CmdResult<stackyard_core::defender::Status> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let manager = ServiceManager::open();
+        let folders = site_folders(&manager)?;
+        Ok(stackyard_core::defender::status(
+            manager.home(),
+            stackyard_core::platform::Platform::current().os,
+            &folders,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Adds the missing Defender exclusions behind Windows' administrator prompt.
+#[tauri::command]
+async fn add_defender_exclusions() -> CmdResult<stackyard_core::defender::Status> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let manager = ServiceManager::open();
+        let folders = site_folders(&manager)?;
+        stackyard_core::defender::apply(
+            manager.home(),
+            stackyard_core::platform::Platform::current().os,
+            &folders,
+        )
+        .map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Makes sure only one copy of the app runs. Opening Stackyard twice at
 /// once (a double click) used to start two copies before either could see
 /// the other, and both started MySQL on the same files. The lock is held
@@ -2579,6 +2622,8 @@ pub fn run() {
             unpark_folder,
             system_status,
             run_system_setup,
+            defender_status,
+            add_defender_exclusions,
             terminal_status,
             set_terminal,
             mcp_status,

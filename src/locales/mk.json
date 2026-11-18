@@ -1007,5 +1007,13 @@
   "Import a site file": "Увези датотека на сајт",
   "A site packed by Stackyard (Backups › Export), with its files and database": "Сајт спакуван од Stackyard (Резервни копии › Извези), со датотеките и базата",
   "Give this app a local address": "Дај ѝ на апликацијава локална адреса",
-  "Show more ({count} not shown)": "Прикажи повеќе ({count} не се прикажани)"
+  "Show more ({count} not shown)": "Прикажи повеќе ({count} не се прикажани)",
+  "Windows Defender exclusions": "Исклучоци во Windows Defender",
+  "Defender scans every file PHP and the databases open, so the first load of a big site can take minutes. Leaving these folders and programs out of the scans makes sites load much faster. Windows asks for administrator rights once.": "Defender ја скенира секоја датотека што ја отвораат PHP и базите на податоци, па првото вчитување на голем сајт може да трае со минути. Ако овие папки и програми се исклучени од скенирање, сајтовите се вчитуваат многу побрзо. Windows еднаш бара администраторски права.",
+  "All set: Defender leaves these alone.": "Сè е подесено: Defender не ги скенира.",
+  "Added by Stackyard. (Windows only shows the list to administrators.)": "Додадени од Stackyard. (Windows ја прикажува листата само на администратори.)",
+  "{count} not excluded yet": "{count} сè уште не се исклучени",
+  "not excluded": "не е исклучено",
+  "Waiting for Windows…": "Се чека Windows…",
+  "Add exclusions": "Додај исклучоци"
 }
