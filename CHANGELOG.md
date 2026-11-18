@@ -4,7 +4,11 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
-## Unreleased
+## 0.25.0
+
+- **The terminal's own window no longer hangs.** Popping the terminal out into its own window
+  could freeze it, and then neither window would close. Close buttons also sit centred in their
+  hover circle again.
 
 - **Windows Defender exclusions from Settings.** Defender scans every file PHP and the databases
   open, which can make the first load of a big site take minutes. Settings has a Windows Defender
