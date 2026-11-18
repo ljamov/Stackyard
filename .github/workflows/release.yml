@@ -39,6 +39,7 @@ on:
       - .github/workflows/release.yml
       - src-tauri/tauri.conf.json
       - src-tauri/tauri.release.conf.json
+      - src-tauri/windows/**
       - src-tauri/src/perf.rs
       - .github/scripts/**
 
@@ -305,6 +306,51 @@ jobs:
             macOS) .github/scripts/perf-check.sh "target/${{ matrix.target }}/release/bundle/macos/Stackyard.app/Contents/MacOS/stackyard-app" ;;
             Windows) .github/scripts/perf-check.sh "$LOCALAPPDATA/Stackyard/stackyard-app.exe" ;;
           esac
+      # Setup programs up to 0.17.0 saved the install folder under
+      # Software\stackyard\Stackyard; later ones save it under the
+      # publisher's name. An update must still go to the folder the person
+      # chose, and remove the second copy an earlier update left in
+      # %LOCALAPPDATA%\Stackyard (which made Stackyard look rolled back).
+      - name: Updates stay in the folder Stackyard was installed to
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem out\*-setup.exe | Select-Object -First 1).FullName
+          $own = 'C:\SyOwn'
+          $extra = Join-Path $env:LOCALAPPDATA 'Stackyard'
+          $newKey = 'HKCU:\Software\Kristijan Ljamov\Stackyard'
+          $oldKey = 'HKCU:\Software\stackyard\Stackyard'
+          function Run-Setup([string[]]$arguments) {
+            $p = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "setup $arguments exited with $($p.ExitCode)" }
+          }
+          Get-Process stackyard-app -ErrorAction SilentlyContinue | Stop-Process -Force
+
+          # As on a computer that installed 0.17.0 in its own folder, then
+          # took an update that put a second copy in %LOCALAPPDATA%.
+          Run-Setup @('/S', "/D=$own")
+          New-Item -Path $oldKey -Value $own -Force | Out-Null
+          New-Item -Path $newKey -Value $extra -Force | Out-Null
+          if (-not (Test-Path "$extra\stackyard-app.exe")) { throw "no second copy in $extra to start from" }
+          # Gone from the person's folder, so the update has to put it back.
+          Remove-Item "$own\stackyard.exe"
+
+          Run-Setup @('/UPDATE', '/S')
+
+          $failed = $false
+          function Check([bool]$ok, [string]$what) {
+            if ($ok) { Write-Host "ok: $what" } else { Write-Host "::error::$what"; $script:failed = $true }
+          }
+          Check (Test-Path "$own\stackyard.exe") "the update installed to $own"
+          Check (-not (Test-Path "$extra\stackyard-app.exe")) "the second copy in $extra is removed"
+          Check ((Get-Item $newKey).GetValue('') -eq $own) "the install folder is saved as $own"
+          Check (-not (Test-Path $oldKey)) "the old registry key is removed"
+          $location = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Stackyard').InstallLocation
+          Check ($location -like "*$own*") "Installed apps lists $own (was $location)"
+          & "$own\stackyard.exe" --version
+          if (Test-Path $extra) { Get-ChildItem $extra | Format-Table Name, Length }
+          if ($failed) { exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: stackyard-${{ matrix.name }}
