@@ -724,6 +724,8 @@ export interface Api {
   installService(id: string): Promise<Service[]>;
   uninstallService(id: string): Promise<Service[]>;
   startService(id: string): Promise<Service[]>;
+  /** Starts every installed, switched-on service; `problems` says which could not start and why. */
+  startAllServices(): Promise<{ services: Service[]; problems: string[] }>;
   stopService(id: string): Promise<Service[]>;
   serviceLog(id: string): Promise<string[]>;
   openLocalPage(url: string): Promise<void>;
@@ -989,6 +991,7 @@ const tauriApi: Api = {
   installService: (id) => invoke("install_service", { id }),
   uninstallService: (id) => invoke("uninstall_service", { id }),
   startService: (id) => invoke("start_service", { id }),
+  startAllServices: () => invoke("start_all_services"),
   stopService: (id) => invoke("stop_service", { id }),
   serviceLog: (id) => invoke("service_log", { id }),
   openLocalPage: (url) => invoke("open_local_page", { url }),
@@ -1640,6 +1643,17 @@ function browserApi(): Api {
       if (busy) throw `port ${busy.ports[0]} is already in use, so ${services.find((s) => s.id === id)!.name} cannot start`;
       logs[id] = [...(logs[id] ?? []), `started ${id} (sample log line)`];
       return updateService(id, (s) => ({ ...s, state: "running", pid: (nextPid += 37) }) as Service);
+    },
+    startAllServices: async () => {
+      const problems: string[] = [];
+      for (const s of services.filter((x) => x.installed && x.state !== "running")) {
+        try {
+          await mock.startService(s.id);
+        } catch {
+          // Like the app: a service that shares ports with a running one is skipped.
+        }
+      }
+      return { services, problems };
     },
     stopService: async (id) => {
       logs[id] = [...(logs[id] ?? []), `stopped ${id}`];

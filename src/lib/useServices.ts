@@ -64,6 +64,21 @@ export function useServices() {
     uninstall: (id: string) => run(id, () => api.uninstallService(id)),
     start: (id: string) => run(id, () => api.startService(id)),
     stop: (id: string) => run(id, () => api.stopService(id)),
+    /** Starts every installed, switched-on service at once; returns what could not start. */
+    startAll: async (): Promise<string[]> => {
+      const waiting = services.filter((s) => s.installed && s.state !== "running" && s.state !== "restarting");
+      setBusy((all) => ({ ...all, ...Object.fromEntries(waiting.map((s) => [s.id, true])) }));
+      try {
+        const done = await api.startAllServices();
+        setServices(done.services);
+        return done.problems;
+      } catch (e) {
+        reload();
+        return [errorText(e)];
+      } finally {
+        setBusy((all) => Object.fromEntries(Object.entries(all).filter(([id]) => !waiting.some((s) => s.id === id))));
+      }
+    },
   };
 }
 
