@@ -538,7 +538,7 @@ details summary { cursor: pointer; color: var(--text-2); }
 :root:is([data-theme="dark"], [data-theme="high-contrast"]) .brand-icon:not(.plain) { background: color-mix(in srgb, var(--brand) 24%, var(--surface)); }
 
 .icon-btn {
-  flex: none; width: 26px; height: 26px; border: 0; border-radius: 6px; background: none; color: var(--text-2);
+  flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--text-2);
   display: grid; place-items: center; cursor: pointer;
 }
 .icon-btn svg { width: 16px; height: 16px; }
