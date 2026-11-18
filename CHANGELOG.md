@@ -4,6 +4,29 @@ Each release has a section headed `## <version>`. The Installers workflow puts t
 version it builds into the release notes and into `latest.json`, so the app shows it next to the
 Update button, and the app shows its own version's section after it updates.
 
+## 0.24.0
+
+- **Windows updates stay in the folder you installed Stackyard to.** Setup programs up to 0.17.0
+  saved the install folder under a different registry key than later ones, so updates from 0.18.0
+  on could not find it, installed a second copy in `%LOCALAPPDATA%\Stackyard`, and the Start menu
+  and desktop shortcuts kept opening the old version (for example 0.17.0 in `C:\Stackyard`). This
+  update installs into your own folder, removes the second copy and its leftovers, and fixes the
+  saved folder so later updates go there too.
+
+- **Start all and Stop all for services.** The Services page and the Dashboard's services section
+  have Start all and Stop all at the top right. Start all starts every installed, switched-on
+  service the way the tray does (one of MySQL and MariaDB, never both) and lists any service that
+  could not start.
+
+- **A bigger terminal.** The terminal has tabs with a shell picker, 10,000 lines of scrollback,
+  clickable links, find, copy and paste, a text size setting, a tab of its own in the main window
+  and pop-out windows.
+
+- **Restart no longer breaks Claude Code.** Claude Code no longer updates itself inside
+  Stackyard's terminal, Restart and close ask first while a program is running, and the repair
+  puts back what npm moved aside during a cut-off update, with an Install again button when
+  nothing is left to put back.
+
 ## 0.23.0
 
 - **Pick what a clone copies, and big sites download in pieces.** Clone with a connection code
